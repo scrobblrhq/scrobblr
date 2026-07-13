@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE image_candidates SET vote_count = vote_count + 1 WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "cafce2734245b9a77420dc69df729883882d0c2170c9a9c0bdbc2fde42b664fb"
+}

@@ -1,0 +1,71 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id, name, name_normalized, mbid, image_url, bio,\n               scrobble_count, listener_count, created_at\n        FROM artists\n        WHERE name % $1\n        ORDER BY similarity(name, $1) DESC, scrobble_count DESC\n        LIMIT $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "name_normalized",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "mbid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "image_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "bio",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "scrobble_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "listener_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "2c48d5a94d1c918e6d404ca536b1f9e8a3783515a880c708c88afea506f29470"
+}

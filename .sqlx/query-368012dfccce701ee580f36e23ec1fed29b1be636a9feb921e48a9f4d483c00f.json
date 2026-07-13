@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE enrichment_jobs SET status = 'failed', finished_at = NOW(), attempts = attempts + 1, last_error = $2 WHERE id = $1 AND status = 'running'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "368012dfccce701ee580f36e23ec1fed29b1be636a9feb921e48a9f4d483c00f"
+}

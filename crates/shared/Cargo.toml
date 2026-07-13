@@ -1,0 +1,14 @@
+[package]
+name = "shared"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+argon2 = { workspace = true }
+sqlx = { workspace = true }
+schemars = { workspace = true }
+ts-rs = { workspace = true }

@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO enrichment_jobs (entity_type, entity_id, priority)\n        SELECT 'artist', $1::bigint, $4::int\n        WHERE EXISTS (SELECT 1 FROM artists WHERE id = $1 AND enriched_at IS NULL)\n        UNION ALL\n        SELECT 'album', $2::bigint, $4::int\n        WHERE $2::bigint IS NOT NULL\n          AND EXISTS (SELECT 1 FROM albums WHERE id = $2 AND enriched_at IS NULL)\n        UNION ALL\n        SELECT 'track', $3::bigint, $4::int\n        WHERE EXISTS (SELECT 1 FROM tracks WHERE id = $3 AND enriched_at IS NULL)\n        ON CONFLICT (entity_type, entity_id) DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "04229eaff6d1edf0e0287f703b7200367ce8a8a0047a8945f5d60b8a9af3a5b8"
+}

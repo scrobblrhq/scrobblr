@@ -1,0 +1,85 @@
+name: Publish @scrobblr/types
+
+# Publishes the shared TypeScript types to npm so the (separate) web repo and
+# external contributors can consume them with a plain `bun add @scrobblr/types`.
+#
+# Trigger by pushing a tag like `types-v0.1.0`, or run manually with a version.
+# The job regenerates the bindings from crates/shared and FAILS if the committed
+# types are stale — so a published version can never drift from the Rust models.
+
+on:
+  push:
+    tags:
+      - "types-v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g. 0.1.0)"
+        required: true
+
+concurrency:
+  group: types-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm provenance
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${{ github.event.inputs.version }}"
+          else
+            version="${GITHUB_REF_NAME#types-v}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Publishing @scrobblr/types@$version"
+
+      # Regenerate the ts-rs bindings from the Rust models. crates/shared has no
+      # SQL, so this needs no database — just a Rust toolchain.
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Regenerate bindings
+        run: cargo test -p shared
+
+      - name: Verify committed types are in sync
+        run: |
+          if ! git diff --quiet -- packages/types/src/generated; then
+            echo "::error::Generated types differ from what's committed. Run 'cargo test -p shared' locally and commit the result."
+            git --no-pager diff -- packages/types/src/generated
+            exit 1
+          fi
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: "https://registry.npmjs.org"
+
+      - run: bun install --frozen-lockfile
+
+      # Edit the version field directly — `npm version` would try to reconcile
+      # the bun-managed node_modules tree and choke on peer-dep conflicts.
+      - name: Set version
+        working-directory: packages/types
+        env:
+          V: ${{ steps.ver.outputs.version }}
+        run: node -e "const fs=require('fs');const j=JSON.parse(fs.readFileSync('package.json'));j.version=process.env.V;fs.writeFileSync('package.json',JSON.stringify(j,null,2)+'\n')"
+
+      - name: Build
+        working-directory: packages/types
+        run: bun run build
+
+      - name: Publish to npm
+        working-directory: packages/types
+        run: npm publish --provenance --access public --no-workspaces
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

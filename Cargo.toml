@@ -1,0 +1,69 @@
+[workspace]
+members = [
+    "crates/api",
+    "crates/shared",
+    "crates/db",
+    "crates/worker",
+]
+resolver = "2"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+futures-util = "0.3"
+
+# Web framework
+axum = { version = "0.8", features = ["macros", "json", "multipart"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace", "compression-gzip", "fs"] }
+
+# Docs
+aide = { version = "0.15.1", features = ["axum", "scalar", "axum-extra", "axum-json", "axum-query", "axum-multipart", "macros"] }
+schemars = { version = "0.9", features = ["chrono04", "uuid1"] }
+
+# Database
+sqlx = { version = "0", features = ["postgres", "runtime-tokio-native-tls", "uuid", "chrono", "macros", "ipnetwork"] }
+
+# Redis
+fred = { version = "10" }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Auth
+argon2 = "0.5"
+sha2 = "0.11.0"
+jsonwebtoken = "9"
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+# Logging / tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# HTTP client (metadata providers)
+reqwest = { version = "0.12", default-features = false, features = ["json", "gzip", "native-tls"] }
+
+# Utilities
+dotenvy = "0.15"
+chrono = { version = "0.4", features = ["serde"] }
+rand = "0.8"
+hex = "0.4"
+
+# Types
+ts-rs = { version = "12.0.1", features = ["chrono-impl", "uuid-impl"] }
+
+# Image processing (upload validation / normalization)
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

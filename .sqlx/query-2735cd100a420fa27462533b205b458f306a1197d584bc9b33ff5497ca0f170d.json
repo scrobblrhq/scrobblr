@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            s.artist_id                                 AS \"artist_id!\",\n            a.name                                      AS artist_name,\n            a.image_url,\n            COALESCE(SUM(s.play_count), 0)::BIGINT      AS \"play_count!\"\n        FROM scrobbles_daily_by_artist s\n        JOIN artists a ON a.id = s.artist_id\n        WHERE s.user_id = $1\n          AND s.day    >= $2\n        GROUP BY s.artist_id, a.name, a.image_url\n        ORDER BY \"play_count!\" DESC\n        LIMIT $3\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "artist_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "artist_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "image_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "play_count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Timestamptz",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "2735cd100a420fa27462533b205b458f306a1197d584bc9b33ff5497ca0f170d"
+}

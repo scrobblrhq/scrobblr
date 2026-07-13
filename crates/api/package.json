@@ -1,0 +1,9 @@
+{
+  "name": "scrobblr-api",
+  "private": "true",
+  "scripts": {
+    "build": "cargo build --release --bin api",
+    "dev": "cargo watch -x run",
+    "start": "cargo run -p api"
+  }
+}

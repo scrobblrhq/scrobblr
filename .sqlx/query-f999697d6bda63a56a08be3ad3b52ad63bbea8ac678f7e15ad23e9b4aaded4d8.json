@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT entity_type, entity_id FROM image_candidates WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "entity_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "entity_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "f999697d6bda63a56a08be3ad3b52ad63bbea8ac678f7e15ad23e9b4aaded4d8"
+}

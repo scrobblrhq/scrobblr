@@ -1,0 +1,61 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH inserted AS (\n            INSERT INTO comments (entity_type, entity_id, user_id, body)\n            VALUES ($1, $2, $3, $4)\n            RETURNING id, user_id, body, created_at\n        )\n        SELECT i.id, i.user_id, i.body, i.created_at,\n               u.username     AS \"username!\",\n               u.display_name AS \"display_name?\",\n               u.image_url    AS \"image_url?\"\n        FROM inserted i\n        JOIN users u ON u.id = i.user_id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "body",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "username!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "display_name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "image_url?",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "68850a6d120350035b56a17fd861ea91b0401b51bdfa2cc50771a6f592f46261"
+}

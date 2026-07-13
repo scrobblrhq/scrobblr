@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT t.id, t.title, t.mbid, t.duration_ms,\n               t.artist_id, a.name AS \"artist_name!\", a.mbid AS \"artist_mbid?\",\n               t.album_id, al.title AS \"album_title?\", al.mbid AS \"album_mbid?\"\n        FROM tracks t\n        JOIN artists a ON a.id = t.artist_id\n        LEFT JOIN albums al ON al.id = t.album_id\n        WHERE t.id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "mbid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "duration_ms",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "artist_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "artist_name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "artist_mbid?",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 7,
+        "name": "album_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "album_title?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "album_mbid?",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "2e37dd88316d9721609b0a01795a83699bb1bd6c881edacac21d72926dd81475"
+}

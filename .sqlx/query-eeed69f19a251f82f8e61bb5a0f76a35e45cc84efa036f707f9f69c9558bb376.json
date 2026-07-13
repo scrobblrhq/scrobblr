@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO enrichment_jobs (entity_type, entity_id, priority)\n        SELECT 'artist', id, $2 FROM artists\n        WHERE enriched_at < NOW() - INTERVAL '30 days'\n          AND (mbid IS NULL OR image_url IS NULL)\n        ORDER BY scrobble_count DESC\n        LIMIT $1\n        ON CONFLICT (entity_type, entity_id) DO UPDATE\n            SET status = 'pending', attempts = 0, next_attempt_at = NOW(),\n                priority = EXCLUDED.priority, force = FALSE, last_error = NULL\n            WHERE enrichment_jobs.status IN ('done', 'failed')\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "eeed69f19a251f82f8e61bb5a0f76a35e45cc84efa036f707f9f69c9558bb376"
+}

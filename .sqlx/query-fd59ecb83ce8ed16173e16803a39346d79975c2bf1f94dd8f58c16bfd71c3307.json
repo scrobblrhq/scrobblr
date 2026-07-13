@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE image_candidates SET vote_count = GREATEST(vote_count - 1, 0) WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fd59ecb83ce8ed16173e16803a39346d79975c2bf1f94dd8f58c16bfd71c3307"
+}

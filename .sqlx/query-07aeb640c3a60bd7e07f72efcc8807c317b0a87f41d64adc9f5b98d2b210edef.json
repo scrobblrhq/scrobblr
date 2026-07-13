@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE tracks SET\n                mbid        = COALESCE(tracks.mbid, $2),\n                duration_ms = COALESCE(tracks.duration_ms, $3)\n            WHERE id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "07aeb640c3a60bd7e07f72efcc8807c317b0a87f41d64adc9f5b98d2b210edef"
+}

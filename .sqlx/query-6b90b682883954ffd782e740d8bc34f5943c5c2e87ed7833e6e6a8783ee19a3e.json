@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT u.id           AS \"user_id!\",\n               u.username     AS \"username!\",\n               u.display_name AS \"display_name?\",\n               u.image_url    AS \"image_url?\",\n               COUNT(*)       AS \"play_count!\"\n        FROM scrobbles s\n        JOIN users u ON u.id = s.user_id\n        WHERE s.track_id = $1 AND NOT u.is_private\n        GROUP BY u.id, u.username, u.display_name, u.image_url\n        ORDER BY COUNT(*) DESC\n        LIMIT $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "username!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "display_name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "image_url?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "play_count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "6b90b682883954ffd782e740d8bc34f5943c5c2e87ed7833e6e6a8783ee19a3e"
+}

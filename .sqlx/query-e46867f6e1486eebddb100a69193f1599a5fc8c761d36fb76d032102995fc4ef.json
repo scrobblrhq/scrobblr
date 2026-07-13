@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id, user_id, track_id, artist_id, album_id, played_at, source, duration_ms\n        FROM scrobbles\n        WHERE user_id = $1\n        ORDER BY played_at DESC\n        LIMIT 1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "track_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "artist_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "album_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "played_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "source",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "duration_ms",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "e46867f6e1486eebddb100a69193f1599a5fc8c761d36fb76d032102995fc4ef"
+}

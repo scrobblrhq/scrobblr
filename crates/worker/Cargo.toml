@@ -1,0 +1,25 @@
+[package]
+name = "worker"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "worker"
+path = "src/main.rs"
+
+[dependencies]
+db = { path = "../db" }
+shared = { path = "../shared" }
+tokio = { workspace = true }
+sqlx = { workspace = true }
+fred = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+dotenvy = { workspace = true }
+chrono = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+rand = { workspace = true }

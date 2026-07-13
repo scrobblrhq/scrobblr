@@ -1,0 +1,53 @@
+[package]
+name = "api"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "api"
+path = "src/main.rs"
+
+[dependencies]
+db = { path = "../db" }
+shared = { path = "../shared" }
+
+# Web
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+futures-util = { workspace = true }
+
+# Docs
+aide = { workspace = true }
+schemars = { workspace = true }
+
+# DB / Redis
+sqlx = { workspace = true }
+fred = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Auth
+argon2 = { workspace = true }
+sha2 = { workspace = true }
+jsonwebtoken = { workspace = true }
+uuid = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Utils
+dotenvy = { workspace = true }
+chrono = { workspace = true }
+rand = { workspace = true }
+hex = { workspace = true }
+image = { workspace = true }

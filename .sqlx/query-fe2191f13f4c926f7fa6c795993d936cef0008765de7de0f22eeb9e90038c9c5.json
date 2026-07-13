@@ -1,0 +1,60 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT c.id, c.user_id, c.body, c.created_at,\n               u.username     AS \"username!\",\n               u.display_name AS \"display_name?\",\n               u.image_url    AS \"image_url?\"\n        FROM comments c\n        JOIN users u ON u.id = c.user_id\n        WHERE c.entity_type = $1 AND c.entity_id = $2\n        ORDER BY c.created_at DESC\n        LIMIT $3\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "body",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "username!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "display_name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "image_url?",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "fe2191f13f4c926f7fa6c795993d936cef0008765de7de0f22eeb9e90038c9c5"
+}

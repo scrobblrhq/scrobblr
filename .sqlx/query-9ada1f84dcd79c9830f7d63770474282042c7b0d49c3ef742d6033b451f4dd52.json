@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO now_playing (user_id, track_id, artist_id, album_id, source, expires_at)\n        VALUES ($1, $2, $3, $4, $5, $6)\n        ON CONFLICT (user_id) DO UPDATE\n            SET track_id   = EXCLUDED.track_id,\n                artist_id  = EXCLUDED.artist_id,\n                album_id   = EXCLUDED.album_id,\n                source     = EXCLUDED.source,\n                started_at = NOW(),\n                expires_at = EXCLUDED.expires_at\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9ada1f84dcd79c9830f7d63770474282042c7b0d49c3ef742d6033b451f4dd52"
+}

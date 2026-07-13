@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE albums SET image_url = $2, image_locked = TRUE WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c100945acc5c2e27cfd1ffec7c8147f5c0c9641c7305d3cffb91e55ed0e19643"
+}

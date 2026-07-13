@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE enrichment_jobs\n        SET status = 'running', started_at = NOW()\n        WHERE id IN (\n            SELECT id FROM enrichment_jobs\n            WHERE status = 'pending' AND next_attempt_at <= NOW()\n            ORDER BY priority DESC, next_attempt_at\n            LIMIT $1\n            FOR UPDATE SKIP LOCKED\n        )\n        RETURNING id, entity_type, entity_id, attempts, force\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "entity_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "entity_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "attempts",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "force",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "819a67b22845c4a8ca9e51371aea0117aa6f0e642286e40298b6f4aeafa489af"
+}

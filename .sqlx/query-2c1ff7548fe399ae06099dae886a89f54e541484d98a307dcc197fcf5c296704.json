@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO enrichment_jobs (entity_type, entity_id, priority)\n        SELECT 'album', id, $2 FROM albums\n        WHERE enriched_at IS NULL\n        ORDER BY scrobble_count DESC\n        LIMIT $1\n        ON CONFLICT (entity_type, entity_id) DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2c1ff7548fe399ae06099dae886a89f54e541484d98a307dcc197fcf5c296704"
+}

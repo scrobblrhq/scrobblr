@@ -1,0 +1,8 @@
+{
+  "name": "scrobblr-worker",
+  "private": "true",
+  "scripts": {
+    "build": "cargo build --release --bin worker",
+    "start": "cargo run -p worker"
+  }
+}

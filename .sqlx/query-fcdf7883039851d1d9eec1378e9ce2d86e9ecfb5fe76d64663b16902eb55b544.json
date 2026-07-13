@@ -1,0 +1,84 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            s.id,\n            s.played_at,\n            s.source,\n            s.track_id,\n            t.title          AS track_title,\n            s.artist_id,\n            a.name           AS artist_name,\n            s.album_id,\n            al.title         AS \"album_title?\",\n            al.image_url     AS \"album_image?\",\n            s.duration_ms\n        FROM scrobbles s\n        JOIN tracks  t  ON t.id = s.track_id\n        JOIN artists a  ON a.id = s.artist_id\n        LEFT JOIN albums al ON al.id = s.album_id\n        WHERE s.user_id    = $1\n          AND s.played_at  < $2\n        ORDER BY s.played_at DESC\n        LIMIT $3\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "played_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "source",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "track_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "track_title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "artist_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "artist_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "album_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "album_title?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "album_image?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "duration_ms",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Timestamptz",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "fcdf7883039851d1d9eec1378e9ce2d86e9ecfb5fe76d64663b16902eb55b544"
+}

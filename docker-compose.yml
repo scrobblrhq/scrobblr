@@ -1,0 +1,95 @@
+# Scrobblr backend — Postgres (TimescaleDB) + Redis + API + worker.
+#
+# This is both the self-host stack and the "shared dev backend" the web/mobile
+# devs point at (so they never need the Rust toolchain or a local DB).
+#
+#   cp .env.docker.example .env.docker
+#   docker compose --env-file .env.docker up -d --build
+#
+# The API is then on http://localhost:8080 (docs at /docs, spec at /api.json).
+#
+# NB: pass --env-file so Compose reads .env.docker and NOT the repo's app-level
+# .env (which points DATABASE_URL/PUBLIC_BASE_URL at localhost/the emulator).
+
+name: scrobblr
+
+services:
+  db:
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-scrobblr}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-scrobblr}
+      POSTGRES_DB: ${POSTGRES_DB:-scrobblr}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      # Migrations run in filename order, but ONLY on first init (empty volume).
+      # Apply later migrations by hand: psql -f migrations/000N_*.sql
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-scrobblr} -d ${POSTGRES_DB:-scrobblr}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-scrobblr}"]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a ${REDIS_PASSWORD:-scrobblr} ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: scrobblr-backend:latest
+    command: ["api"]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-scrobblr}:${POSTGRES_PASSWORD:-scrobblr}@db:5432/${POSTGRES_DB:-scrobblr}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-scrobblr}@redis:6379
+      BIND_ADDR: 0.0.0.0:8080
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
+      UPLOAD_DIR: /data/uploads
+      RUST_LOG: ${RUST_LOG:-info,sqlx=warn,tower_http=warn}
+      LASTFM_API_KEY: ${LASTFM_API_KEY:-}
+    ports:
+      - "${API_PORT:-8080}:8080"
+    volumes:
+      - uploads:/data/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/api.json > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  worker:
+    # Reuses the image built by the `api` service (never pull from a registry).
+    image: scrobblr-backend:latest
+    pull_policy: never
+    command: ["worker"]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-scrobblr}:${POSTGRES_PASSWORD:-scrobblr}@db:5432/${POSTGRES_DB:-scrobblr}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-scrobblr}@redis:6379
+      RUST_LOG: ${RUST_LOG:-info,sqlx=warn}
+      LASTFM_API_KEY: ${LASTFM_API_KEY:-}
+    depends_on:
+      db:
+        condition: service_healthy
+      api:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  db-data:
+  uploads:

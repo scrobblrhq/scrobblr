@@ -1,0 +1,70 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id, artist_id, title, title_normalized, mbid, image_url,\n               release_date, scrobble_count, created_at\n        FROM albums\n        WHERE id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "artist_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "title_normalized",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "mbid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
+        "name": "image_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "release_date",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 7,
+        "name": "scrobble_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "9420c4f6a74b9562368780385d80608f4ce9e9cf83c202d5c3e73d2f5071a9aa"
+}

@@ -1,0 +1,45 @@
+{
+  "name": "@scrobblr/types",
+  "version": "0.1.0",
+  "description": "Shared TypeScript types for Scrobblr, generated from the Rust API models via ts-rs.",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/scrobblrhq/scrobblr.git",
+    "directory": "packages/types"
+  },
+  "homepage": "https://github.com/scrobblrhq/scrobblr/tree/main/packages/types#readme",
+  "bugs": "https://github.com/scrobblrhq/scrobblr/issues",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
+  "scripts": {
+    "gen-index": "bun run scripts/gen-index.ts",
+    "build": "bun run gen-index && tsc -p tsconfig.build.json",
+    "clean": "rm -rf dist",
+    "check": "tsc --noEmit",
+    "prepublishOnly": "bun run build"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5"
+  }
+}

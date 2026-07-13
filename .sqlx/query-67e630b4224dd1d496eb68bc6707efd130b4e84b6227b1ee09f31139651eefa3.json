@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE enrichment_jobs\n        SET status = 'pending', next_attempt_at = NOW()\n        WHERE status = 'running' AND started_at < NOW() - make_interval(mins => $1)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "67e630b4224dd1d496eb68bc6707efd130b4e84b6227b1ee09f31139651eefa3"
+}

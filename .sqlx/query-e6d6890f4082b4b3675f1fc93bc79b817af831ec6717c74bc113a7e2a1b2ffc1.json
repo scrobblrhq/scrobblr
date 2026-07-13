@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO image_candidates (entity_type, entity_id, url, uploaded_by, vote_count)\n        VALUES ($1, $2, $3, $4, 1)\n        RETURNING id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e6d6890f4082b4b3675f1fc93bc79b817af831ec6717c74bc113a7e2a1b2ffc1"
+}

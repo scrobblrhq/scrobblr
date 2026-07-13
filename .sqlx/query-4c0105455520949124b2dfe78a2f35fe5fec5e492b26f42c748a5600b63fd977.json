@@ -1,0 +1,106 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id, username, email, password_hash, display_name, bio,\n               image_url, website_url, country, scrobble_count,\n               is_private, is_verified, last_seen_at, created_at, updated_at\n        FROM users\n        WHERE lower(email) = lower($1)\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "username",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "password_hash",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "display_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "bio",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "image_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "website_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "country",
+        "type_info": "Bpchar"
+      },
+      {
+        "ordinal": 9,
+        "name": "scrobble_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "is_private",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 11,
+        "name": "is_verified",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 12,
+        "name": "last_seen_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 13,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 14,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "4c0105455520949124b2dfe78a2f35fe5fec5e492b26f42c748a5600b63fd977"
+}

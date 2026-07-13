@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO enrichment_jobs (entity_type, entity_id, priority, force)\n        VALUES ($1, $2, $3, TRUE)\n        ON CONFLICT (entity_type, entity_id) DO UPDATE\n            SET status          = 'pending',\n                attempts        = 0,\n                force           = TRUE,\n                priority        = $3,\n                next_attempt_at = NOW(),\n                last_error      = NULL,\n                finished_at     = NULL\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d99ad426a2e81ed08495cab6cf8b3fa1bdf4a71d86c43ad3d2eace8da49c8617"
+}

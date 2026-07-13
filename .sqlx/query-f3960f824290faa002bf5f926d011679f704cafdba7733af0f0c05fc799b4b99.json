@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE enrichment_jobs SET status = 'done', finished_at = NOW(), last_error = NULL WHERE id = $1 AND status = 'running'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f3960f824290faa002bf5f926d011679f704cafdba7733af0f0c05fc799b4b99"
+}

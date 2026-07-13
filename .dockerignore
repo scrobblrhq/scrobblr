@@ -1,0 +1,31 @@
+# The backend build only needs the Rust workspace + the .sqlx offline cache.
+# Everything below is either irrelevant to the build or would bust the cache.
+
+.git
+.github
+.claude
+.devenv*
+.direnv
+.turbo
+
+# JS / mobile side — not part of the Rust build
+node_modules
+**/node_modules
+apps
+packages
+dist
+**/dist
+*.tgz
+bun.lock
+
+# Build output (rebuilt inside the image)
+target
+**/target
+
+# Runtime data / secrets
+uploads
+.env
+.env.*
+
+# Docs / misc
+*.md

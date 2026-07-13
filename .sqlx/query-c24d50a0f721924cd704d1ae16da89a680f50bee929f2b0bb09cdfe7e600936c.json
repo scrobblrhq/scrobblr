@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            day             AS \"day!\",\n            scrobble_count  AS \"scrobble_count!\"\n        FROM user_activity_daily\n        WHERE user_id = $1\n          AND day    >= $2\n        ORDER BY day\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "day!",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 1,
+        "name": "scrobble_count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "c24d50a0f721924cd704d1ae16da89a680f50bee929f2b0bb09cdfe7e600936c"
+}
