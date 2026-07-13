@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-newfm — a music scrobbling service (self-hosted last.fm alternative). Rust backend (Axum + SQLx + PostgreSQL/TimescaleDB + Redis) in a bun/turbo monorepo that also contains a Plasmo browser extension and a generated TypeScript types package.
+Scrobblr — a music scrobbling service (self-hosted last.fm alternative). This is the **backend** repo: a Rust workspace (Axum + SQLx + PostgreSQL/TimescaleDB + Redis) plus the `@scrobblr/types` package (TypeScript types generated from the Rust models via ts-rs, published to npm). The browser extension and Flutter app live in sibling repos (`scrobblrhq/extension`, `scrobblrhq/mobile`) and consume `@scrobblr/types` from npm.
 
 ## Commands
 
-Dev environment is managed with devenv (nix): `devenv up` starts PostgreSQL (with TimescaleDB, DB `newfm` initialized from `migrations/0001_initial.sql`) and Redis (password `123`). `.env` is loaded automatically (dotenv is enabled in devenv and via `dotenvy` at runtime).
+Dev environment is managed with devenv (nix): `devenv up` starts PostgreSQL (with TimescaleDB, DB `scrobblr` initialized from `migrations/0001_initial.sql`) and Redis (password `123`). `.env` is loaded automatically (dotenv is enabled in devenv and via `dotenvy` at runtime).
 
 ```bash
 cargo run -p api          # run the API (requires DATABASE_URL; listens on BIND_ADDR, default 0.0.0.0:8080)
@@ -39,7 +39,7 @@ Query macros (`sqlx::query!` etc.) compile against the `.sqlx/` cache, so no dat
 
 ### Migrations
 
-Numbered plain-SQL files applied **in order**: `0001_initial.sql`, `0002_enrichment.sql` (enrichment columns + `enrichment_jobs`), `0003_uploads.sql` (`image_locked` on artists/albums), `0004_community.sql` (`image_candidates`, `image_candidate_votes`, `comments`), `0005_scrobbles_artist_index.sql`. Automatic migration on API startup is **commented out** in `crates/api/src/main.rs`; there is no migration runner — apply each file manually with `psql newfm -f migrations/000N_*.sql`. devenv only initializes `0001` on first DB init, so after pulling schema changes you must apply the newer files yourself. (The README's mention of a `crates/core` crate is stale — the actual crate is `crates/shared`.)
+Numbered plain-SQL files applied **in order**: `0001_initial.sql`, `0002_enrichment.sql` (enrichment columns + `enrichment_jobs`), `0003_uploads.sql` (`image_locked` on artists/albums), `0004_community.sql` (`image_candidates`, `image_candidate_votes`, `comments`), `0005_scrobbles_artist_index.sql`. Automatic migration on API startup is **commented out** in `crates/api/src/main.rs`; there is no migration runner — apply each file manually with `psql scrobblr -f migrations/000N_*.sql`. devenv only initializes `0001` on first DB init, so after pulling schema changes you must apply the newer files yourself. (The README's mention of a `crates/core` crate is stale — the actual crate is `crates/shared`.)
 
 ## Architecture
 

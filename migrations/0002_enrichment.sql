@@ -1,5 +1,5 @@
 -- =============================================================
---  newfm — Metadata enrichment
+--  Scrobblr — Metadata enrichment
 --  Adds enrichment bookkeeping to the catalog and a job queue
 --  consumed by the worker binary.
 -- =============================================================

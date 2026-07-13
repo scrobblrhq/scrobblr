@@ -54,7 +54,7 @@ async fn main() -> anyhow::Result<()> {
     let app = router::build(state);
 
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
-    tracing::info!("newfm api listening on {bind_addr}");
+    tracing::info!("scrobblr api listening on {bind_addr}");
 
     axum::serve(listener, app).await?;
     Ok(())

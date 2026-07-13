@@ -1,5 +1,5 @@
 -- =============================================================
---  newfm — Global artist scrobble index
+--  Scrobblr — Global artist scrobble index
 --  The artist social sections (artist_top_tracks, artist_listeners)
 --  filter scrobbles by artist_id across all users; the existing indexes
 --  are all user_id- or track_id-leading, so those queries had no usable

@@ -81,7 +81,7 @@ impl Enricher {
     pub fn from_env(db: PgPool, redis: Option<fred::clients::Client>) -> anyhow::Result<Self> {
         let http = reqwest::Client::builder()
             // MusicBrainz requires an identifying User-Agent.
-            .user_agent("newfm-worker/0.1 (self-hosted music scrobbler)")
+            .user_agent("scrobblr-worker/0.1 (+https://github.com/scrobblrhq/scrobblr)")
             .timeout(Duration::from_secs(15))
             .connect_timeout(Duration::from_secs(5))
             .build()?;

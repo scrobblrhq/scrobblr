@@ -1,5 +1,5 @@
 -- =============================================================
---  newfm — User-uploaded images
+--  Scrobblr — User-uploaded images
 --  User-uploaded artwork must survive enrichment: the worker's
 --  merge policy only writes image_url while image_locked is FALSE.
 -- =============================================================

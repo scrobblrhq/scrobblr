@@ -1,5 +1,5 @@
 -- =============================================================
---  newfm — Community contributions
+--  Scrobblr — Community contributions
 --  Image candidates with voting (last.fm-style: uploads add a
 --  candidate rather than replacing the image; the most-liked
 --  candidate becomes the displayed image), and comments on

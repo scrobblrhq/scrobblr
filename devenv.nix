@@ -32,7 +32,7 @@
     settings.shared_preload_libraries = "timescaledb";
     initialDatabases = [
       {
-        name = "newfm";
+        name = "scrobblr";
         schema = ./migrations/0001_initial.sql;
       }
     ];

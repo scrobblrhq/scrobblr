@@ -1,26 +1,30 @@
-# newfm
+# Scrobblr
 
 > A music scrobbling service — a modern, self-hosted alternative to last.fm.
+
+This is the **backend** repo (Rust API + worker + shared types). The clients live
+in sibling repos: [scrobblrhq/extension](https://github.com/scrobblrhq/extension)
+(browser) and [scrobblrhq/mobile](https://github.com/scrobblrhq/mobile) (Flutter);
+both consume the [`@scrobblr/types`](https://www.npmjs.com/package/@scrobblr/types)
+package published from here.
 
 ## Architecture
 
 ```
-newfm/
+scrobblr/
 ├── crates/
 │   ├── api/      ← Axum HTTP API (handlers, middleware, router, uploads)
 │   ├── shared/   ← Domain models & password hashing (source of generated TS types)
 │   ├── db/       ← SQLx queries (repositories for all entities)
 │   └── worker/   ← Background jobs (cleanup, metadata enrichment, now-playing republish)
-├── apps/
-│   ├── extension/ ← Plasmo browser extension
-│   └── mobile/    ← Flutter Android scrobbler (see apps/mobile/README.md)
 ├── packages/
-│   └── types/    ← TypeScript types generated from crates/shared via ts-rs
+│   └── types/    ← @scrobblr/types — TS types generated from crates/shared via ts-rs
 ├── migrations/    ← numbered plain-SQL, applied in order (0001 … 0005)
+├── Dockerfile · docker-compose.yml   ← self-host / shared dev backend
 └── .env.example
 ```
 
-**Stack:** Rust · Axum 0.8 · SQLx 0.8 · PostgreSQL + TimescaleDB · Redis (fred) · Flutter (mobile) · Bun + Turbo + Biome (JS tooling)
+**Stack:** Rust · Axum 0.8 · SQLx 0.8 · PostgreSQL + TimescaleDB · Redis (fred) · Bun + Turbo + Biome (JS tooling for the types package)
 
 ---
 
@@ -31,7 +35,7 @@ Either [devenv](https://devenv.sh) (recommended — provides everything below, i
 - Rust (stable, 2024 edition)
 - PostgreSQL with [TimescaleDB](https://docs.timescale.com/self-hosted/latest/install/) extension
 - Redis
-- [Bun](https://bun.sh) (only for the extension / JS packages)
+- [Bun](https://bun.sh) (only for the `@scrobblr/types` package)
 
 ---
 
@@ -68,8 +72,8 @@ cargo run -p api
 cp .env.example .env
 
 # 2. Create the database and apply every migration in order
-createdb newfm
-for f in migrations/0*.sql; do psql newfm -f "$f"; done
+createdb scrobblr
+for f in migrations/0*.sql; do psql scrobblr -f "$f"; done
 
 # 3. Run the API
 cargo run -p api
@@ -108,7 +112,7 @@ SQLx query macros compile against the committed `.sqlx/` cache, so no database i
 | `BIND_ADDR`          | —        | `0.0.0.0:8080`           | API listen address                  |
 | `PUBLIC_BASE_URL`    | —        | `http://localhost:8080`  | Base URL uploaded-image URLs are built from — set to your public origin |
 | `UPLOAD_DIR`         | —        | `uploads`                | Directory user-uploaded images are written to and served from |
-| `RUST_LOG`           | —        | —                        | Tracing filter (e.g. `newfm=debug`) |
+| `RUST_LOG`           | —        | —                        | Tracing filter (e.g. `api=debug,worker=debug,sqlx=warn`) |
 | `DB_MAX_CONNECTIONS` | —        | `20`                     | Postgres pool size                  |
 | `LASTFM_API_KEY`     | —        | —                        | Enables artist bios (worker)        |
 
