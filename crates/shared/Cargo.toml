@@ -12,3 +12,4 @@ argon2 = { workspace = true }
 sqlx = { workspace = true }
 schemars = { workspace = true }
 ts-rs = { workspace = true }
+reqwest = { workspace = true }

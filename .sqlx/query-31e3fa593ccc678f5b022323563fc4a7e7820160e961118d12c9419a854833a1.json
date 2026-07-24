@@ -1,0 +1,107 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO connected_accounts\n            (user_id, provider, provider_user_id, access_token, refresh_token, token_type, scope, expires_at, is_active)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE)\n        ON CONFLICT (user_id, provider) DO UPDATE SET\n            provider_user_id = EXCLUDED.provider_user_id,\n            access_token     = EXCLUDED.access_token,\n            refresh_token    = EXCLUDED.refresh_token,\n            token_type       = EXCLUDED.token_type,\n            scope            = EXCLUDED.scope,\n            expires_at       = EXCLUDED.expires_at,\n            is_active        = TRUE,\n            last_error       = NULL\n        RETURNING id, user_id, provider, provider_user_id, access_token, refresh_token,\n                  token_type, scope, expires_at, last_polled_at, last_error, is_active,\n                  created_at, updated_at\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "provider",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "provider_user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "access_token",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "refresh_token",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "token_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "scope",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "expires_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "last_polled_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 10,
+        "name": "last_error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "is_active",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 12,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 13,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "31e3fa593ccc678f5b022323563fc4a7e7820160e961118d12c9419a854833a1"
+}

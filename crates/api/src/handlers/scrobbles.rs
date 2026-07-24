@@ -21,7 +21,7 @@ use fred::interfaces::{EventInterface, PubsubInterface};
 use futures_util::stream::Stream;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use shared::scrobble::{self as scrobble_logic, ScrobbleInput};
+use shared::scrobble::ScrobbleInput;
 use std::convert::Infallible;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -59,74 +59,20 @@ pub async fn scrobble(
         source: body.source.clone().unwrap_or_else(|| "extension".into()),
     };
 
-    // Validate scrobble rules
-    scrobble_logic::validate(&input).map_err(|e| AppError::ScrobbleInvalid(e.to_string()))?;
-
-    // Dedup: check against last scrobble
-    if let Some(last) = scrobbles_db::get_last_scrobble(&state.db, auth_user.id).await? {
-        let track_normalized = scrobble_logic::normalize_name(&body.track);
-        // We need the track_id — do a quick look-up before dedup
-        // For dedup we compare by title+artist name at the application level
-        let last_artist = tracks_db::find_artist_by_id(&state.db, last.artist_id)
-            .await?
-            .map(|a| scrobble_logic::normalize_name(&a.name))
-            .unwrap_or_default();
-        let last_track = tracks_db::find_track_by_id(&state.db, last.track_id)
-            .await?
-            .map(|t| scrobble_logic::normalize_name(&t.title))
-            .unwrap_or_default();
-
-        let same_track = last_track == track_normalized
-            && last_artist == scrobble_logic::normalize_name(&body.artist);
-        let delta_secs = (body.played_at - last.played_at).num_seconds().abs();
-
-        if same_track && delta_secs < 30 {
-            return Err(AppError::ScrobbleInvalid(
-                "duplicate scrobble detected".into(),
-            ));
-        }
-    }
-
-    // Resolve or create catalog entries
-    let artist = tracks_db::find_or_create_artist(&state.db, &body.artist).await?;
-
-    let album_id = if let Some(album_title) = &body.album {
-        Some(tracks_db::find_or_create_album(&state.db, artist.id, album_title).await?)
-    } else {
-        None
-    };
-
-    let track = tracks_db::find_or_create_track(
-        &state.db,
-        artist.id,
-        album_id,
-        &body.track,
-        body.duration_ms,
-    )
-    .await?;
-
-    // Queue metadata enrichment for newly seen entities. Best-effort: a
-    // failure here must never reject the scrobble.
-    if let Err(e) =
-        enrichment_db::enqueue_for_ingest(&state.db, artist.id, album_id, track.id).await
-    {
-        tracing::warn!("failed to enqueue enrichment for scrobble: {e}");
-    }
-
-    // Insert scrobble
-    let scrobble_id = scrobbles_db::insert_scrobble(
-        &state.db,
-        &scrobbles_db::InsertScrobble {
-            user_id: auth_user.id,
-            track_id: track.id,
-            artist_id: artist.id,
-            album_id,
-            played_at: body.played_at,
-            source: input.source,
-            duration_ms: body.duration_ms,
-        },
-    )
-    .await?;
+    // Validation, catalog resolution, dedup, and insertion all live in
+    // `ingest_scrobble` so the worker's connected-accounts poller (Spotify)
+    // goes through identical logic instead of duplicating it over HTTP.
+    let scrobble_id = scrobbles_db::ingest_scrobble(&state.db, auth_user.id, &input)
+        .await
+        .map_err(|e| match e {
+            scrobbles_db::IngestError::Validation(err) => {
+                AppError::ScrobbleInvalid(err.to_string())
+            }
+            scrobbles_db::IngestError::Duplicate => {
+                AppError::ScrobbleInvalid("duplicate scrobble detected".into())
+            }
+            scrobbles_db::IngestError::Db(err) => AppError::Database(err),
+        })?;
 
     Ok((
         StatusCode::CREATED,

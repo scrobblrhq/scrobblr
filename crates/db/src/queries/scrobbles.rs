@@ -1,7 +1,91 @@
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
+use thiserror::Error;
 
+use crate::queries::{enrichment as enrichment_db, tracks as tracks_db};
 use shared::models::{ActivityDay, NowPlayingRich, Scrobble, ScrobbleRich, TopArtist, TopTrack};
+use shared::scrobble::{self as scrobble_logic, ScrobbleInput, ScrobbleValidationError};
+
+#[derive(Debug, Error)]
+pub enum IngestError {
+    #[error("scrobble validation failed: {0}")]
+    Validation(#[from] ScrobbleValidationError),
+    #[error("duplicate scrobble detected")]
+    Duplicate,
+    #[error("database error: {0}")]
+    Db(#[from] sqlx::Error),
+}
+
+/// Validates, resolves catalog entries, dedups against the user's last
+/// scrobble, and inserts a new scrobble row. This is the single ingestion
+/// path shared by the `/v1/scrobble` HTTP handler (extension, mobile app)
+/// and the worker's connected-accounts poller (Spotify), so both sources
+/// get identical validation/dedup/catalog-resolution behavior for free.
+pub async fn ingest_scrobble(
+    pool: &PgPool,
+    user_id: i64,
+    input: &ScrobbleInput,
+) -> Result<i64, IngestError> {
+    scrobble_logic::validate(input)?;
+
+    if let Some(last) = get_last_scrobble(pool, user_id).await? {
+        let track_normalized = scrobble_logic::normalize_name(&input.track_title);
+        let last_artist = tracks_db::find_artist_by_id(pool, last.artist_id)
+            .await?
+            .map(|a| scrobble_logic::normalize_name(&a.name))
+            .unwrap_or_default();
+        let last_track = tracks_db::find_track_by_id(pool, last.track_id)
+            .await?
+            .map(|t| scrobble_logic::normalize_name(&t.title))
+            .unwrap_or_default();
+
+        let same_track = last_track == track_normalized
+            && last_artist == scrobble_logic::normalize_name(&input.artist_name);
+        let delta_secs = (input.played_at - last.played_at).num_seconds().abs();
+
+        if same_track && delta_secs < 30 {
+            return Err(IngestError::Duplicate);
+        }
+    }
+
+    let artist = tracks_db::find_or_create_artist(pool, &input.artist_name).await?;
+
+    let album_id = if let Some(album_title) = &input.album_title {
+        Some(tracks_db::find_or_create_album(pool, artist.id, album_title).await?)
+    } else {
+        None
+    };
+
+    let track = tracks_db::find_or_create_track(
+        pool,
+        artist.id,
+        album_id,
+        &input.track_title,
+        input.duration_ms,
+    )
+    .await?;
+
+    // Best-effort: a failure here must never reject the scrobble.
+    if let Err(e) = enrichment_db::enqueue_for_ingest(pool, artist.id, album_id, track.id).await {
+        tracing::warn!("failed to enqueue enrichment for scrobble: {e}");
+    }
+
+    let scrobble_id = insert_scrobble(
+        pool,
+        &InsertScrobble {
+            user_id,
+            track_id: track.id,
+            artist_id: artist.id,
+            album_id,
+            played_at: input.played_at,
+            source: input.source.clone(),
+            duration_ms: input.duration_ms,
+        },
+    )
+    .await?;
+
+    Ok(scrobble_id)
+}
 
 /// Parameters required to record a new scrobble.
 pub struct InsertScrobble {
