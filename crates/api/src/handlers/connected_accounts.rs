@@ -148,7 +148,12 @@ pub async fn spotify_callback(
     let http = reqwest::Client::new();
     let tokens = spotify::exchange_code(&http, &client_id, &client_secret, &code, &redirect_uri)
         .await
-        .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+        .map_err(|e| match e {
+            spotify::SpotifyError::Http(err) => AppError::Internal(anyhow::anyhow!(err)),
+            spotify::SpotifyError::Unauthorized | spotify::SpotifyError::Api(_) => {
+                AppError::BadRequest(format!("spotify token exchange failed: {e}"))
+            }
+        })?;
 
     let provider_user_id = spotify::get_current_user_id(&http, &tokens.access_token)
         .await
