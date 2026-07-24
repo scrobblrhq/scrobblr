@@ -270,3 +270,28 @@ pub struct Comment {
     pub body: String,
     pub created_at: DateTime<Utc>,
 }
+
+/// A user's OAuth connection to an external streaming service (currently
+/// Spotify only), polled by the worker to auto-scrobble listening activity
+/// reported by the provider's own official API. Tokens are never
+/// serialized out — this type is also what `GET /v1/connect` returns.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, JsonSchema, TS)]
+#[ts(export)]
+pub struct ConnectedAccount {
+    pub id: i64,
+    pub user_id: i64,
+    pub provider: String,
+    pub provider_user_id: String,
+    #[serde(skip_serializing)]
+    pub access_token: String,
+    #[serde(skip_serializing)]
+    pub refresh_token: Option<String>,
+    pub token_type: String,
+    pub scope: Option<String>,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub last_polled_at: Option<DateTime<Utc>>,
+    pub last_error: Option<String>,
+    pub is_active: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}

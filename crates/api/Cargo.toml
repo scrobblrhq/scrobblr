@@ -27,6 +27,9 @@ schemars = { workspace = true }
 sqlx = { workspace = true }
 fred = { workspace = true }
 
+# External API calls (Spotify OAuth token exchange)
+reqwest = { workspace = true }
+
 # Serialization
 serde = { workspace = true }
 serde_json = { workspace = true }

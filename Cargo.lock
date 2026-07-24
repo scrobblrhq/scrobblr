@@ -90,6 +90,7 @@ dependencies = [
  "image",
  "jsonwebtoken",
  "rand",
+ "reqwest",
  "schemars",
  "serde",
  "serde_json",
@@ -2284,6 +2285,7 @@ version = "0.1.0"
 dependencies = [
  "argon2",
  "chrono",
+ "reqwest",
  "schemars",
  "serde",
  "sqlx",
