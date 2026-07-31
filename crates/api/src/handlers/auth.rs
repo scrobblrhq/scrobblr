@@ -18,9 +18,30 @@ use crate::{
 };
 use db::queries::{auth as auth_db, users as users_db};
 use shared::user::{hash_password, verify_password};
+use shared::validation::{
+    self, PASSWORD_LOGIN_MAX_LEN, USERNAME_MAX_LEN, ValidationError, sanitize_display_name,
+    validate_email, validate_password, validate_username,
+};
 
 // Reserved usernames that cannot be registered (e.g. "me" for /user/me)
 const RESERVED_USERNAMES: &[&str] = &["me", "settings", "admin", "api"];
+
+/// Hash of a value nobody can supply, verified against when no user
+/// matches so a missing account costs the same Argon2 work as a real one.
+/// Without it, response latency turns login into a username oracle.
+fn decoy_password_hash() -> &'static str {
+    static HASH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    HASH.get_or_init(|| {
+        let filler = hex::encode(rand::random::<[u8; 32]>());
+        hash_password(&filler).expect("hashing a generated value cannot fail")
+    })
+}
+
+impl From<ValidationError> for AppError {
+    fn from(e: ValidationError) -> Self {
+        AppError::BadRequest(e.to_string())
+    }
+}
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct RegisterRequest {
@@ -42,23 +63,12 @@ pub async fn register(
     State(state): State<AppState>,
     Json(body): Json<RegisterRequest>,
 ) -> ApiResult<(StatusCode, Json<AuthResponse>)> {
-    // Trimmed once here and used everywhere below: a whitespace-padded
-    // username must never be stored (it becomes part of /user/{username}
-    // routes).
-    let username = body.username.trim();
-    if username.chars().count() < 2 {
-        return Err(AppError::BadRequest(
-            "username must be at least 2 characters".into(),
-        ));
-    }
-    if RESERVED_USERNAMES.contains(&username.to_lowercase().as_str()) {
-        return Err(AppError::BadRequest("username is reserved".into()));
-    }
-    if body.password.len() < 8 {
-        return Err(AppError::BadRequest(
-            "password must be at least 8 characters".into(),
-        ));
-    }
+    let username = validation::normalize_username(&body.username);
+    validate_username(username, RESERVED_USERNAMES)?;
+
+    let email = validate_email(&body.email)?;
+    validate_password(&body.password, username, &email)?;
+    let display_name = sanitize_display_name(body.display_name.as_deref())?;
 
     if users_db::find_by_username(&state.db, username)
         .await?
@@ -66,10 +76,7 @@ pub async fn register(
     {
         return Err(AppError::UsernameTaken);
     }
-    if users_db::find_by_email(&state.db, &body.email)
-        .await?
-        .is_some()
-    {
+    if users_db::find_by_email(&state.db, &email).await?.is_some() {
         return Err(AppError::EmailTaken);
     }
 
@@ -80,9 +87,9 @@ pub async fn register(
         &state.db,
         &users_db::CreateUser {
             username,
-            email: &body.email,
+            email: &email,
             password_hash: &password_hash,
-            display_name: body.display_name.as_deref(),
+            display_name: display_name.as_deref(),
         },
     )
     .await
@@ -112,10 +119,11 @@ pub async fn register(
 
 pub fn _register_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Register a new user")
-        .description("Creates a new user account and returns a session token. Username must be at least 2 characters and password at least 8.")
+        .description("Creates a new user account and returns a session token. Usernames are 2-30 characters of ASCII letters, digits and the separators `_ - .`, starting and ending alphanumeric. Passwords are 12-128 characters combining at least three of lowercase, uppercase, digits and symbols, and may not contain the username or email.")
         .tag("Auth")
         .response::<201, Json<AuthResponse>>()
-        .response_with::<400, (), _>(|r| r.description("Validation error (username too short or reserved, password too short)"))
+        .response_with::<400, (), _>(|r| r.description("Validation error on username, email, password or display name"))
+        .response_with::<401, (), _>(|r| r.description("Missing or invalid first-party app signature"))
         .response_with::<409, (), _>(|r| r.description("Username or email already taken"))
 }
 
@@ -130,12 +138,29 @@ pub async fn login(
     State(state): State<AppState>,
     Json(body): Json<LoginRequest>,
 ) -> ApiResult<Json<AuthResponse>> {
-    let user = users_db::find_by_username(&state.db, &body.username)
-        .await?
-        .ok_or(AppError::InvalidCredentials)?;
+    // Deliberately no charset or complexity rules here: those apply at
+    // registration, and re-applying them would lock out accounts created
+    // before the current rules. Only the bounds that keep a hostile body
+    // from reaching Argon2 are enforced.
+    let username = body.username.trim();
+    if username.is_empty()
+        || username.chars().count() > USERNAME_MAX_LEN
+        || body.password.len() > PASSWORD_LOGIN_MAX_LEN
+    {
+        return Err(AppError::InvalidCredentials);
+    }
 
-    verify_password(&body.password, &user.password_hash)
-        .map_err(|_| AppError::InvalidCredentials)?;
+    let user = users_db::find_by_username(&state.db, username).await?;
+
+    let password_hash = user
+        .as_ref()
+        .map(|u| u.password_hash.as_str())
+        .unwrap_or_else(|| decoy_password_hash());
+    let verified = verify_password(&body.password, password_hash).is_ok();
+
+    let (Some(user), true) = (user, verified) else {
+        return Err(AppError::InvalidCredentials);
+    };
 
     let session = auth_db::create_session(&state.db, user.id, None, None).await?;
 
@@ -151,7 +176,7 @@ pub fn _login_doc(op: TransformOperation) -> TransformOperation {
         .description("Authenticates a user with username and password. Returns a session token to be used as `Bearer` in the `Authorization` header.")
         .tag("Auth")
         .response::<200, Json<AuthResponse>>()
-        .response_with::<401, (), _>(|r| r.description("Invalid credentials"))
+        .response_with::<401, (), _>(|r| r.description("Invalid credentials, or missing/invalid first-party app signature"))
 }
 
 /// POST /v1/logout

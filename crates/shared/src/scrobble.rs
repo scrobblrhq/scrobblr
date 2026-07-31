@@ -6,6 +6,9 @@ use crate::models::Scrobble;
 /// Minimum listened duration to count as a valid scrobble (ms)
 const MIN_LISTEN_MS: i32 = 30_000; // 30 seconds
 
+pub const MAX_FEATURED_ARTISTS: usize = 16;
+pub const MAX_NAME_LEN: usize = 300;
+
 #[derive(Debug, Error)]
 pub enum ScrobbleValidationError {
     #[error("track title is required")]
@@ -16,19 +19,46 @@ pub enum ScrobbleValidationError {
     FutureTimestamp,
     #[error("listen duration too short to scrobble")]
     TooShort,
+    #[error("track, artist and album names may be at most {MAX_NAME_LEN} characters")]
+    NameTooLong,
+    #[error("a track may credit at most {MAX_FEATURED_ARTISTS} featured artists")]
+    TooManyFeaturedArtists,
 }
 
 /// Input coming from the client before any DB look-ups
 #[derive(Debug, Clone)]
 pub struct ScrobbleInput {
     pub track_title: String,
+    /// The primary artist, mirrored into `tracks.artist_id`.
     pub artist_name: String,
+    /// Collaborators credited on the track, in billing order.
+    pub featured_artists: Vec<String>,
     pub album_title: Option<String>,
     pub played_at: DateTime<Utc>,
     pub duration_ms: Option<i32>,
     /// How long the user actually listened (may be less than full track)
     pub listened_ms: Option<i32>,
     pub source: String,
+}
+
+/// Trims, drops blanks, removes the primary artist and de-duplicates
+/// case-insensitively, preserving the order the client sent.
+pub fn normalize_featured_artists(primary: &str, featured: &[String]) -> Vec<String> {
+    let primary = normalize_name(primary);
+    let mut seen = vec![primary];
+    let mut result = Vec::new();
+
+    for name in featured {
+        let trimmed = name.trim();
+        let normalized = normalize_name(trimmed);
+        if normalized.is_empty() || seen.contains(&normalized) {
+            continue;
+        }
+        seen.push(normalized);
+        result.push(trimmed.to_string());
+    }
+
+    result
 }
 
 /// Validates raw scrobble input from the client.
@@ -45,6 +75,18 @@ pub fn validate(input: &ScrobbleInput) -> Result<(), ScrobbleValidationError> {
     }
     if input.played_at > Utc::now() {
         return Err(ScrobbleValidationError::FutureTimestamp);
+    }
+
+    let too_long = |value: &str| value.chars().count() > MAX_NAME_LEN;
+    if too_long(&input.track_title)
+        || too_long(&input.artist_name)
+        || input.album_title.as_deref().is_some_and(too_long)
+        || input.featured_artists.iter().any(|a| too_long(a))
+    {
+        return Err(ScrobbleValidationError::NameTooLong);
+    }
+    if input.featured_artists.len() > MAX_FEATURED_ARTISTS {
+        return Err(ScrobbleValidationError::TooManyFeaturedArtists);
     }
 
     // Duration check only when we know how long they listened

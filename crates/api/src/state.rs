@@ -5,6 +5,8 @@ use axum::extract::FromRef;
 use fred::clients::Client as RedisClient;
 use sqlx::PgPool;
 
+use crate::middleware::app_signature::AppKeys;
+
 /// Where uploaded images are written and how their public URLs are built.
 #[derive(Debug)]
 pub struct UploadConfig {
@@ -21,6 +23,9 @@ pub struct AppState {
     pub db: PgPool,
     pub redis: RedisClient,
     pub uploads: Arc<UploadConfig>,
+    /// `None` when `AUTH_APP_KEYS` is unset, which leaves the auth
+    /// endpoints open to any client.
+    pub app_keys: Option<Arc<AppKeys>>,
 }
 
 impl FromRef<AppState> for PgPool {

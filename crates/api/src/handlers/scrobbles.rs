@@ -30,6 +30,10 @@ use tokio_stream::wrappers::ReceiverStream;
 pub struct ScrobbleRequest {
     pub track: String,
     pub artist: String,
+    /// Collaborators credited on the track, in billing order. The primary
+    /// artist is `artist`; repeating it here is ignored.
+    #[serde(default)]
+    pub featured_artists: Vec<String>,
     pub album: Option<String>,
     pub played_at: chrono::DateTime<Utc>,
     pub duration_ms: Option<i32>,
@@ -52,6 +56,7 @@ pub async fn scrobble(
     let input = ScrobbleInput {
         track_title: body.track.clone(),
         artist_name: body.artist.clone(),
+        featured_artists: body.featured_artists.clone(),
         album_title: body.album.clone(),
         played_at: body.played_at,
         duration_ms: body.duration_ms,
@@ -96,6 +101,8 @@ pub fn _scrobble_doc(op: TransformOperation) -> TransformOperation {
 pub struct NowPlayingRequest {
     pub track: String,
     pub artist: String,
+    #[serde(default)]
+    pub featured_artists: Vec<String>,
     pub album: Option<String>,
     pub duration_ms: Option<i32>,
     pub source: Option<String>,
@@ -107,6 +114,12 @@ pub async fn update_now_playing(
     Extension(auth_user): Extension<AuthUser>,
     Json(body): Json<NowPlayingRequest>,
 ) -> ApiResult<StatusCode> {
+    if body.featured_artists.len() > shared::scrobble::MAX_FEATURED_ARTISTS {
+        return Err(AppError::BadRequest(
+            "too many featured artists for one track".into(),
+        ));
+    }
+
     let artist = tracks_db::find_or_create_artist(&state.db, &body.artist).await?;
 
     let album_id = if let Some(album_title) = &body.album {
@@ -123,6 +136,14 @@ pub async fn update_now_playing(
         body.duration_ms,
     )
     .await?;
+
+    let featured =
+        shared::scrobble::normalize_featured_artists(&body.artist, &body.featured_artists);
+    let mut featured_ids = Vec::with_capacity(featured.len());
+    for name in &featured {
+        featured_ids.push(tracks_db::find_or_create_artist(&state.db, name).await?.id);
+    }
+    tracks_db::record_track_credits(&state.db, track.id, artist.id, &featured_ids).await?;
 
     if let Err(e) =
         enrichment_db::enqueue_for_ingest(&state.db, artist.id, album_id, track.id).await

@@ -19,7 +19,10 @@ use tower_http::{
 
 use crate::{
     handlers::{auth, community, connected_accounts, scrobbles, tracks, uploads, users},
-    middleware::{auth::optional_auth, auth::require_auth, rate_limit::rate_limit},
+    middleware::{
+        app_signature::require_app_signature, auth::optional_auth, auth::require_auth,
+        rate_limit::rate_limit,
+    },
     state::AppState,
 };
 
@@ -166,14 +169,22 @@ pub fn build(state: AppState) -> Router {
         .layer(DefaultBodyLimit::max(8 * 1024 * 1024))
         .layer(middleware::from_fn_with_state(state.clone(), require_auth));
 
-    // Public routes
-    let public = ApiRouter::new()
-        // Auth
+    // Credential endpoints, gated on a first-party app signature whenever
+    // AUTH_APP_KEYS is configured. Kept in their own group so the layer
+    // applies to exactly these two routes and nothing else.
+    let auth_public = ApiRouter::new()
         .api_route(
             "/v1/auth/register",
             post_with(auth::register, auth::_register_doc),
         )
         .api_route("/v1/auth/login", post_with(auth::login, auth::_login_doc))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            require_app_signature,
+        ));
+
+    // Public routes
+    let public = ApiRouter::new()
         // Connected accounts: Spotify redirects here with no Scrobblr session,
         // so this callback must be public (see handler doc comment).
         .api_route(
@@ -292,6 +303,7 @@ pub fn build(state: AppState) -> Router {
         .route("/docs", Scalar::new("/api.json").axum_route())
         .merge(authed)
         .merge(upload_routes)
+        .merge(auth_public)
         .merge(public)
         .merge(optional_authed_users)
         .layer(middleware::from_fn_with_state(state.clone(), rate_limit))

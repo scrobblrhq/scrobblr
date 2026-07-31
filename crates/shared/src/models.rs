@@ -108,6 +108,37 @@ pub struct Track {
     pub created_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS, sqlx::Type)]
+#[sqlx(type_name = "track_artist_role", rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
+#[ts(export)]
+pub enum TrackArtistRole {
+    Primary,
+    Featured,
+}
+
+/// One artist credited on a track. The `primary` credit always mirrors
+/// `tracks.artist_id`; everything else is a featured collaborator.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, JsonSchema, TS)]
+#[ts(export)]
+pub struct TrackCredit {
+    pub artist_id: i64,
+    pub name: String,
+    pub image_url: Option<String>,
+    pub role: TrackArtistRole,
+    pub position: i32,
+}
+
+/// A track together with its full credit list.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct TrackWithCredits {
+    #[serde(flatten)]
+    #[ts(flatten)]
+    pub track: Track,
+    pub artists: Vec<TrackCredit>,
+}
+
 ///  Scrobble
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, JsonSchema, TS)]
 #[ts(export)]

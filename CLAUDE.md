@@ -39,7 +39,7 @@ Query macros (`sqlx::query!` etc.) compile against the `.sqlx/` cache, so no dat
 
 ### Migrations
 
-Numbered plain-SQL files applied **in order**: `0001_initial.sql`, `0002_enrichment.sql` (enrichment columns + `enrichment_jobs`), `0003_uploads.sql` (`image_locked` on artists/albums), `0004_community.sql` (`image_candidates`, `image_candidate_votes`, `comments`), `0005_scrobbles_artist_index.sql`, `0006_connected_accounts.sql` (`connected_accounts` — third-party OAuth connections). Automatic migration on API startup is **commented out** in `crates/api/src/main.rs`; there is no migration runner — apply each file manually with `psql scrobblr -f migrations/000N_*.sql`. devenv only initializes `0001` on first DB init, so after pulling schema changes you must apply the newer files yourself. (The README's mention of a `crates/core` crate is stale — the actual crate is `crates/shared`.)
+Numbered plain-SQL files applied **in order**: `0001_initial.sql`, `0002_enrichment.sql` (enrichment columns + `enrichment_jobs`), `0003_uploads.sql` (`image_locked` on artists/albums), `0004_community.sql` (`image_candidates`, `image_candidate_votes`, `comments`), `0005_scrobbles_artist_index.sql`, `0006_connected_accounts.sql` (`connected_accounts` — third-party OAuth connections), `0007_track_artists.sql` (`track_artists` + the `track_artist_role` enum). Automatic migration on API startup is **commented out** in `crates/api/src/main.rs`; there is no migration runner — apply each file manually with `psql scrobblr -f migrations/000N_*.sql`. devenv only initializes `0001` on first DB init, so after pulling schema changes you must apply the newer files yourself. (The README's mention of a `crates/core` crate is stale — the actual crate is `crates/shared`.)
 
 ## Architecture
 
@@ -74,6 +74,18 @@ The worker also holds an optional Redis client (best-effort — a missing/unreac
 - **Comments** (`comments` table) attach to artists or tracks; reads are public, writes authed, deletes owner-only.
 
 Listener/social sections and the private-profile rules: `artist_listeners`/`track_listeners`/`search_users` all exclude `is_private` users, so a private account stays undiscoverable in aggregate surfaces (its profile also 403s via `middleware/visibility.rs`).
+
+### Track credits (multiple artists)
+
+`tracks.artist_id` remains the **primary** artist: it backs `UNIQUE (artist_id, title_normalized)` and the denormalized `scrobbles.artist_id` every aggregate query reads. `track_artists` (migration `0007`) holds the full credit list, one row per artist with a `track_artist_role` of `primary` or `featured` plus a billing `position`; a partial unique index keeps at most one `primary` per track, and the `primary` row always mirrors `tracks.artist_id`. Chosen over a `BIGINT[]` column because Postgres can't foreign-key array elements.
+
+Credits are written by `tracks_db::record_track_credits` from ingest (`/v1/scrobble`, `/v1/now-playing`, and the Spotify poller, which maps `track.artists[0]` to primary and the rest to featured) and are **add-only** — a client omitting a collaborator never erases one. Aggregate surfaces (`artist_top_tracks`, `artist_listeners`, search) deliberately stay primary-artist-only; making featured credits count there means rewriting them to join `track_artists`.
+
+### Auth input rules and client attestation
+
+`shared::validation` owns every credential rule (username charset/length, RFC-lite email structure, password length + complexity, display-name sanitization) and is enforced **only at registration** — `login` applies just the bounds needed to keep a hostile body away from Argon2, since re-applying the current rules would lock out older accounts. `login` also verifies against a decoy hash when no user matches, so response latency can't be used to enumerate usernames.
+
+`middleware/app_signature.rs` gates `/v1/auth/register` and `/v1/auth/login` behind an HMAC-SHA256 request signature when `AUTH_APP_KEYS` is set (unset = open, so existing clients keep working). Nonces are burned in Redis, and a Redis failure rejects rather than passes.
 
 ### Username semantics
 
