@@ -9,6 +9,8 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 thiserror = { workspace = true }
 argon2 = { workspace = true }
+aes-gcm = { workspace = true }
+base64 = { workspace = true }
 sqlx = { workspace = true }
 schemars = { workspace = true }
 ts-rs = { workspace = true }

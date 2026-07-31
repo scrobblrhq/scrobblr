@@ -15,7 +15,7 @@ use crate::{
     middleware::auth::AuthUser,
     state::AppState,
 };
-use db::queries::connected_accounts as connected_accounts_db;
+use db::queries::connected_accounts::{self as connected_accounts_db, ConnectedAccountError};
 use shared::spotify;
 
 /// How long a CSRF `state` value is valid for. The user completes Spotify's
@@ -50,6 +50,19 @@ fn spotify_client_secret() -> ApiResult<String> {
 fn spotify_redirect_uri() -> ApiResult<String> {
     std::env::var("SPOTIFY_REDIRECT_URI")
         .map_err(|_| AppError::Internal(anyhow::anyhow!("SPOTIFY_REDIRECT_URI is not configured")))
+}
+
+/// Splits Spotify failures by who can act on them. A rejected code, a
+/// redirect-URI mismatch or a revoked token are all things the *client* can
+/// fix by restarting the connect flow, so they're 400s; only a transport
+/// failure talking to Spotify is genuinely our problem and worth a 500.
+fn spotify_error(context: &str, e: spotify::SpotifyError) -> AppError {
+    match e {
+        spotify::SpotifyError::Http(err) => AppError::Internal(anyhow::anyhow!(err)),
+        e @ (spotify::SpotifyError::Unauthorized | spotify::SpotifyError::Api(_)) => {
+            AppError::BadRequest(format!("{context}: {e}"))
+        }
+    }
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -148,16 +161,11 @@ pub async fn spotify_callback(
     let http = reqwest::Client::new();
     let tokens = spotify::exchange_code(&http, &client_id, &client_secret, &code, &redirect_uri)
         .await
-        .map_err(|e| match e {
-            spotify::SpotifyError::Http(err) => AppError::Internal(anyhow::anyhow!(err)),
-            spotify::SpotifyError::Unauthorized | spotify::SpotifyError::Api(_) => {
-                AppError::BadRequest(format!("spotify token exchange failed: {e}"))
-            }
-        })?;
+        .map_err(|e| spotify_error("spotify token exchange failed", e))?;
 
     let provider_user_id = spotify::get_current_user_id(&http, &tokens.access_token)
         .await
-        .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+        .map_err(|e| spotify_error("could not read the spotify profile", e))?;
 
     let expires_at = chrono::Utc::now() + chrono::Duration::seconds(tokens.expires_in);
 
@@ -174,7 +182,19 @@ pub async fn spotify_callback(
             expires_at: Some(expires_at),
         },
     )
-    .await?;
+    .await
+    .map_err(|e| match e {
+        // The same Spotify account is already linked to a different
+        // Scrobblr user. That's the user's situation to resolve (unlink it
+        // there first), not a server fault — say so instead of a blank 500.
+        ConnectedAccountError::Db(sqlx::Error::Database(db))
+            if db.constraint()
+                == Some(connected_accounts_db::PROVIDER_ACCOUNT_TAKEN_CONSTRAINT) =>
+        {
+            AppError::ProviderAccountTaken
+        }
+        other => other.into(),
+    })?;
 
     Ok(Json(ConnectResult {
         provider: "spotify".into(),
@@ -187,7 +207,8 @@ pub fn _spotify_callback_doc(op: TransformOperation) -> TransformOperation {
         .description("Spotify redirects here after the user grants or denies access. Exchanges the authorization code for tokens and links the account to whichever user started the flow (identified via the `state` CSRF token, not request auth).")
         .tag("Connected accounts")
         .response::<200, Json<ConnectResult>>()
-        .response_with::<400, (), _>(|r| r.description("Missing/invalid code or state, or the user denied access"))
+        .response_with::<400, (), _>(|r| r.description("Missing/invalid code or state, the user denied access, or Spotify rejected the exchange"))
+        .response_with::<409, (), _>(|r| r.description("That Spotify account is already linked to another Scrobblr user"))
 }
 
 /// GET /v1/connect
@@ -201,8 +222,9 @@ pub async fn list_connected_accounts(
 
 pub fn _list_connected_accounts_doc(op: TransformOperation) -> TransformOperation {
     op.summary("List connected accounts")
-        .description("Returns the authenticated user's connected third-party accounts (never including tokens).")
+        .description("Returns the authenticated user's connected third-party accounts. Tokens are not part of this response type at all — the query never selects them.")
         .tag("Connected accounts")
+        .response::<200, Json<Vec<shared::models::ConnectedAccountSummary>>>()
         .response_with::<401, (), _>(|r| r.description("Not authenticated"))
 }
 

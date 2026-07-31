@@ -17,15 +17,25 @@ CREATE TABLE connected_accounts (
     user_id           BIGINT          NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     provider          TEXT            NOT NULL,       -- 'spotify' (more may be added later)
     provider_user_id  TEXT            NOT NULL,       -- external account id
+    -- Encrypted at rest (AES-256-GCM, keyed by TOKEN_ENCRYPTION_KEY) by
+    -- `shared::crypto`, so a leaked dump/backup/snapshot doesn't hand out
+    -- access to users' streaming accounts. Stored as `v1:<base64>` text.
     access_token      TEXT            NOT NULL,
     refresh_token     TEXT,
     token_type        TEXT            NOT NULL DEFAULT 'Bearer',
     scope             TEXT,
     expires_at        TIMESTAMPTZ,
-    -- Worker bookkeeping. Also doubles as the `after` cursor passed to
-    -- Spotify's recently-played endpoint, so polling never re-ingests
-    -- a play already seen on a previous tick.
+    -- Worker bookkeeping: when we last *attempted* a poll. Purely a
+    -- scheduling key (accounts are polled oldest-first) — deliberately NOT
+    -- the history cursor, see below.
     last_polled_at    TIMESTAMPTZ,
+    -- The `after` cursor passed to Spotify's recently-played endpoint: the
+    -- `played_at` of the newest play we have actually ingested. Wall-clock
+    -- time can't be used here — recently-played lags real time, so a play
+    -- that happens during the poll window but lands in the response a few
+    -- seconds later would fall behind a now()-based cursor and be skipped
+    -- forever. Advancing only to what we really saw makes that impossible.
+    history_cursor_at TIMESTAMPTZ,
     last_error        TEXT,
     -- User-toggleable pause without losing the tokens; also flipped to
     -- FALSE by the worker itself when a refresh token is permanently

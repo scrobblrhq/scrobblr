@@ -155,7 +155,7 @@ pub async fn get_current_user_id(
     }
 
     let resp = client.get(ME_URL).bearer_auth(access_token).send().await?;
-    check_status(&resp)?;
+    let resp = ensure_success(resp).await?;
     let me: Me = resp.json().await?;
     Ok(me.id)
 }
@@ -221,8 +221,7 @@ pub async fn get_recently_played(
         req = req.query(&[("after", after.to_string())]);
     }
 
-    let resp = req.send().await?;
-    check_status(&resp)?;
+    let resp = ensure_success(req.send().await?).await?;
 
     let parsed: RecentlyPlayedResponse = resp.json().await?;
     Ok(parsed
@@ -279,7 +278,7 @@ pub async fn get_currently_playing(
     if resp.status() == reqwest::StatusCode::NO_CONTENT {
         return Ok(None);
     }
-    check_status(&resp)?;
+    let resp = ensure_success(resp).await?;
 
     let parsed: CurrentlyPlayingResponse = resp.json().await?;
     if !parsed.is_playing || parsed.currently_playing_type != "track" {
@@ -302,15 +301,22 @@ pub async fn get_currently_playing(
     }))
 }
 
-fn check_status(resp: &reqwest::Response) -> Result<(), SpotifyError> {
+/// Passes a successful response through, or turns a failure into a
+/// [`SpotifyError`] carrying the response body. Takes the `Response` by
+/// value rather than by reference specifically so the body can be read on
+/// the error path — a bare "unexpected status 403" tells you nothing, while
+/// Spotify's JSON error body says whether it was a missing scope, a
+/// rate limit, or a restricted device.
+async fn ensure_success(resp: reqwest::Response) -> Result<reqwest::Response, SpotifyError> {
     if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
         return Err(SpotifyError::Unauthorized);
     }
     if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
         return Err(SpotifyError::Api(format!(
-            "unexpected status {}",
-            resp.status()
+            "unexpected status {status}: {body}"
         )));
     }
-    Ok(())
+    Ok(resp)
 }

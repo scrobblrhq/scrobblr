@@ -52,6 +52,12 @@ impl ConnectedAccountsPoller {
             );
             return;
         }
+        // Stored tokens are ciphertext; without a usable key every poll
+        // would fail on decrypt. Bail loudly once instead of once per tick.
+        if let Err(e) = shared::crypto::check_key() {
+            tracing::error!("worker: connected-accounts polling disabled — {e}");
+            return;
+        }
 
         let mut interval =
             tokio::time::interval(tokio::time::Duration::from_secs(POLL_INTERVAL_SECS));
@@ -79,9 +85,11 @@ impl ConnectedAccountsPoller {
     }
 
     async fn poll_account(&self, account: &ConnectedAccount) -> anyhow::Result<()> {
-        // `last_polled_at` doubles as Spotify's `after` cursor, so a poll
-        // never re-ingests a play already seen on a previous tick.
-        let after_ms = account.last_polled_at.map(|t| t.timestamp_millis());
+        // Spotify's `after` is exclusive, and `history_cursor_at` holds the
+        // `played_at` of the newest play we actually ingested — so a poll
+        // never re-ingests a play seen on a previous tick, and never skips
+        // one the endpoint hadn't caught up to yet.
+        let after_ms = account.history_cursor_at.map(|t| t.timestamp_millis());
 
         let items =
             match shared::spotify::get_recently_played(&self.http, &account.access_token, after_ms)
@@ -96,6 +104,7 @@ impl ConnectedAccountsPoller {
                                 &self.db,
                                 account.id,
                                 Utc::now(),
+                                None,
                                 Some(&e.to_string()),
                             )
                             .await;
@@ -108,6 +117,7 @@ impl ConnectedAccountsPoller {
                         &self.db,
                         account.id,
                         Utc::now(),
+                        None,
                         Some(&e.to_string()),
                     )
                     .await?;
@@ -115,7 +125,12 @@ impl ConnectedAccountsPoller {
                 }
             };
 
-        for item in &items {
+        // Spotify returns newest-first; walk it oldest-first so the cursor
+        // only ever advances over a contiguous run of plays we're done
+        // with. Anything left after a transient failure is re-fetched next
+        // tick rather than being silently dropped.
+        let mut cursor = None;
+        for item in items.iter().rev() {
             let input = ScrobbleInput {
                 track_title: item.track_title.clone(),
                 artist_name: item.artist_name.clone(),
@@ -129,15 +144,30 @@ impl ConnectedAccountsPoller {
             };
 
             match scrobbles_db::ingest_scrobble(&self.db, account.user_id, &input).await {
+                // Recorded now, or recorded already — either way this play
+                // is accounted for and the cursor may move past it.
                 Ok(_) | Err(scrobbles_db::IngestError::Duplicate) => {}
-                Err(e) => tracing::warn!(
-                    "connected_accounts: failed to ingest spotify scrobble for user {}: {e}",
+                // Spotify sent something we would never accept (a blank
+                // artist, say). That's deterministic, so retrying it every
+                // tick would wedge the cursor here forever — step over it.
+                Err(e @ scrobbles_db::IngestError::Validation(_)) => tracing::warn!(
+                    "connected_accounts: skipping unusable spotify play for user {}: {e}",
                     account.user_id
                 ),
+                // Transient. Stop advancing so the next poll retries from
+                // this play onwards.
+                Err(e) => {
+                    tracing::warn!(
+                        "connected_accounts: failed to ingest spotify scrobble for user {}: {e}",
+                        account.user_id
+                    );
+                    break;
+                }
             }
+            cursor = Some(item.played_at);
         }
 
-        connected_accounts_db::mark_polled(&self.db, account.id, Utc::now(), None).await?;
+        connected_accounts_db::mark_polled(&self.db, account.id, Utc::now(), cursor, None).await?;
 
         // Best-effort: the live now-playing widget is a nice-to-have on top
         // of scrobbling, not required for it — a failure here (e.g. the
