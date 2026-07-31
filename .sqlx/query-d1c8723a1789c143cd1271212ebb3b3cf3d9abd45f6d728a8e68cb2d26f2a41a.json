@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE connected_accounts\n        SET access_token = $2,\n            refresh_token = COALESCE($3, refresh_token),\n            expires_at = $4\n        WHERE id = $1\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d1c8723a1789c143cd1271212ebb3b3cf3d9abd45f6d728a8e68cb2d26f2a41a"
+}

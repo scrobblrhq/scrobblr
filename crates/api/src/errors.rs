@@ -33,6 +33,9 @@ pub enum AppError {
     #[error("email already registered")]
     EmailTaken,
 
+    #[error("that account is already linked to another Scrobblr user")]
+    ProviderAccountTaken,
+
     #[error("too many requests")]
     RateLimited,
 
@@ -46,6 +49,20 @@ pub enum AppError {
     Internal(#[from] anyhow::Error),
 }
 
+/// A failure to en/decrypt a stored OAuth token means `TOKEN_ENCRYPTION_KEY`
+/// is missing, malformed, or was rotated — a deployment fault rather than
+/// anything the caller did, so it maps to the same opaque 500 as any other
+/// internal error.
+impl From<db::queries::connected_accounts::ConnectedAccountError> for AppError {
+    fn from(e: db::queries::connected_accounts::ConnectedAccountError) -> Self {
+        use db::queries::connected_accounts::ConnectedAccountError as E;
+        match e {
+            E::Db(e) => AppError::Database(e),
+            E::Crypto(e) => AppError::Internal(anyhow::anyhow!(e)),
+        }
+    }
+}
+
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, message) = match &self {
@@ -57,6 +74,7 @@ impl IntoResponse for AppError {
             AppError::NotFound => (StatusCode::NOT_FOUND, self.to_string()),
             AppError::UsernameTaken => (StatusCode::CONFLICT, self.to_string()),
             AppError::EmailTaken => (StatusCode::CONFLICT, self.to_string()),
+            AppError::ProviderAccountTaken => (StatusCode::CONFLICT, self.to_string()),
             AppError::RateLimited => (StatusCode::TOO_MANY_REQUESTS, self.to_string()),
             AppError::Database(e) => {
                 tracing::error!("database error: {e}");

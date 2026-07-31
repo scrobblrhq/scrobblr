@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE connected_accounts\n        SET last_polled_at = $2,\n            history_cursor_at = GREATEST(history_cursor_at, $3),\n            last_error = $4\n        WHERE id = $1\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Timestamptz",
+        "Timestamptz",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8351c474c4a69ecf7c240ac02529ea2a59098603187c1439db7305f3de37241e"
+}

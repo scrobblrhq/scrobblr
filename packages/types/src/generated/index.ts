@@ -6,6 +6,7 @@ export * from "./Album.js";
 export * from "./ApiToken.js";
 export * from "./Artist.js";
 export * from "./Comment.js";
+export * from "./ConnectedAccountSummary.js";
 export * from "./ImageCandidate.js";
 export * from "./NowPlaying.js";
 export * from "./NowPlayingRich.js";

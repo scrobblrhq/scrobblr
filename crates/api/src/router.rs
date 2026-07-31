@@ -18,7 +18,7 @@ use tower_http::{
 };
 
 use crate::{
-    handlers::{auth, community, scrobbles, tracks, uploads, users},
+    handlers::{auth, community, connected_accounts, scrobbles, tracks, uploads, users},
     middleware::{auth::optional_auth, auth::require_auth, rate_limit::rate_limit},
     state::AppState,
 };
@@ -39,6 +39,28 @@ pub fn build(state: AppState) -> Router {
             post_with(
                 scrobbles::update_now_playing,
                 scrobbles::_update_now_playing_doc,
+            ),
+        )
+        // Connected accounts (Spotify OAuth)
+        .api_route(
+            "/v1/connect",
+            get_with(
+                connected_accounts::list_connected_accounts,
+                connected_accounts::_list_connected_accounts_doc,
+            ),
+        )
+        .api_route(
+            "/v1/connect/{provider}",
+            get_with(
+                connected_accounts::connect_provider,
+                connected_accounts::_connect_provider_doc,
+            ),
+        )
+        .api_route(
+            "/v1/connect/{provider}",
+            delete_with(
+                connected_accounts::disconnect,
+                connected_accounts::_disconnect_doc,
             ),
         )
         // User profile
@@ -152,6 +174,15 @@ pub fn build(state: AppState) -> Router {
             post_with(auth::register, auth::_register_doc),
         )
         .api_route("/v1/auth/login", post_with(auth::login, auth::_login_doc))
+        // Connected accounts: Spotify redirects here with no Scrobblr session,
+        // so this callback must be public (see handler doc comment).
+        .api_route(
+            "/v1/connect/spotify/callback",
+            get_with(
+                connected_accounts::spotify_callback,
+                connected_accounts::_spotify_callback_doc,
+            ),
+        )
         // Catalog
         .api_route(
             "/v1/track/{id}",

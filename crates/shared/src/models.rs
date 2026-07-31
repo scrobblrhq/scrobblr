@@ -270,3 +270,56 @@ pub struct Comment {
     pub body: String,
     pub created_at: DateTime<Utc>,
 }
+
+/// A user's OAuth connection to an external streaming service (currently
+/// Spotify only), polled by the worker to auto-scrobble listening activity
+/// reported by the provider's own official API.
+///
+/// Server-internal: it carries live token material, so it is never returned
+/// from a handler — `GET /v1/connect` returns [`ConnectedAccountSummary`],
+/// which has no token fields at all. The tokens here are plaintext; they
+/// are encrypted going into the database and decrypted coming out, by
+/// `db::queries::connected_accounts`.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ConnectedAccount {
+    pub id: i64,
+    pub user_id: i64,
+    pub provider: String,
+    pub provider_user_id: String,
+    pub access_token: String,
+    pub refresh_token: Option<String>,
+    pub token_type: String,
+    pub scope: Option<String>,
+    pub expires_at: Option<DateTime<Utc>>,
+    /// When the worker last attempted a poll — scheduling only.
+    pub last_polled_at: Option<DateTime<Utc>>,
+    /// `played_at` of the newest play ingested so far: the provider history
+    /// cursor. Tracked separately from `last_polled_at` — see
+    /// `migrations/0006_connected_accounts.sql` for why.
+    pub history_cursor_at: Option<DateTime<Utc>>,
+    pub last_error: Option<String>,
+    pub is_active: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// What `GET /v1/connect` returns: a connection stripped of token material.
+/// A separate type rather than `#[serde(skip_serializing)]` on
+/// [`ConnectedAccount`], so the user-facing query never selects — and never
+/// decrypts — the token columns in the first place.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, JsonSchema, TS)]
+#[ts(export)]
+pub struct ConnectedAccountSummary {
+    pub id: i64,
+    pub user_id: i64,
+    pub provider: String,
+    pub provider_user_id: String,
+    pub token_type: String,
+    pub scope: Option<String>,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub last_polled_at: Option<DateTime<Utc>>,
+    pub last_error: Option<String>,
+    pub is_active: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}

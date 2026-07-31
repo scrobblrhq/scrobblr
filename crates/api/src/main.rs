@@ -16,6 +16,16 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
+    // Connected-account OAuth tokens are encrypted at rest, so a missing or
+    // malformed TOKEN_ENCRYPTION_KEY has to fail here rather than halfway
+    // through a user's OAuth callback. Only enforced when the feature is
+    // actually configured — deployments not using connected accounts don't
+    // need a key at all.
+    if std::env::var("SPOTIFY_CLIENT_ID").is_ok() {
+        shared::crypto::check_key()
+            .map_err(|e| anyhow::anyhow!("SPOTIFY_CLIENT_ID is set but {e}"))?;
+    }
+
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL required");
     let redis_url =
         std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());

@@ -1,3 +1,4 @@
+mod connected_accounts;
 mod enrichment;
 
 use std::sync::Arc;
@@ -47,15 +48,25 @@ async fn main() -> anyhow::Result<()> {
 
     // Claims jobs from enrichment_jobs and queries the metadata providers
     // (MusicBrainz, Cover Art Archive, Deezer, optionally Last.fm).
-    let enricher = Arc::new(enrichment::Enricher::from_env(db.clone(), redis)?);
+    let enricher = Arc::new(enrichment::Enricher::from_env(db.clone(), redis.clone())?);
     let enrichment_handle = tokio::spawn(enricher.clone().run());
     let maintenance_handle = tokio::spawn(enricher.run_maintenance());
+
+    // Polls connected Spotify accounts and turns their listening history
+    // into scrobbles (and live now-playing state, if `redis` is available).
+    // A no-op loop (logs once and returns) if Spotify OAuth credentials
+    // aren't configured.
+    let connected_accounts_poller = Arc::new(
+        connected_accounts::ConnectedAccountsPoller::from_env(db.clone(), redis),
+    );
+    let connected_accounts_handle = tokio::spawn(connected_accounts_poller.run());
 
     // The tasks loop forever; reaching select! means one died or Ctrl-C.
     tokio::select! {
         _ = cleanup_handle => tracing::warn!("cleanup task exited unexpectedly"),
         _ = enrichment_handle => tracing::warn!("enrichment task exited unexpectedly"),
         _ = maintenance_handle => tracing::warn!("enrichment maintenance task exited unexpectedly"),
+        _ = connected_accounts_handle => tracing::warn!("connected-accounts poller exited unexpectedly"),
         _ = tokio::signal::ctrl_c() => tracing::info!("received Ctrl-C, shutting down"),
     }
 
