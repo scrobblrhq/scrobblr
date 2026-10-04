@@ -22,6 +22,13 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("worker: connecting to database...");
     let db = db::pool::connect(&database_url).await?;
 
+    // `worker classify …`: internal shadow-mode review commands (report,
+    // reclassify, backfill). Runs and exits instead of starting the loops.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("classify") {
+        return classifier::cli::run(&db, &args[1..]).await;
+    }
+
     // Redis lets the worker re-publish now-playing over the API's SSE channel
     // once it fills an image, so live cards swap the fallback for the cover.
     // Best-effort: a missing/unreachable Redis only disables that live

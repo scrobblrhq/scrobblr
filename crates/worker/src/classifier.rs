@@ -304,3 +304,281 @@ impl Classifier {
         }
     }
 }
+
+/// `worker classify …` — internal commands for reviewing shadow-mode results
+/// by hand. Not reachable over HTTP. `reclassify` / `backfill` only mark days
+/// dirty; the running worker does the classification.
+pub mod cli {
+    use chrono::{DateTime, Utc};
+    use sqlx::PgPool;
+
+    use db::queries::classification as cdb;
+    use db::queries::users as users_db;
+
+    pub const USAGE: &str = "\
+usage:
+  worker classify report [--top N]
+      status distribution, ledger state, and the N users (default 20)
+      with the most suspect scrobbles
+  worker classify reclassify [--user USERNAME | --user-id ID] [--from RFC3339] [--to RFC3339]
+      re-queue matching user-days at manual priority (whole UTC days)
+  worker classify backfill
+      queue every user-day with scrobbles at background priority";
+
+    #[derive(Debug, PartialEq)]
+    pub enum UserSelector {
+        /// Case-insensitive, like every username lookup.
+        Username(String),
+        Id(i64),
+    }
+
+    #[derive(Debug, PartialEq)]
+    pub enum Command {
+        Report {
+            top: i64,
+        },
+        Reclassify {
+            user: Option<UserSelector>,
+            from: Option<DateTime<Utc>>,
+            to: Option<DateTime<Utc>>,
+        },
+        Backfill,
+    }
+
+    /// Parses the arguments after `classify`. Usernames may be all digits
+    /// (registration allows it), so a username and a user id are separate
+    /// flags rather than one guessed `--user <name|id>`.
+    pub fn parse(args: &[String]) -> Result<Command, String> {
+        let (sub, rest) = args.split_first().ok_or("missing subcommand")?;
+        // Every flag takes exactly one value.
+        if rest.len() % 2 == 1 {
+            return Err(format!("{} needs a value", rest[rest.len() - 1]));
+        }
+        let pairs: Vec<(&str, String)> = rest
+            .chunks(2)
+            .map(|pair| (pair[0].as_str(), pair[1].clone()))
+            .collect();
+
+        match sub.as_str() {
+            "report" => {
+                let mut top = 20;
+                for (flag, v) in pairs {
+                    match flag {
+                        "--top" => {
+                            top = v.parse().ok().filter(|n: &i64| *n > 0).ok_or_else(|| {
+                                format!("--top must be a positive integer, got {v:?}")
+                            })?
+                        }
+                        other => return Err(format!("unknown flag for report: {other}")),
+                    }
+                }
+                Ok(Command::Report { top })
+            }
+            "reclassify" => {
+                let (mut user, mut from, mut to) = (None, None, None);
+                for (flag, v) in pairs {
+                    match flag {
+                        "--user" | "--user-id" if user.is_some() => {
+                            return Err("pass only one of --user / --user-id".into());
+                        }
+                        "--user" => user = Some(UserSelector::Username(v)),
+                        "--user-id" => {
+                            let id = v
+                                .parse()
+                                .map_err(|_| format!("--user-id must be a number, got {v:?}"))?;
+                            user = Some(UserSelector::Id(id));
+                        }
+                        "--from" => from = Some(parse_time("--from", &v)?),
+                        "--to" => to = Some(parse_time("--to", &v)?),
+                        other => return Err(format!("unknown flag for reclassify: {other}")),
+                    }
+                }
+                if let (Some(f), Some(t)) = (from, to)
+                    && f >= t
+                {
+                    return Err("--from must be before --to".into());
+                }
+                Ok(Command::Reclassify { user, from, to })
+            }
+            "backfill" if pairs.is_empty() => Ok(Command::Backfill),
+            "backfill" => Err("backfill takes no flags".into()),
+            other => Err(format!("unknown subcommand: {other}")),
+        }
+    }
+
+    fn parse_time(flag: &str, v: &str) -> Result<DateTime<Utc>, String> {
+        DateTime::parse_from_rfc3339(v)
+            .map(|t| t.with_timezone(&Utc))
+            .map_err(|_| format!("{flag} must be an RFC 3339 timestamp, got {v:?}"))
+    }
+
+    /// Entry point for `worker classify …`.
+    pub async fn run(db: &PgPool, args: &[String]) -> anyhow::Result<()> {
+        let command = parse(args).map_err(|e| anyhow::anyhow!("{e}\n\n{USAGE}"))?;
+        match command {
+            Command::Report { top } => report(db, top).await,
+            Command::Reclassify { user, from, to } => {
+                let user_id = match user {
+                    None => None,
+                    Some(UserSelector::Id(id)) => {
+                        let exists = users_db::find_by_id(db, id).await?.is_some();
+                        anyhow::ensure!(exists, "no user with id {id}");
+                        Some(id)
+                    }
+                    Some(UserSelector::Username(name)) => Some(
+                        users_db::find_by_username(db, &name)
+                            .await?
+                            .ok_or_else(|| anyhow::anyhow!("no user named {name:?}"))?
+                            .id,
+                    ),
+                };
+                let days = cdb::enqueue_range(db, user_id, from, to, cdb::PRIORITY_MANUAL).await?;
+                println!(
+                    "marked {days} user-days for reclassification (manual priority); \
+                     the running worker picks them up"
+                );
+                Ok(())
+            }
+            Command::Backfill => {
+                let days =
+                    cdb::enqueue_range(db, None, None, None, cdb::PRIORITY_BACKGROUND).await?;
+                println!(
+                    "marked {days} user-days for classification (background priority); \
+                     the running worker picks them up"
+                );
+                Ok(())
+            }
+        }
+    }
+
+    async fn report(db: &PgPool, top: i64) -> anyhow::Result<()> {
+        let active = cdb::active_ruleset(db).await?;
+        match &active {
+            Some(r) => println!(
+                "active ruleset: #{} (rules v{}) {}",
+                r.id, r.rules_version, r.params
+            ),
+            None => println!("active ruleset: none (no worker has started the classifier yet)"),
+        }
+
+        let ledger = cdb::ledger_summary(db, active.as_ref().map(|r| r.id)).await?;
+        println!(
+            "user-days: {} current, {} outdated, {} waiting (dirty), {} with errors",
+            ledger.current, ledger.outdated, ledger.dirty, ledger.erroring
+        );
+
+        println!("\nlabels by ruleset / status / reason:");
+        let distribution = cdb::status_distribution(db).await?;
+        if distribution.is_empty() {
+            println!("  (none yet)");
+        }
+        for row in &distribution {
+            println!(
+                "  #{:<6} {:<8} {:<22} {:>12}",
+                row.ruleset_id, row.status, row.reason, row.count
+            );
+        }
+
+        println!("\ntop {top} users by suspect scrobbles:");
+        let suspects = cdb::top_suspects(db, top).await?;
+        if suspects.is_empty() {
+            println!("  (none)");
+        } else {
+            println!(
+                "  {:>8}  {:<24} {:<7} {:>9} {:>9} {:>9} {:>9}",
+                "user_id", "username", "private", "suspect", "total", "suspect%", "max_score"
+            );
+        }
+        for s in &suspects {
+            let pct = if s.total > 0 {
+                100.0 * s.suspect as f64 / s.total as f64
+            } else {
+                0.0
+            };
+            println!(
+                "  {:>8}  {:<24} {:<7} {:>9} {:>9} {:>8.1}% {:>9}",
+                s.user_id,
+                s.username,
+                if s.is_private { "yes" } else { "no" },
+                s.suspect,
+                s.total,
+                pct,
+                s.max_score.map_or("-".into(), |m| format!("{m:.2}")),
+            );
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        fn args(s: &str) -> Vec<String> {
+            s.split_whitespace().map(String::from).collect()
+        }
+
+        #[test]
+        fn parses_report_with_default_and_explicit_top() {
+            assert_eq!(parse(&args("report")), Ok(Command::Report { top: 20 }));
+            assert_eq!(
+                parse(&args("report --top 5")),
+                Ok(Command::Report { top: 5 })
+            );
+            assert!(parse(&args("report --top 0")).is_err());
+            assert!(parse(&args("report --top")).is_err());
+        }
+
+        /// A numeric username and a user id must never be confused.
+        #[test]
+        fn user_flags_are_explicit_and_exclusive() {
+            assert_eq!(
+                parse(&args("reclassify --user 12345")),
+                Ok(Command::Reclassify {
+                    user: Some(UserSelector::Username("12345".into())),
+                    from: None,
+                    to: None
+                })
+            );
+            assert_eq!(
+                parse(&args("reclassify --user-id 12345")),
+                Ok(Command::Reclassify {
+                    user: Some(UserSelector::Id(12345)),
+                    from: None,
+                    to: None
+                })
+            );
+            assert!(parse(&args("reclassify --user alice --user-id 3")).is_err());
+            assert!(parse(&args("reclassify --user-id alice")).is_err());
+        }
+
+        #[test]
+        fn parses_time_range_and_rejects_bad_input() {
+            let parsed = parse(&args(
+                "reclassify --from 2026-01-01T00:00:00Z --to 2026-02-01T00:00:00+02:00",
+            ))
+            .unwrap();
+            let Command::Reclassify { from, to, .. } = parsed else {
+                panic!("expected reclassify")
+            };
+            assert_eq!(from.unwrap().to_rfc3339(), "2026-01-01T00:00:00+00:00");
+            assert_eq!(to.unwrap().to_rfc3339(), "2026-01-31T22:00:00+00:00");
+
+            assert!(parse(&args("reclassify --from yesterday")).is_err());
+            assert!(
+                parse(&args(
+                    "reclassify --from 2026-02-01T00:00:00Z --to 2026-01-01T00:00:00Z"
+                ))
+                .is_err()
+            );
+        }
+
+        #[test]
+        fn rejects_unknown_subcommands_and_flags() {
+            assert_eq!(parse(&args("backfill")), Ok(Command::Backfill));
+            assert!(parse(&args("backfill --user x")).is_err());
+            assert!(parse(&args("reclassify --since 2026-01-01T00:00:00Z")).is_err());
+            assert!(parse(&args("purge")).is_err());
+            assert!(parse(&[]).is_err());
+        }
+    }
+}
