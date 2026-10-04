@@ -21,9 +21,10 @@ async fn main() -> anyhow::Result<()> {
     // through a user's OAuth callback. Only enforced when the feature is
     // actually configured — deployments not using connected accounts don't
     // need a key at all.
-    if std::env::var("SPOTIFY_CLIENT_ID").is_ok() {
-        shared::crypto::check_key()
-            .map_err(|e| anyhow::anyhow!("SPOTIFY_CLIENT_ID is set but {e}"))?;
+    for feature in ["SPOTIFY_CLIENT_ID", "LASTFM_SHARED_SECRET"] {
+        if std::env::var(feature).is_ok() {
+            shared::crypto::check_key().map_err(|e| anyhow::anyhow!("{feature} is set but {e}"))?;
+        }
     }
 
     let app_keys = middleware::app_signature::AppKeys::from_env()?.map(std::sync::Arc::new);

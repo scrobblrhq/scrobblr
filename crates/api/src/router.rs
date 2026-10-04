@@ -18,7 +18,7 @@ use tower_http::{
 };
 
 use crate::{
-    handlers::{auth, community, connected_accounts, scrobbles, tracks, uploads, users},
+    handlers::{auth, community, connected_accounts, imports, scrobbles, tracks, uploads, users},
     middleware::{
         app_signature::require_app_signature, auth::optional_auth, auth::require_auth,
         rate_limit::rate_limit,
@@ -44,7 +44,7 @@ pub fn build(state: AppState) -> Router {
                 scrobbles::_update_now_playing_doc,
             ),
         )
-        // Connected accounts (Spotify OAuth)
+        // Connected accounts (Spotify, Last.fm)
         .api_route(
             "/v1/connect",
             get_with(
@@ -65,6 +65,26 @@ pub fn build(state: AppState) -> Router {
                 connected_accounts::disconnect,
                 connected_accounts::_disconnect_doc,
             ),
+        )
+        // History imports (Last.fm)
+        .api_route(
+            "/v1/import/lastfm",
+            post_with(
+                imports::start_lastfm_import,
+                imports::_start_lastfm_import_doc,
+            ),
+        )
+        .api_route(
+            "/v1/imports",
+            get_with(imports::list_imports, imports::_list_imports_doc),
+        )
+        .api_route(
+            "/v1/imports/{id}",
+            get_with(imports::get_import, imports::_get_import_doc),
+        )
+        .api_route(
+            "/v1/imports/{id}",
+            delete_with(imports::cancel_import, imports::_cancel_import_doc),
         )
         // User profile
         .api_route(
@@ -185,13 +205,20 @@ pub fn build(state: AppState) -> Router {
 
     // Public routes
     let public = ApiRouter::new()
-        // Connected accounts: Spotify redirects here with no Scrobblr session,
-        // so this callback must be public (see handler doc comment).
+        // Connected accounts: the provider redirects here with no Scrobblr
+        // session, so these callbacks must be public (see handler doc comments).
         .api_route(
             "/v1/connect/spotify/callback",
             get_with(
                 connected_accounts::spotify_callback,
                 connected_accounts::_spotify_callback_doc,
+            ),
+        )
+        .api_route(
+            "/v1/connect/lastfm/callback",
+            get_with(
+                connected_accounts::lastfm_callback,
+                connected_accounts::_lastfm_callback_doc,
             ),
         )
         // Catalog

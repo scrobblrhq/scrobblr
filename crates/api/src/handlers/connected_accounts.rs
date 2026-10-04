@@ -16,25 +16,39 @@ use crate::{
     state::AppState,
 };
 use db::queries::connected_accounts::{self as connected_accounts_db, ConnectedAccountError};
+use shared::lastfm::LastfmClient;
 use shared::spotify;
 
 /// How long a CSRF `state` value is valid for. The user completes Spotify's
 /// consent screen well within this window in practice.
 const OAUTH_STATE_TTL_SECS: i64 = 600;
 
-/// Only "spotify" is supported today — Deezer's public API has no
+/// Spotify (polled for scrobbles) and Last.fm (connected to prove
+/// ownership before importing its history). Deezer's public API has no
 /// authenticated now-playing/recently-played endpoint, so there is nothing
-/// for a worker poller to call. The path still takes `{provider}` (rather
-/// than hardcoding "spotify" into the route) so adding a real provider later
-/// doesn't require a route change.
+/// for a worker poller to call. The path still takes `{provider}` so adding
+/// one later doesn't require a route change.
 fn ensure_supported_provider(provider: &str) -> ApiResult<()> {
-    if provider == "spotify" {
+    if matches!(provider, "spotify" | "lastfm") {
         Ok(())
     } else {
         Err(AppError::BadRequest(format!(
             "unsupported provider: {provider}"
         )))
     }
+}
+
+/// The Last.fm client, if this server can run the auth flow (which signs
+/// requests with the shared secret).
+pub fn lastfm_client() -> ApiResult<LastfmClient> {
+    LastfmClient::from_env(reqwest::Client::new())
+        .filter(LastfmClient::can_sign)
+        .ok_or_else(|| {
+            AppError::ServiceUnavailable(
+                "Last.fm isn't configured on this server (LASTFM_API_KEY, LASTFM_SHARED_SECRET)"
+                    .into(),
+            )
+        })
 }
 
 fn spotify_client_id() -> ApiResult<String> {
@@ -78,17 +92,26 @@ pub async fn connect_provider(
 ) -> ApiResult<impl IntoApiResponse> {
     ensure_supported_provider(&provider)?;
 
-    let client_id = spotify_client_id()?;
-    let redirect_uri = spotify_redirect_uri()?;
-
     // Random single-use CSRF token, mapped to this user so the callback
-    // (which Spotify calls with no Scrobblr session) knows who to link the
-    // account to. Deleted on first use in `spotify_callback`.
+    // (which the provider calls with no Scrobblr session) knows who to link
+    // the account to. Deleted on first use in the callback.
     let csrf_state = hex::encode(rand::random::<[u8; 16]>());
+    let authorize_url = if provider == "lastfm" {
+        // Last.fm has no `state` parameter, but keeps the callback's own
+        // query string and appends `token` to it.
+        let callback = format!(
+            "{}/v1/connect/lastfm/callback?state={csrf_state}",
+            state.uploads.public_base_url
+        );
+        lastfm_client()?.auth_url(&callback)
+    } else {
+        spotify::build_authorize_url(&spotify_client_id()?, &spotify_redirect_uri()?, &csrf_state)
+    };
+
     state
         .redis
         .set::<(), _, _>(
-            format!("oauth_state:spotify:{csrf_state}"),
+            format!("oauth_state:{provider}:{csrf_state}"),
             auth_user.id.to_string(),
             Some(Expiration::EX(OAUTH_STATE_TTL_SECS)),
             None,
@@ -97,17 +120,45 @@ pub async fn connect_provider(
         .await
         .map_err(AppError::Redis)?;
 
-    let authorize_url = spotify::build_authorize_url(&client_id, &redirect_uri, &csrf_state);
     Ok(Json(AuthorizeResponse { authorize_url }))
 }
 
 pub fn _connect_provider_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Start a connected-account OAuth flow")
-        .description("Returns the provider's authorize URL the client should redirect the user to in order to link their account. Currently only `spotify` is supported.")
+        .description("Returns the provider's authorize URL the client should redirect the user to in order to link their account: `spotify` (auto-scrobbling) or `lastfm` (proves ownership of the Last.fm account before importing its history).")
         .tag("Connected accounts")
         .response::<200, Json<AuthorizeResponse>>()
         .response_with::<400, (), _>(|r| r.description("Unsupported provider"))
         .response_with::<401, (), _>(|r| r.description("Not authenticated"))
+        .response_with::<503, (), _>(|r| r.description("Last.fm isn't configured on this server"))
+}
+
+/// Resolves and burns a callback's CSRF `state`, returning the user who
+/// started the flow.
+async fn take_oauth_state(state: &AppState, provider: &str, csrf_state: &str) -> ApiResult<i64> {
+    let redis_key = format!("oauth_state:{provider}:{csrf_state}");
+    let user_id: Option<String> = state.redis.get(&redis_key).await.map_err(AppError::Redis)?;
+    let user_id: i64 = user_id
+        .ok_or_else(|| AppError::BadRequest("invalid or expired oauth state".into()))?
+        .parse()
+        .map_err(|_| AppError::Internal(anyhow::anyhow!("corrupt oauth state value in redis")))?;
+    // Single-use: remove immediately so the same state can't be replayed.
+    let _: () = state.redis.del(&redis_key).await.map_err(AppError::Redis)?;
+    Ok(user_id)
+}
+
+/// The external account is already linked to a different Scrobblr user:
+/// theirs to resolve (unlink it there first), not a server fault.
+fn link_error(e: ConnectedAccountError) -> AppError {
+    match e {
+        ConnectedAccountError::Db(sqlx::Error::Database(db))
+            if db.constraint()
+                == Some(connected_accounts_db::PROVIDER_ACCOUNT_TAKEN_CONSTRAINT) =>
+        {
+            AppError::ProviderAccountTaken
+        }
+        other => other.into(),
+    }
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -145,14 +196,7 @@ pub async fn spotify_callback(
         .state
         .ok_or_else(|| AppError::BadRequest("missing state".into()))?;
 
-    let redis_key = format!("oauth_state:spotify:{csrf_state}");
-    let user_id: Option<String> = state.redis.get(&redis_key).await.map_err(AppError::Redis)?;
-    let user_id: i64 = user_id
-        .ok_or_else(|| AppError::BadRequest("invalid or expired oauth state".into()))?
-        .parse()
-        .map_err(|_| AppError::Internal(anyhow::anyhow!("corrupt oauth state value in redis")))?;
-    // Single-use: remove immediately so the same state can't be replayed.
-    let _: () = state.redis.del(&redis_key).await.map_err(AppError::Redis)?;
+    let user_id = take_oauth_state(&state, "spotify", &csrf_state).await?;
 
     let client_id = spotify_client_id()?;
     let client_secret = spotify_client_secret()?;
@@ -183,18 +227,7 @@ pub async fn spotify_callback(
         },
     )
     .await
-    .map_err(|e| match e {
-        // The same Spotify account is already linked to a different
-        // Scrobblr user. That's the user's situation to resolve (unlink it
-        // there first), not a server fault — say so instead of a blank 500.
-        ConnectedAccountError::Db(sqlx::Error::Database(db))
-            if db.constraint()
-                == Some(connected_accounts_db::PROVIDER_ACCOUNT_TAKEN_CONSTRAINT) =>
-        {
-            AppError::ProviderAccountTaken
-        }
-        other => other.into(),
-    })?;
+    .map_err(link_error)?;
 
     Ok(Json(ConnectResult {
         provider: "spotify".into(),
@@ -209,6 +242,68 @@ pub fn _spotify_callback_doc(op: TransformOperation) -> TransformOperation {
         .response::<200, Json<ConnectResult>>()
         .response_with::<400, (), _>(|r| r.description("Missing/invalid code or state, the user denied access, or Spotify rejected the exchange"))
         .response_with::<409, (), _>(|r| r.description("That Spotify account is already linked to another Scrobblr user"))
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct LastfmCallbackQuery {
+    pub token: Option<String>,
+    pub state: Option<String>,
+}
+
+/// GET /v1/connect/lastfm/callback
+///
+/// Public for the same reason as the Spotify callback: the `state` token
+/// identifies the user. The session Last.fm returns names the account the
+/// user just authorized, which is what makes an import "verified".
+pub async fn lastfm_callback(
+    State(state): State<AppState>,
+    Query(q): Query<LastfmCallbackQuery>,
+) -> ApiResult<impl IntoApiResponse> {
+    let csrf_state = q
+        .state
+        .ok_or_else(|| AppError::BadRequest("missing state".into()))?;
+    let token = q
+        .token
+        .ok_or_else(|| AppError::BadRequest("missing token".into()))?;
+    let user_id = take_oauth_state(&state, "lastfm", &csrf_state).await?;
+
+    let session = lastfm_client()?
+        .get_session(&token)
+        .await
+        .map_err(|e| match e {
+            e if e.is_transient() => AppError::Internal(anyhow::anyhow!(e)),
+            e => AppError::BadRequest(format!("Last.fm rejected the authorization: {e}")),
+        })?;
+
+    connected_accounts_db::upsert_connected_account(
+        &state.db,
+        &connected_accounts_db::UpsertConnectedAccount {
+            user_id,
+            provider: "lastfm".into(),
+            provider_user_id: session.name,
+            access_token: session.key,
+            refresh_token: None,
+            token_type: "session".into(),
+            scope: None,
+            expires_at: None,
+        },
+    )
+    .await
+    .map_err(link_error)?;
+
+    Ok(Json(ConnectResult {
+        provider: "lastfm".into(),
+        connected: true,
+    }))
+}
+
+pub fn _lastfm_callback_doc(op: TransformOperation) -> TransformOperation {
+    op.summary("Last.fm auth callback")
+        .description("Last.fm redirects here after the user grants access. Exchanges the token for a session and links the Last.fm account it names to whichever user started the flow (identified via the `state` CSRF token, not request auth). A linked account is what lets that user import its history.")
+        .tag("Connected accounts")
+        .response::<200, Json<ConnectResult>>()
+        .response_with::<400, (), _>(|r| r.description("Missing/invalid token or state, or Last.fm rejected the token"))
+        .response_with::<409, (), _>(|r| r.description("That Last.fm account is already linked to another Scrobblr user"))
 }
 
 /// GET /v1/connect
