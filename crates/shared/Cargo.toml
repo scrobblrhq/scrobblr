@@ -15,3 +15,5 @@ sqlx = { workspace = true }
 schemars = { workspace = true }
 ts-rs = { workspace = true }
 reqwest = { workspace = true }
+serde_json = { workspace = true }
+md-5 = { workspace = true }
