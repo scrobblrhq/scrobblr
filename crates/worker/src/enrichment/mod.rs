@@ -21,6 +21,7 @@
 //! result — the monthly re-sweep gives providers a chance to have gained
 //! coverage since.
 
+pub mod lengths;
 pub mod providers;
 pub mod ratelimit;
 
@@ -37,7 +38,7 @@ use db::queries::scrobbles as edb_scrobbles;
 use shared::scrobble::normalize_name;
 
 use providers::musicbrainz::{self as mb, parse_mb_date};
-use providers::{ProviderError, coverart, deezer, lastfm};
+use providers::{ProviderError, ProviderResult, coverart, deezer, lastfm};
 use ratelimit::RateLimiter;
 
 const CLAIM_BATCH: i64 = 10;
@@ -345,12 +346,10 @@ impl Enricher {
         let mut transient = Vec::new();
 
         // One MusicBrainz call covers everything a track needs: search when
-        // the MBID is unknown, direct lookup when only the length is missing.
+        // the MBID is unknown (or a direct lookup of the recording Last.fm
+        // suggested), a lookup when only the length is missing.
         let lookup = match (ctx.mbid, ctx.mb_duration_ms) {
-            (None, _) => Some(
-                mb::search_recording(&self.http, &self.musicbrainz, &ctx.title, &ctx.artist_name)
-                    .await,
-            ),
+            (None, _) => Some(self.find_recording(&ctx).await),
             (Some(mbid), None) => {
                 Some(mb::lookup_recording(&self.http, &self.musicbrainz, mbid).await)
             }
@@ -438,6 +437,22 @@ impl Enricher {
         }
 
         Ok(Processed::Done(transient))
+    }
+
+    /// Looks up the hinted recording when there is one and it checks out,
+    /// otherwise searches.
+    async fn find_recording(&self, ctx: &edb::TrackCtx) -> ProviderResult<mb::Recording> {
+        if let Some(hint) = ctx.mbid_hint {
+            match mb::lookup_recording(&self.http, &self.musicbrainz, hint).await? {
+                Some(rec) if mb::matches_track(&rec, &ctx.title, &ctx.artist_name) => {
+                    return Ok(Some(rec));
+                }
+                _ => {
+                    tracing::debug!(track_id = ctx.id, %hint, "enrichment: mbid hint didn't match, searching")
+                }
+            }
+        }
+        mb::search_recording(&self.http, &self.musicbrainz, &ctx.title, &ctx.artist_name).await
     }
 
     async fn enrich_album(&self, job: &edb::Job) -> Result<Processed, sqlx::Error> {

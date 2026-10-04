@@ -111,6 +111,20 @@ async fn main() -> anyhow::Result<()> {
     );
     let connected_accounts_handle = tokio::spawn(connected_accounts_poller.run());
 
+    // Fills track lengths from Last.fm for tracks no source has one for
+    // (imported history), so the classifier can label their scrobbles.
+    let lengths = enrichment::lengths::LengthBackfill::from_env(
+        db.clone(),
+        lastfm_http.clone(),
+        lastfm_limiter.clone(),
+    );
+    let lengths_handle = tokio::spawn(async move {
+        match lengths {
+            Some(lengths) => Arc::new(lengths).run().await,
+            None => std::future::pending().await,
+        }
+    });
+
     // Runs Last.fm history imports, started from the API or `worker import`.
     let importer = lastfm_import::Importer::from_env(db.clone(), lastfm_http, lastfm_limiter)?;
     let import_handle = tokio::spawn(async move {
@@ -135,6 +149,7 @@ async fn main() -> anyhow::Result<()> {
         _ = maintenance_handle => tracing::warn!("enrichment maintenance task exited unexpectedly"),
         _ = connected_accounts_handle => tracing::warn!("connected-accounts poller exited unexpectedly"),
         _ = import_handle => tracing::warn!("import task exited unexpectedly"),
+        _ = lengths_handle => tracing::warn!("length backfill exited unexpectedly"),
         _ = classification_handle => tracing::warn!("classification task exited unexpectedly"),
         _ = classification_sweep_handle => tracing::warn!("classification sweep exited unexpectedly"),
         _ = tokio::signal::ctrl_c() => tracing::info!("received Ctrl-C, shutting down"),

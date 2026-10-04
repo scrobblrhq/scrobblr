@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT t.id, t.title, t.mbid, t.duration_ms, t.mb_duration_ms,\n               t.artist_id, a.name AS \"artist_name!\", a.mbid AS \"artist_mbid?\",\n               t.album_id, al.title AS \"album_title?\", al.mbid AS \"album_mbid?\"\n        FROM tracks t\n        JOIN artists a ON a.id = t.artist_id\n        LEFT JOIN albums al ON al.id = t.album_id\n        WHERE t.id = $1\n        ",
+  "query": "\n        SELECT t.id, t.title, t.mbid, t.duration_ms, t.mb_duration_ms, t.mbid_hint,\n               t.artist_id, a.name AS \"artist_name!\", a.mbid AS \"artist_mbid?\",\n               t.album_id, al.title AS \"album_title?\", al.mbid AS \"album_mbid?\"\n        FROM tracks t\n        JOIN artists a ON a.id = t.artist_id\n        LEFT JOIN albums al ON al.id = t.album_id\n        WHERE t.id = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -30,31 +30,36 @@
       },
       {
         "ordinal": 5,
+        "name": "mbid_hint",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 6,
         "name": "artist_id",
         "type_info": "Int8"
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "artist_name!",
         "type_info": "Text"
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "artist_mbid?",
         "type_info": "Uuid"
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "album_id",
         "type_info": "Int8"
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "album_title?",
         "type_info": "Text"
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "album_mbid?",
         "type_info": "Uuid"
       }
@@ -70,6 +75,7 @@
       true,
       true,
       true,
+      true,
       false,
       false,
       true,
@@ -78,5 +84,5 @@
       true
     ]
   },
-  "hash": "bc8bc264bc0670c6ff137fe9a6fbb6b58878892f16095431699cfefc247e5fbc"
+  "hash": "13509db5cc3bdfbeb86d09cb84ba9d03d5ca3aaf87787bd6021895afd8e8544b"
 }

@@ -355,6 +355,8 @@ pub struct TrackCtx {
     pub mbid: Option<Uuid>,
     pub duration_ms: Option<i32>,
     pub mb_duration_ms: Option<i32>,
+    /// Recording id Last.fm suggested; unverified.
+    pub mbid_hint: Option<Uuid>,
     pub artist_id: i64,
     pub artist_name: String,
     pub artist_mbid: Option<Uuid>,
@@ -367,7 +369,7 @@ pub async fn get_track_ctx(pool: &PgPool, id: i64) -> Result<Option<TrackCtx>, s
     sqlx::query_as!(
         TrackCtx,
         r#"
-        SELECT t.id, t.title, t.mbid, t.duration_ms, t.mb_duration_ms,
+        SELECT t.id, t.title, t.mbid, t.duration_ms, t.mb_duration_ms, t.mbid_hint,
                t.artist_id, a.name AS "artist_name!", a.mbid AS "artist_mbid?",
                t.album_id, al.title AS "album_title?", al.mbid AS "album_mbid?"
         FROM tracks t
@@ -556,4 +558,73 @@ pub async fn mark_enriched(pool: &PgPool, entity_type: &str, id: i64) -> Result<
         }
     }
     Ok(())
+}
+
+#[derive(Debug)]
+pub struct TrackNeedingLength {
+    pub id: i64,
+    pub title: String,
+    pub artist_name: String,
+}
+
+/// Tracks with no length from any source that Last.fm hasn't been asked
+/// about yet, most scrobbled first.
+pub async fn tracks_missing_length(
+    pool: &PgPool,
+    limit: i64,
+) -> Result<Vec<TrackNeedingLength>, sqlx::Error> {
+    sqlx::query_as!(
+        TrackNeedingLength,
+        r#"
+        SELECT t.id, t.title, a.name AS artist_name
+        FROM tracks t
+        JOIN artists a ON a.id = t.artist_id
+        WHERE t.duration_ms IS NULL AND t.mb_duration_ms IS NULL AND t.lastfm_checked_at IS NULL
+        ORDER BY t.scrobble_count DESC, t.id
+        LIMIT $1
+        "#,
+        limit,
+    )
+    .fetch_all(pool)
+    .await
+}
+
+/// Records Last.fm's answer. A length fills the catalog value only when
+/// it is still empty, like any other source.
+pub async fn record_lastfm_length(
+    pool: &PgPool,
+    track_id: i64,
+    length_ms: Option<i32>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        r#"
+        UPDATE tracks
+        SET duration_ms = COALESCE(duration_ms, $2), lastfm_checked_at = NOW()
+        WHERE id = $1
+        "#,
+        track_id,
+        length_ms,
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Lets tracks Last.fm had no length for be asked again, since its
+/// catalogue grows.
+pub async fn requeue_length_checks(
+    pool: &PgPool,
+    older_than_days: i32,
+) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query!(
+        r#"
+        UPDATE tracks SET lastfm_checked_at = NULL
+        WHERE lastfm_checked_at < NOW() - make_interval(days => $1)
+          AND duration_ms IS NULL AND mb_duration_ms IS NULL
+        "#,
+        older_than_days,
+    )
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
 }

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE tracks\n        SET duration_ms = COALESCE(duration_ms, $2), lastfm_checked_at = NOW()\n        WHERE id = $1\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8e4fa8bc9072ab37fe009cfac101b8c19c8afce4e7f79ad22b35f4a4d6cf92e9"
+}

@@ -20,6 +20,8 @@ const MIN_SCORE_ARTIST: i32 = 95;
 #[derive(Debug, serde::Deserialize)]
 pub struct Recording {
     pub id: Uuid,
+    #[serde(default)]
+    pub title: String,
     pub score: Option<i32>,
     /// Duration in milliseconds.
     pub length: Option<i64>,
@@ -31,12 +33,17 @@ pub struct Recording {
 
 #[derive(Debug, serde::Deserialize)]
 pub struct ArtistCredit {
+    /// The name as credited on this recording.
+    #[serde(default)]
+    pub name: String,
     pub artist: CreditedArtist,
 }
 
 #[derive(Debug, serde::Deserialize)]
 pub struct CreditedArtist {
     pub id: Uuid,
+    #[serde(default)]
+    pub name: String,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -141,6 +148,30 @@ pub async fn lookup_recording(
     .await
 }
 
+/// Whether a recording someone else pointed us at (Last.fm's mbid) is
+/// plausibly this track: the same title, give or take a trailing
+/// " (…)" or " - …" qualifier, and a credited artist named like ours.
+pub fn matches_track(recording: &Recording, title: &str, artist: &str) -> bool {
+    fn base(s: &str) -> String {
+        let s = s.trim().to_lowercase();
+        let cut = [" (", " [", " - "]
+            .iter()
+            .filter_map(|sep| s.find(sep))
+            .min()
+            .unwrap_or(s.len());
+        s[..cut].trim().to_string()
+    }
+    let artist = artist.trim().to_lowercase();
+    let same_title = base(&recording.title) == base(title) && !base(title).is_empty();
+    let same_artist = recording.artist_credit.iter().any(|credit| {
+        [&credit.name, &credit.artist.name].into_iter().any(|name| {
+            let name = name.trim().to_lowercase();
+            !name.is_empty() && (name == artist || artist.contains(&name))
+        })
+    });
+    same_title && same_artist
+}
+
 /// Searches for an artist by name. Higher score bar than the two-field
 /// searches — single-term artist queries are the easiest to mismatch.
 pub async fn search_artist(
@@ -239,4 +270,52 @@ pub fn parse_mb_date(date: &str) -> Option<chrono::NaiveDate> {
         .or_else(|_| chrono::NaiveDate::parse_from_str(&format!("{date}-01"), "%Y-%m-%d"))
         .or_else(|_| chrono::NaiveDate::parse_from_str(&format!("{date}-01-01"), "%Y-%m-%d"))
         .ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn recording(title: &str, credits: &[&str]) -> Recording {
+        Recording {
+            id: Uuid::nil(),
+            title: title.into(),
+            score: None,
+            length: Some(240_000),
+            artist_credit: credits
+                .iter()
+                .map(|name| ArtistCredit {
+                    name: name.to_string(),
+                    artist: CreditedArtist {
+                        id: Uuid::nil(),
+                        name: name.to_string(),
+                    },
+                })
+                .collect(),
+            releases: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_hinted_recording_must_match_title_and_artist() {
+        let rec = recording("Airbag (Remastered)", &["Radiohead"]);
+        assert!(matches_track(&rec, "Airbag", "radiohead"));
+        assert!(matches_track(
+            &recording("Airbag", &["Radiohead"]),
+            "Airbag - 2009 Remaster",
+            "Radiohead"
+        ));
+        assert!(matches_track(
+            &recording("Stay", &["Rihanna", "Mikky Ekko"]),
+            "Stay",
+            "Rihanna feat. Mikky Ekko"
+        ));
+        assert!(!matches_track(&rec, "Lucky", "Radiohead"));
+        assert!(!matches_track(&rec, "Airbag", "Muse"));
+        assert!(!matches_track(
+            &recording("", &["Radiohead"]),
+            "",
+            "Radiohead"
+        ));
+    }
 }

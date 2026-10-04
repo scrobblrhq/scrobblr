@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE tracks SET lastfm_checked_at = NULL\n        WHERE lastfm_checked_at < NOW() - make_interval(days => $1)\n          AND duration_ms IS NULL AND mb_duration_ms IS NULL\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "09b2451a083941b0dae4d9f57cf130cbf6e4462e2dbbf22af27807dca68af41b"
+}
