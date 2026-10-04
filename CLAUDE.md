@@ -8,19 +8,21 @@ Scrobblr — a music scrobbling service (self-hosted last.fm alternative). This 
 
 ## Commands
 
-Dev environment is managed with devenv (nix): `devenv up` starts PostgreSQL (with TimescaleDB, DB `scrobblr` initialized from `migrations/0001_initial.sql`) and Redis (password `123`). `.env` is loaded automatically (dotenv is enabled in devenv and via `dotenvy` at runtime).
+Dev environment is managed with devenv (nix): `devenv up` starts PostgreSQL (with TimescaleDB, DB `scrobblr`) and Redis (password `123`), then runs the migration runner once Postgres is ready. `.env` is loaded automatically (dotenv is enabled in devenv and via `dotenvy` at runtime).
 
 ```bash
 cargo run -p api          # run the API (requires DATABASE_URL; listens on BIND_ADDR, default 0.0.0.0:8080)
 cargo run -p worker       # background jobs (session/now_playing cleanup, metadata enrichment, now-playing SSE republish)
+just migrate              # apply pending migrations (`just migrate status` lists them)
 
 just fmt                  # cargo fmt --all
 just lint                 # cargo clippy --workspace --all-targets -- -D warnings
 just lint-fix             # clippy --fix
 just check                # cargo check --workspace
-just ci                   # fmt-check + lint + check + build
+just ci                   # fmt-check + lint + check + test + build
 
-cargo test --workspace    # also regenerates TS bindings (see Types pipeline below)
+just test                 # cargo test --workspace; also regenerates TS bindings (see Types pipeline below)
+just test-db              # #[ignore]d database tests (need Postgres; see Migrations)
 cargo test -p api <name>  # single test
 
 # JS side (bun is the package manager; biome for lint/format)
@@ -35,11 +37,15 @@ cd apps/mobile && flutter run                        # Android emulator (server:
 
 ### SQLx offline mode
 
-Query macros (`sqlx::query!` etc.) compile against the `.sqlx/` cache, so no database is needed to build. When you add or change a query, you need a live `DATABASE_URL` and must run `cargo sqlx prepare --workspace` (sqlx-cli is in the devenv shell) and commit the updated `.sqlx/` files.
+Query macros (`sqlx::query!` etc.) compile against the `.sqlx/` cache, so no database is needed to build (but with `DATABASE_URL` set, as `.env` does, they check against the live database instead, which must then be migrated; `SQLX_OFFLINE=true` forces the cache). When you add or change a query, you need a live `DATABASE_URL` and must run `cargo sqlx prepare --workspace` (sqlx-cli is in the devenv shell) and commit the updated `.sqlx/` files.
 
 ### Migrations
 
-Numbered plain-SQL files applied **in order**: `0001_initial.sql`, `0002_enrichment.sql` (enrichment columns + `enrichment_jobs`), `0003_uploads.sql` (`image_locked` on artists/albums), `0004_community.sql` (`image_candidates`, `image_candidate_votes`, `comments`), `0005_scrobbles_artist_index.sql`, `0006_connected_accounts.sql` (`connected_accounts` — third-party OAuth connections), `0007_track_artists.sql` (`track_artists` + the `track_artist_role` enum), `0008_aggregate_late_scrobbles.sql` (continuous-aggregate policies refresh all history; its trailing `CALL`s can't run inside a transaction), `0009_realtime_aggregates.sql` (real-time aggregation, so today's scrobbles show up). Automatic migration on API startup is **commented out** in `crates/api/src/main.rs`; there is no migration runner — apply each file manually with `psql scrobblr -f migrations/000N_*.sql`. devenv only initializes `0001` on first DB init, so after pulling schema changes you must apply the newer files yourself. (The README's mention of a `crates/core` crate is stale — the actual crate is `crates/shared`.)
+Numbered plain-SQL files in `migrations/` (`0001_initial.sql` … next free number), applied **in order** by `just migrate` (= `SQLX_OFFLINE=true cargo run -p worker -- migrate`; offline because it must compile before the database has the schema the query macros expect). The runner is `crates/db/src/migrate.rs`: files are embedded at compile time via `sqlx::migrate!` (`crates/db/build.rs` rebuilds on changes), each applied one is recorded with its checksum in `schema_migrations`, and a session advisory lock serializes concurrent runs. Each file runs in one transaction unless its **first line** is `-- no-transaction` (e.g. `0008`, whose `CALL refresh_continuous_aggregate` can't run in one): then each statement runs on its own, so such a file must be safe to re-run. Never edit an applied migration (checksum mismatch) — add a new one. Don't use `sqlx migrate run`: sqlx-cli sends a no-transaction file as one multi-statement query, which Postgres wraps in an implicit transaction.
+
+Migration is a deploy step, never automatic: the API and worker only call `db::migrate::ensure_current` at startup and refuse to run with pending migrations. devenv runs the runner after Postgres starts; docker-compose has a one-shot `migrate` service the API and worker depend on. `just migrate --baseline N` records `1..=N` as applied without running them (for databases migrated by hand before the runner existed). DB tests (`crates/db/tests/`, `#[ignore]`d) each create a throwaway database from `DATABASE_URL`, migrate it through the runner, and drop it.
+
+(The README's mention of a `crates/core` crate is stale — the actual crate is `crates/shared`.)
 
 ## Architecture
 

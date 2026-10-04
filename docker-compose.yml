@@ -22,9 +22,6 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-scrobblr}
     volumes:
       - db-data:/var/lib/postgresql/data
-      # Migrations run in filename order, but ONLY on first init (empty volume).
-      # Apply later migrations by hand: psql -f migrations/000N_*.sql
-      - ./migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-scrobblr} -d ${POSTGRES_DB:-scrobblr}"]
       interval: 5s
@@ -41,6 +38,20 @@ services:
       timeout: 5s
       retries: 10
     restart: unless-stopped
+
+  # One-shot: applies pending migrations (embedded in the binary) before the
+  # API and worker start. They refuse to run against an outdated schema.
+  migrate:
+    image: scrobblr-backend:latest
+    pull_policy: never
+    command: ["worker", "migrate"]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-scrobblr}:${POSTGRES_PASSWORD:-scrobblr}@db:5432/${POSTGRES_DB:-scrobblr}
+      RUST_LOG: ${RUST_LOG:-info,sqlx=warn}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
 
   api:
     build:
@@ -61,8 +72,8 @@ services:
     volumes:
       - uploads:/data/uploads
     depends_on:
-      db:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     healthcheck:
@@ -84,8 +95,8 @@ services:
       RUST_LOG: ${RUST_LOG:-info,sqlx=warn}
       LASTFM_API_KEY: ${LASTFM_API_KEY:-}
     depends_on:
-      db:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       api:
         condition: service_started
     restart: unless-stopped

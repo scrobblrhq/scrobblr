@@ -31,15 +31,18 @@
     enable = true;
     listen_addresses = "localhost";
     settings.shared_preload_libraries = "timescaledb";
-    initialDatabases = [
-      {
-        name = "scrobblr";
-        schema = ./migrations/0001_initial.sql;
-      }
-    ];
+    initialDatabases = [ { name = "scrobblr"; } ];
     extensions = extensions: [
       extensions.timescaledb
     ];
+  };
+
+  # Applies pending migrations once Postgres is up (same as `just migrate`).
+  # Offline so it compiles before the schema the queries expect exists.
+  processes.migrate = {
+    exec = "SQLX_OFFLINE=true cargo run -q -p worker -- migrate";
+    after = [ "devenv:processes:postgres" ];
+    restart.on = "never";
   };
 
   services.redis = {

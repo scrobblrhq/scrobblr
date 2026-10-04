@@ -19,7 +19,7 @@ scrobblr/
 │   └── worker/   ← Background jobs (cleanup, metadata enrichment, now-playing republish)
 ├── packages/
 │   └── types/    ← @scrobblr/types — TS types generated from crates/shared via ts-rs
-├── migrations/    ← numbered plain-SQL, applied in order (0001 … 0005)
+├── migrations/    ← numbered plain-SQL, applied in order by `just migrate`
 ├── Dockerfile · docker-compose.yml   ← self-host / shared dev backend
 └── .env.example
 ```
@@ -52,16 +52,15 @@ cp .env.docker.example .env.docker   # then edit the passwords
 docker compose --env-file .env.docker up -d --build
 ```
 
-The API comes up on http://localhost:8080 (docs at `/docs`). All migrations are
-applied automatically on first init; later ones are applied by hand (see below).
+The API comes up on http://localhost:8080 (docs at `/docs`). A one-shot
+`migrate` service applies pending migrations before the API and worker start.
 Point the web app / mobile app at this origin.
 
 ### With devenv
 
 ```bash
 cp .env.example .env
-devenv up        # starts PostgreSQL (only 0001 applied on first init) and Redis
-# apply any later migrations manually (see below), then:
+devenv up        # starts PostgreSQL and Redis, then applies pending migrations
 cargo run -p api
 ```
 
@@ -73,7 +72,7 @@ cp .env.example .env
 
 # 2. Create the database and apply every migration in order
 createdb scrobblr
-for f in migrations/0*.sql; do psql scrobblr -f "$f"; done
+just migrate     # = SQLX_OFFLINE=true cargo run -p worker -- migrate
 
 # 3. Run the API
 cargo run -p api
@@ -82,7 +81,11 @@ cargo run -p api
 cargo run -p worker
 ```
 
-There is no migration runner — the numbered files in `migrations/` are applied manually, in order. Re-run new ones after pulling schema changes.
+`just migrate` applies every pending file in `migrations/` in order and records
+it in `schema_migrations`; run it again after pulling schema changes (the API
+and worker refuse to start until you do). `just migrate status` lists them. A
+database migrated by hand before the runner existed can be adopted with
+`just migrate --baseline 9`.
 
 Interactive API docs are served at [`/docs`](http://localhost:8080/docs) (OpenAPI spec at `/api.json`).
 
@@ -94,7 +97,8 @@ Interactive API docs are served at [`/docs`](http://localhost:8080/docs) (OpenAP
 just fmt        # cargo fmt --all
 just lint       # clippy with -D warnings
 just check      # cargo check --workspace
-just ci         # fmt-check + lint + check + build
+just ci         # fmt-check + lint + check + test + build
+just test-db    # database tests (need Postgres; each creates its own database)
 
 cargo test      # also regenerates packages/types from crates/shared (ts-rs)
 ```
