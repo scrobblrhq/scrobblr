@@ -338,8 +338,8 @@ impl Enricher {
         let mut transient = Vec::new();
 
         // One MusicBrainz call covers everything a track needs: search when
-        // the MBID is unknown, direct lookup when only the duration is missing.
-        let lookup = match (ctx.mbid, ctx.duration_ms) {
+        // the MBID is unknown, direct lookup when only the length is missing.
+        let lookup = match (ctx.mbid, ctx.mb_duration_ms) {
             (None, _) => Some(
                 mb::search_recording(&self.http, &self.musicbrainz, &ctx.title, &ctx.artist_name)
                     .await,

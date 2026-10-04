@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        INSERT INTO scrobbles (user_id, track_id, artist_id, album_id, played_at, source, duration_ms)\n        VALUES ($1, $2, $3, $4, $5, $6, $7)\n        RETURNING id\n        ",
+  "query": "\n        INSERT INTO scrobbles (user_id, track_id, artist_id, album_id, played_at, source, duration_ms, listened_ms)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        RETURNING id\n        ",
   "describe": {
     "columns": [
       {
@@ -17,6 +17,7 @@
         "Int8",
         "Timestamptz",
         "Text",
+        "Int4",
         "Int4"
       ]
     },
@@ -24,5 +25,5 @@
       false
     ]
   },
-  "hash": "9e2bfe061966644da6177250fbbf78baa2f58d92c815e3fe59d2df9533e25c8c"
+  "hash": "325b39a529f0f7413cc9b10c0789c8ef00b2c6bbebe8904ebee2113c49867f0a"
 }

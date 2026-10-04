@@ -351,6 +351,7 @@ pub struct TrackCtx {
     pub title: String,
     pub mbid: Option<Uuid>,
     pub duration_ms: Option<i32>,
+    pub mb_duration_ms: Option<i32>,
     pub artist_id: i64,
     pub artist_name: String,
     pub artist_mbid: Option<Uuid>,
@@ -363,7 +364,7 @@ pub async fn get_track_ctx(pool: &PgPool, id: i64) -> Result<Option<TrackCtx>, s
     sqlx::query_as!(
         TrackCtx,
         r#"
-        SELECT t.id, t.title, t.mbid, t.duration_ms,
+        SELECT t.id, t.title, t.mbid, t.duration_ms, t.mb_duration_ms,
                t.artist_id, a.name AS "artist_name!", a.mbid AS "artist_mbid?",
                t.album_id, al.title AS "album_title?", al.mbid AS "album_mbid?"
         FROM tracks t
@@ -489,6 +490,8 @@ pub async fn apply_album_metadata(
 #[derive(Debug, Default)]
 pub struct TrackMetadata {
     pub mbid: Option<Uuid>,
+    /// The MusicBrainz length: fills `duration_ms` when NULL and is always
+    /// kept as `mb_duration_ms`, which the scrobble classifier trusts.
     pub duration_ms: Option<i32>,
 }
 
@@ -501,8 +504,9 @@ pub async fn apply_track_metadata(
         sqlx::query!(
             r#"
             UPDATE tracks SET
-                mbid        = COALESCE(tracks.mbid, $2),
-                duration_ms = COALESCE(tracks.duration_ms, $3)
+                mbid           = COALESCE(tracks.mbid, $2),
+                duration_ms    = COALESCE(tracks.duration_ms, $3),
+                mb_duration_ms = COALESCE(tracks.mb_duration_ms, $3)
             WHERE id = $1
             "#,
             id,
