@@ -98,6 +98,19 @@ pub async fn register_ruleset(pool: &PgPool, params: BudgetParams) -> Result<Rul
     Ok(Ruleset { id, params })
 }
 
+/// The stored id of `params`' ruleset, without registering it.
+pub async fn find_ruleset(
+    pool: &PgPool,
+    params: &BudgetParams,
+) -> Result<Option<i32>, sqlx::Error> {
+    sqlx::query_scalar!(
+        "SELECT id FROM classifier_rulesets WHERE fingerprint = $1",
+        params.fingerprint(),
+    )
+    .fetch_optional(pool)
+    .await
+}
+
 /// Ingest hot path: one index probe when the day is already queued.
 pub async fn mark_scrobble_dirty(
     pool: &PgPool,

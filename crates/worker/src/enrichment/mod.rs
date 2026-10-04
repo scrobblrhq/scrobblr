@@ -31,6 +31,7 @@ use fred::interfaces::PubsubInterface;
 use rand::Rng;
 use sqlx::PgPool;
 
+use db::queries::classification as cdb;
 use db::queries::enrichment as edb;
 use db::queries::scrobbles as edb_scrobbles;
 use shared::scrobble::normalize_name;
@@ -359,15 +360,28 @@ impl Enricher {
         };
 
         if let Some(rec) = recording {
+            let length = rec.length.and_then(|l| i32::try_from(l).ok());
             edb::apply_track_metadata(
                 &self.db,
                 ctx.id,
                 &edb::TrackMetadata {
                     mbid: Some(rec.id),
-                    duration_ms: rec.length.and_then(|l| i32::try_from(l).ok()),
+                    duration_ms: length,
                 },
             )
             .await?;
+
+            // Recent plays were classified against a client-reported length
+            // (or none); best-effort, the classifier's sweep covers the rest.
+            if ctx.mb_duration_ms.is_none()
+                && length.is_some()
+                && let Err(e) = cdb::mark_track_durations_changed(&self.db, ctx.id).await
+            {
+                tracing::warn!(
+                    track_id = ctx.id,
+                    "enrichment: failed to queue reclassification: {e}"
+                );
+            }
 
             // Piggyback: the recording carries the artist MBID…
             if ctx.artist_mbid.is_none()

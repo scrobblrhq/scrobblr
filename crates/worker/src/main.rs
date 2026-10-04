@@ -1,3 +1,4 @@
+mod classification;
 mod connected_accounts;
 mod enrichment;
 
@@ -16,8 +17,16 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL required");
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if matches!(
+        args.first().map(String::as_str),
+        Some("help" | "--help" | "-h")
+    ) {
+        println!("{USAGE}\n{}", classification::cli::USAGE);
+        return Ok(());
+    }
+
+    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL required");
 
     tracing::info!("worker: connecting to database...");
     let db = db::pool::connect(&database_url).await?;
@@ -25,7 +34,11 @@ async fn main() -> anyhow::Result<()> {
     match args.first().map(String::as_str) {
         None => {}
         Some("migrate") => return migrate(&db, &args[1..]).await,
-        Some(other) => anyhow::bail!("unknown command `{other}`\n\n{USAGE}"),
+        Some("classify") => {
+            db::migrate::ensure_current(&db).await?;
+            return classification::cli::run(&db, &args[1..]).await;
+        }
+        Some(other) => anyhow::bail!("unknown command `{other}` (see `worker --help`)"),
     }
 
     db::migrate::ensure_current(&db).await?;
@@ -63,12 +76,17 @@ async fn main() -> anyhow::Result<()> {
 
     // Polls connected Spotify accounts and turns their listening history
     // into scrobbles (and live now-playing state, if `redis` is available).
-    // A no-op loop (logs once and returns) if Spotify OAuth credentials
+    // Logs once and idles if Spotify OAuth credentials
     // aren't configured.
     let connected_accounts_poller = Arc::new(
         connected_accounts::ConnectedAccountsPoller::from_env(db.clone(), redis),
     );
     let connected_accounts_handle = tokio::spawn(connected_accounts_poller.run());
+
+    // Labels scrobbles counted / suspect / no_data (shadow mode).
+    let classifier = Arc::new(classification::Classifier::from_env(db.clone()).await?);
+    let classification_handle = tokio::spawn(classifier.clone().run());
+    let classification_sweep_handle = tokio::spawn(classifier.run_sweeps());
 
     // The tasks loop forever; reaching select! means one died or Ctrl-C.
     tokio::select! {
@@ -76,6 +94,8 @@ async fn main() -> anyhow::Result<()> {
         _ = enrichment_handle => tracing::warn!("enrichment task exited unexpectedly"),
         _ = maintenance_handle => tracing::warn!("enrichment maintenance task exited unexpectedly"),
         _ = connected_accounts_handle => tracing::warn!("connected-accounts poller exited unexpectedly"),
+        _ = classification_handle => tracing::warn!("classification task exited unexpectedly"),
+        _ = classification_sweep_handle => tracing::warn!("classification sweep exited unexpectedly"),
         _ = tokio::signal::ctrl_c() => tracing::info!("received Ctrl-C, shutting down"),
     }
 
@@ -86,7 +106,8 @@ const USAGE: &str = "\
 usage: worker                      run the background jobs
        worker migrate              apply pending migrations
        worker migrate status       list migrations and whether each is applied
-       worker migrate --baseline N record 1..=N as applied without running them";
+       worker migrate --baseline N record 1..=N as applied without running them
+       worker --help";
 
 async fn migrate(db: &sqlx::PgPool, args: &[String]) -> anyhow::Result<()> {
     let applied = match args {
