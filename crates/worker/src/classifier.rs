@@ -582,3 +582,771 @@ usage:
         }
     }
 }
+
+/// Database integration tests — `#[ignore]`d so `cargo test` keeps needing
+/// no database. Run them against a scratch database with migrations
+/// 0001–0007 applied, serially:
+///
+/// ```text
+/// createdb scrobblr_test   # then psql scrobblr_test -f migrations/000N_*.sql for N = 1..7
+/// DATABASE_URL=postgresql://localhost:5432/scrobblr_test \
+///     cargo test -p worker -- --ignored --test-threads=1
+/// ```
+///
+/// Each test creates its own users (deleted at the end), but some flip
+/// global state — the active ruleset, temporary `CHECK (false)` constraints
+/// that make a table reject writes — so never point them at a database a
+/// live worker uses, and never run them in parallel.
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+    use chrono::{DateTime, TimeZone, Utc};
+    use db::queries::scrobbles::{self as scrobbles_db, IngestError, InsertScrobble};
+    use db::queries::tracks as tracks_db;
+    use shared::scrobble::ScrobbleInput;
+
+    type Label = (i64, String, String, i32, Option<f32>, DateTime<Utc>);
+
+    async fn pool() -> PgPool {
+        let url = std::env::var("DATABASE_URL").expect("DATABASE_URL (scratch DB) required");
+        db::pool::connect(&url).await.expect("connect")
+    }
+
+    fn unique(prefix: &str) -> String {
+        format!("{prefix}-{}", uuid::Uuid::new_v4().simple())
+    }
+
+    async fn new_user(pool: &PgPool) -> i64 {
+        sqlx::query_scalar(
+            "INSERT INTO users (username, email, password_hash) VALUES ($1, $2, 'x') RETURNING id",
+        )
+        .bind(unique("clf"))
+        .bind(format!("{}@test.invalid", unique("clf")))
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
+    /// Deleting the users cascades to their scrobbles, labels and ledger rows.
+    async fn drop_users(pool: &PgPool, ids: &[i64]) {
+        sqlx::query("DELETE FROM users WHERE id = ANY($1)")
+            .bind(ids)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
+    /// A fresh artist + track; returns `(artist_id, track_id, artist, title)`.
+    async fn new_track(pool: &PgPool, duration_ms: Option<i32>) -> (i64, i64, String, String) {
+        let (artist_name, title) = (unique("artist"), unique("track"));
+        let artist = tracks_db::find_or_create_artist(pool, &artist_name)
+            .await
+            .unwrap();
+        let track = tracks_db::find_or_create_track(pool, artist.id, None, &title, duration_ms)
+            .await
+            .unwrap();
+        (artist.id, track.id, artist_name, title)
+    }
+
+    /// Inserts a scrobble directly, bypassing ingest (and its dirty mark).
+    async fn insert(
+        pool: &PgPool,
+        user_id: i64,
+        (artist_id, track_id): (i64, i64),
+        played_at: DateTime<Utc>,
+        source: &str,
+    ) -> i64 {
+        scrobbles_db::insert_scrobble(
+            pool,
+            &InsertScrobble {
+                user_id,
+                track_id,
+                artist_id,
+                album_id: None,
+                played_at,
+                source: source.into(),
+                duration_ms: None,
+            },
+        )
+        .await
+        .unwrap()
+    }
+
+    fn day(d: u32) -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 3, d, 0, 0, 0).unwrap()
+    }
+
+    fn at(d: u32, h: u32, m: u32) -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 3, d, h, m, 0).unwrap()
+    }
+
+    async fn classifier(pool: &PgPool, rule: TimeBudgetConfig) -> Classifier {
+        Classifier::start(
+            pool.clone(),
+            Settings {
+                rule,
+                settle_secs: 0.0,
+            },
+        )
+        .await
+        .unwrap()
+    }
+
+    /// Processes every due day (including leftovers from earlier runs).
+    async fn drain(c: &Classifier) {
+        while c.tick().await.unwrap() > 0 {}
+    }
+
+    async fn labels(pool: &PgPool, user_id: i64) -> Vec<Label> {
+        sqlx::query_as(
+            "SELECT scrobble_id, status, reason, ruleset_id, score, classified_at
+             FROM scrobble_classifications WHERE user_id = $1 ORDER BY played_at, scrobble_id",
+        )
+        .bind(user_id)
+        .fetch_all(pool)
+        .await
+        .unwrap()
+    }
+
+    fn count(labels: &[Label], status: &str) -> usize {
+        labels.iter().filter(|l| l.1 == status).count()
+    }
+
+    /// `(day, dirty)` for every ledger row of a user.
+    async fn ledger(pool: &PgPool, user_id: i64) -> Vec<(DateTime<Utc>, bool)> {
+        sqlx::query_as("SELECT day, dirty FROM classification_days WHERE user_id = $1 ORDER BY day")
+            .bind(user_id)
+            .fetch_all(pool)
+            .await
+            .unwrap()
+    }
+
+    async fn reject_writes(pool: &PgPool, table: &str) {
+        sqlx::query(&format!(
+            "ALTER TABLE {table} ADD CONSTRAINT test_reject_writes CHECK (false) NOT VALID"
+        ))
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn allow_writes(pool: &PgPool, table: &str) {
+        sqlx::query(&format!(
+            "ALTER TABLE {table} DROP CONSTRAINT test_reject_writes"
+        ))
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    fn input(artist: &str, title: &str, played_at: DateTime<Utc>) -> ScrobbleInput {
+        ScrobbleInput {
+            track_title: title.into(),
+            artist_name: artist.into(),
+            featured_artists: Vec::new(),
+            album_title: None,
+            played_at,
+            duration_ms: Some(200_000),
+            listened_ms: Some(200_000),
+            source: "extension".into(),
+        }
+    }
+
+    // ---- Regression contract: ingest must never reject a scrobble ----------
+
+    /// A broken ledger must not cost a scrobble: ingest still returns the id,
+    /// the row exists and the counter trigger ran.
+    #[tokio::test]
+    #[ignore]
+    async fn ingest_survives_ledger_write_failure() {
+        let pool = pool().await;
+        let user = new_user(&pool).await;
+        let (_, _, artist, title) = new_track(&pool, Some(200_000)).await;
+
+        reject_writes(&pool, "classification_days").await;
+        let result =
+            scrobbles_db::ingest_scrobble(&pool, user, &input(&artist, &title, at(14, 12, 0)))
+                .await;
+        allow_writes(&pool, "classification_days").await;
+
+        let id = result.expect("ingest must succeed when the ledger rejects writes");
+        let (rows, counter): (i64, i64) = sqlx::query_as(
+            "SELECT (SELECT COUNT(*) FROM scrobbles WHERE id = $1),
+                    (SELECT scrobble_count FROM users WHERE id = $2)",
+        )
+        .bind(id)
+        .bind(user)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!((rows, counter), (1, 1));
+        assert!(ledger(&pool, user).await.is_empty());
+        drop_users(&pool, &[user]).await;
+    }
+
+    /// The tracks trigger runs inside the track upsert at ingest; if its
+    /// queue rejects the insert, the duration fill must still succeed.
+    #[tokio::test]
+    #[ignore]
+    async fn track_duration_fill_survives_refresh_queue_failure() {
+        let pool = pool().await;
+        let (artist_id, track_id, _, title) = new_track(&pool, None).await;
+
+        reject_writes(&pool, "classification_track_refresh").await;
+        let result =
+            tracks_db::find_or_create_track(&pool, artist_id, None, &title, Some(180_000)).await;
+        allow_writes(&pool, "classification_track_refresh").await;
+
+        assert_eq!(
+            result.expect("track upsert must succeed").duration_ms,
+            Some(180_000)
+        );
+        let queued: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM classification_track_refresh WHERE track_id = $1",
+        )
+        .bind(track_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(queued, 0);
+    }
+
+    /// Dedup and its error are unchanged, and a rejected duplicate writes no
+    /// ledger mark.
+    #[tokio::test]
+    #[ignore]
+    async fn duplicate_is_still_rejected_without_a_ledger_write() {
+        let pool = pool().await;
+        let user = new_user(&pool).await;
+        let (_, _, artist, title) = new_track(&pool, Some(200_000)).await;
+
+        scrobbles_db::ingest_scrobble(&pool, user, &input(&artist, &title, at(14, 12, 0)))
+            .await
+            .unwrap();
+        let gen_before: i64 = sqlx::query_scalar(
+            "SELECT SUM(dirty_gen)::bigint FROM classification_days WHERE user_id = $1",
+        )
+        .bind(user)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        let dup = scrobbles_db::ingest_scrobble(
+            &pool,
+            user,
+            &input(&artist, &title, at(14, 12, 0) + ChronoDuration::seconds(10)),
+        )
+        .await;
+        assert!(matches!(dup, Err(IngestError::Duplicate)));
+
+        let gen_after: i64 = sqlx::query_scalar(
+            "SELECT SUM(dirty_gen)::bigint FROM classification_days WHERE user_id = $1",
+        )
+        .bind(user)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(gen_before, gen_after);
+        drop_users(&pool, &[user]).await;
+    }
+
+    // ---- Ledger marking --------------------------------------------------
+
+    /// The hook marks the next day only when the scrobble is within one
+    /// window of midnight, reading the window from the active ruleset; with
+    /// no active ruleset it always marks the next day.
+    #[tokio::test]
+    #[ignore]
+    async fn mark_dirty_marks_next_day_only_near_midnight() {
+        let pool = pool().await;
+        classifier(&pool, TimeBudgetConfig::default()).await; // W = 1h active
+        let (late, noon, fallback) = (
+            new_user(&pool).await,
+            new_user(&pool).await,
+            new_user(&pool).await,
+        );
+
+        cdb::mark_dirty(&pool, late, at(14, 23, 30)).await.unwrap();
+        cdb::mark_dirty(&pool, noon, at(14, 12, 0)).await.unwrap();
+
+        let active: Vec<(i32, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT id, activated_at FROM classification_rulesets WHERE activated_at IS NOT NULL",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE classification_rulesets SET activated_at = NULL")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let result = cdb::mark_dirty(&pool, fallback, at(14, 12, 0)).await;
+        for (id, activated_at) in &active {
+            sqlx::query("UPDATE classification_rulesets SET activated_at = $2 WHERE id = $1")
+                .bind(id)
+                .bind(activated_at)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        result.unwrap();
+
+        let days =
+            |rows: Vec<(DateTime<Utc>, bool)>| rows.into_iter().map(|r| r.0).collect::<Vec<_>>();
+        assert_eq!(days(ledger(&pool, late).await), vec![day(14), day(15)]);
+        assert_eq!(days(ledger(&pool, noon).await), vec![day(14)]);
+        assert_eq!(days(ledger(&pool, fallback).await), vec![day(14), day(15)]);
+        drop_users(&pool, &[late, noon, fallback]).await;
+    }
+
+    // ---- Classification ----------------------------------------------------
+
+    /// A normal evening plus a bot burst; classifying the day twice leaves
+    /// every label — including classified_at — untouched the second time.
+    #[tokio::test]
+    #[ignore]
+    async fn classifying_twice_is_identical() {
+        let pool = pool().await;
+        let c = classifier(&pool, TimeBudgetConfig::default()).await;
+        drain(&c).await;
+        let user = new_user(&pool).await;
+        let (a, t, _, _) = new_track(&pool, Some(240_000)).await;
+        for k in 0..10 {
+            insert(
+                &pool,
+                user,
+                (a, t),
+                at(14, 18, 0) + ChronoDuration::minutes(4 * k),
+                "extension",
+            )
+            .await;
+        }
+        for k in 0..400 {
+            insert(
+                &pool,
+                user,
+                (a, t),
+                at(14, 21, 0) + ChronoDuration::seconds(5 * k),
+                "bot",
+            )
+            .await;
+        }
+        cdb::enqueue_range(&pool, Some(user), None, None, cdb::PRIORITY_MANUAL)
+            .await
+            .unwrap();
+        drain(&c).await;
+        let first = labels(&pool, user).await;
+        assert_eq!(first.len(), 410);
+        assert!(count(&first, "counted") >= 10 && count(&first, "suspect") > 300);
+
+        cdb::enqueue_range(&pool, Some(user), None, None, cdb::PRIORITY_MANUAL)
+            .await
+            .unwrap();
+        drain(&c).await;
+        assert_eq!(first, labels(&pool, user).await);
+        drop_users(&pool, &[user]).await;
+    }
+
+    /// A mark landing while the day is processed keeps it dirty, and it
+    /// becomes claimable only after the settle delay again (R3).
+    #[tokio::test]
+    #[ignore]
+    async fn re_marked_day_waits_out_settle_again() {
+        let pool = pool().await;
+        let c = classifier(&pool, TimeBudgetConfig::default()).await;
+        drain(&c).await;
+        let user = new_user(&pool).await;
+        let (a, t, _, _) = new_track(&pool, Some(200_000)).await;
+        insert(&pool, user, (a, t), at(14, 12, 0), "extension").await;
+        cdb::mark_dirty(&pool, user, at(14, 12, 0)).await.unwrap();
+
+        let claimed = cdb::claim_dirty_days(&pool, 10, 0.0, CLAIM_LEASE_SECS)
+            .await
+            .unwrap();
+        let ours = claimed.iter().find(|d| d.user_id == user).unwrap().clone();
+        cdb::mark_dirty(&pool, user, at(14, 12, 5)).await.unwrap(); // arrives mid-flight
+        c.classify_day(&ours).await.unwrap();
+
+        assert_eq!(ledger(&pool, user).await, vec![(day(14), true)]);
+        let with_settle = cdb::claim_dirty_days(&pool, 100, 60.0, CLAIM_LEASE_SECS)
+            .await
+            .unwrap();
+        assert!(!with_settle.iter().any(|d| d.user_id == user));
+        let without = cdb::claim_dirty_days(&pool, 100, 0.0, CLAIM_LEASE_SECS)
+            .await
+            .unwrap();
+        assert!(without.iter().any(|d| d.user_id == user));
+        drop_users(&pool, &[user]).await;
+    }
+
+    /// Reconciliation finds a recent day the ingest hook never marked, and
+    /// leaves a correctly classified day alone (R2).
+    #[tokio::test]
+    #[ignore]
+    async fn reconciliation_requeues_unmarked_recent_days() {
+        let pool = pool().await;
+        let c = classifier(&pool, TimeBudgetConfig::default()).await;
+        drain(&c).await;
+        let user = new_user(&pool).await;
+        let (a, t, _, _) = new_track(&pool, Some(200_000)).await;
+        insert(
+            &pool,
+            user,
+            (a, t),
+            Utc::now() - ChronoDuration::days(1),
+            "extension",
+        )
+        .await;
+        assert!(ledger(&pool, user).await.is_empty());
+
+        cdb::reconcile_recent(&pool, RECONCILE_LOOKBACK_DAYS)
+            .await
+            .unwrap();
+        assert!(ledger(&pool, user).await.iter().all(|(_, dirty)| *dirty));
+
+        drain(&c).await;
+        cdb::reconcile_recent(&pool, RECONCILE_LOOKBACK_DAYS)
+            .await
+            .unwrap();
+        assert!(ledger(&pool, user).await.iter().all(|(_, dirty)| !*dirty));
+        assert_eq!(labels(&pool, user).await.len(), 1);
+        drop_users(&pool, &[user]).await;
+    }
+
+    /// A track gaining a duration re-checks its no_data labels: the trigger
+    /// queues it (NULL→value only), the drain waits for the lease, then
+    /// re-dirties the user-day found through the labels' track_id (R1).
+    #[tokio::test]
+    #[ignore]
+    async fn track_duration_fill_rechecks_no_data_labels() {
+        let pool = pool().await;
+        let c = classifier(&pool, TimeBudgetConfig::default()).await;
+        drain(&c).await;
+        let user = new_user(&pool).await;
+        let (a, t, _, title) = new_track(&pool, None).await;
+        for k in 0..3 {
+            insert(&pool, user, (a, t), at(14, 12, 4 * k), "extension").await;
+        }
+        cdb::mark_dirty(&pool, user, at(14, 12, 0)).await.unwrap();
+        drain(&c).await;
+        assert_eq!(count(&labels(&pool, user).await, "no_data"), 3);
+
+        tracks_db::find_or_create_track(&pool, a, None, &title, Some(240_000))
+            .await
+            .unwrap();
+        let queued = |pool: PgPool| async move {
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM classification_track_refresh WHERE track_id = $1",
+            )
+            .bind(t)
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+        };
+        assert_eq!(queued(pool.clone()).await, 1);
+
+        // Too fresh for a drain that respects the lease.
+        cdb::drain_track_refresh(&pool, CLAIM_LEASE_SECS, 1_000)
+            .await
+            .unwrap();
+        assert_eq!(queued(pool.clone()).await, 1);
+
+        cdb::drain_track_refresh(&pool, 0.0, 1_000).await.unwrap();
+        assert_eq!(queued(pool.clone()).await, 0);
+        assert_eq!(ledger(&pool, user).await.first(), Some(&(day(14), true)));
+        drain(&c).await;
+        assert_eq!(count(&labels(&pool, user).await, "counted"), 3);
+
+        // value → value is not a fill: no new queue entry.
+        sqlx::query("UPDATE tracks SET duration_ms = 250000 WHERE id = $1")
+            .bind(t)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(queued(pool.clone()).await, 0);
+        drop_users(&pool, &[user]).await;
+    }
+
+    /// Changing a threshold creates a new ruleset; starting with it re-queues
+    /// and relabels days classified under the old one.
+    #[tokio::test]
+    #[ignore]
+    async fn ruleset_change_relabels_history() {
+        let pool = pool().await;
+        let lenient = classifier(&pool, TimeBudgetConfig::default()).await;
+        drain(&lenient).await;
+        let user = new_user(&pool).await;
+        let (a, t, _, _) = new_track(&pool, Some(240_000)).await;
+        // A second device playing *different* music (the same track from
+        // another source would be paired away as a double-scrobble).
+        let (a2, t2, _, _) = new_track(&pool, Some(240_000)).await;
+        // ~1.5× wall-clock time for an hour: counted under the 2.0 ratio.
+        for k in 0..15 {
+            insert(
+                &pool,
+                user,
+                (a, t),
+                at(14, 18, 0) + ChronoDuration::minutes(4 * k),
+                "extension",
+            )
+            .await;
+        }
+        for k in 0..8 {
+            insert(
+                &pool,
+                user,
+                (a2, t2),
+                at(14, 18, 2) + ChronoDuration::minutes(7 * k),
+                "mobile",
+            )
+            .await;
+        }
+        cdb::enqueue_range(&pool, Some(user), None, None, cdb::PRIORITY_MANUAL)
+            .await
+            .unwrap();
+        drain(&lenient).await;
+        assert_eq!(count(&labels(&pool, user).await, "suspect"), 0);
+
+        let strict_rule = TimeBudgetConfig {
+            margin_ratio: 1.0,
+            margin_slack_secs: 0,
+            ..Default::default()
+        };
+        let strict = classifier(&pool, strict_rule).await;
+        assert_ne!(strict.ruleset_id, lenient.ruleset_id);
+        assert_eq!(ledger(&pool, user).await, vec![(day(14), true)]);
+        drain(&strict).await;
+        let relabeled = labels(&pool, user).await;
+        assert!(count(&relabeled, "suspect") > 0);
+        assert!(relabeled.iter().all(|l| l.3 == strict.ruleset_id));
+
+        classifier(&pool, TimeBudgetConfig::default()).await; // restore the default as active
+        drop_users(&pool, &[user]).await;
+    }
+
+    // ---- Queue mechanics (G4–G8) ------------------------------------------
+
+    /// G4. Value: protects=a day claimed by a crashed worker is reclaimable
+    /// after the lease; fails_when=the claim query loses its lease clause.
+    #[tokio::test]
+    #[ignore]
+    async fn expired_claim_lease_is_reclaimable() {
+        let pool = pool().await;
+        let c = classifier(&pool, TimeBudgetConfig::default()).await;
+        drain(&c).await;
+        let user = new_user(&pool).await;
+        cdb::mark_dirty(&pool, user, at(14, 12, 0)).await.unwrap();
+
+        let first = cdb::claim_dirty_days(&pool, 10, 0.0, CLAIM_LEASE_SECS)
+            .await
+            .unwrap();
+        assert!(first.iter().any(|d| d.user_id == user));
+        let again = cdb::claim_dirty_days(&pool, 10, 0.0, CLAIM_LEASE_SECS)
+            .await
+            .unwrap();
+        assert!(!again.iter().any(|d| d.user_id == user));
+
+        sqlx::query("UPDATE classification_days SET claimed_at = NOW() - INTERVAL '1 hour' WHERE user_id = $1")
+            .bind(user)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let reclaimed = cdb::claim_dirty_days(&pool, 10, 0.0, CLAIM_LEASE_SECS)
+            .await
+            .unwrap();
+        assert!(reclaimed.iter().any(|d| d.user_id == user));
+        drop_users(&pool, &[user]).await;
+    }
+
+    /// G5. Value: protects=processing day D never deletes day D−1 labels
+    /// loaded as lookback; fails_when=the orphan delete uses the load range.
+    #[tokio::test]
+    #[ignore]
+    async fn processing_a_day_keeps_the_previous_days_labels() {
+        let pool = pool().await;
+        let c = classifier(&pool, TimeBudgetConfig::default()).await;
+        drain(&c).await;
+        let user = new_user(&pool).await;
+        let (a, t, _, _) = new_track(&pool, Some(200_000)).await;
+        let late = insert(&pool, user, (a, t), at(13, 23, 50), "extension").await;
+        insert(&pool, user, (a, t), at(14, 0, 10), "extension").await;
+        cdb::enqueue_range(&pool, Some(user), None, None, cdb::PRIORITY_MANUAL)
+            .await
+            .unwrap();
+        drain(&c).await;
+        assert_eq!(labels(&pool, user).await.len(), 2);
+
+        cdb::enqueue_range(
+            &pool,
+            Some(user),
+            Some(day(14)),
+            Some(day(15)),
+            cdb::PRIORITY_MANUAL,
+        )
+        .await
+        .unwrap();
+        drain(&c).await;
+        let after = labels(&pool, user).await;
+        assert_eq!(after.len(), 2);
+        assert!(after.iter().any(|l| l.0 == late));
+        drop_users(&pool, &[user]).await;
+    }
+
+    /// G6. Value: protects=a failing day gets attempts+1, the error and a
+    /// future retry; fails_when=reschedule leaves it due → hot retry loop.
+    #[tokio::test]
+    #[ignore]
+    async fn failed_day_is_rescheduled_with_backoff() {
+        let pool = pool().await;
+        let c = classifier(&pool, TimeBudgetConfig::default()).await;
+        drain(&c).await;
+        let user = new_user(&pool).await;
+        let (a, t, _, _) = new_track(&pool, Some(200_000)).await;
+        insert(&pool, user, (a, t), at(14, 12, 0), "extension").await;
+        cdb::mark_dirty(&pool, user, at(14, 12, 0)).await.unwrap();
+
+        reject_writes(&pool, "scrobble_classifications").await;
+        let claimed = cdb::claim_dirty_days(&pool, 10, 0.0, CLAIM_LEASE_SECS).await;
+        if let Ok(days) = &claimed {
+            for d in days.iter().filter(|d| d.user_id == user) {
+                c.process(d).await;
+            }
+        }
+        allow_writes(&pool, "scrobble_classifications").await;
+        assert!(claimed.unwrap().iter().any(|d| d.user_id == user));
+
+        let (attempts, error, backed_off): (i32, Option<String>, bool) = sqlx::query_as(
+            "SELECT attempts, last_error, next_attempt_at > NOW() + INTERVAL '30 seconds'
+             FROM classification_days WHERE user_id = $1",
+        )
+        .bind(user)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(attempts, 1);
+        assert!(error.unwrap().contains("test_reject_writes"));
+        assert!(backed_off);
+        let due = cdb::claim_dirty_days(&pool, 100, 0.0, CLAIM_LEASE_SECS)
+            .await
+            .unwrap();
+        assert!(!due.iter().any(|d| d.user_id == user));
+        drop_users(&pool, &[user]).await;
+    }
+
+    /// G7. Value: protects=reclassify --user/--from/--to dirties exactly the
+    /// matching user-days; fails_when=a dropped filter dirties all history.
+    #[tokio::test]
+    #[ignore]
+    async fn reclassify_range_marks_only_matching_user_days() {
+        let pool = pool().await;
+        let c = classifier(&pool, TimeBudgetConfig::default()).await;
+        drain(&c).await;
+        let (u1, u2) = (new_user(&pool).await, new_user(&pool).await);
+        let (a, t, _, _) = new_track(&pool, Some(200_000)).await;
+        for u in [u1, u2] {
+            for d in [13, 14, 15] {
+                insert(&pool, u, (a, t), at(d, 12, 0), "extension").await;
+            }
+        }
+        cdb::enqueue_range(&pool, Some(u1), None, None, cdb::PRIORITY_MANUAL)
+            .await
+            .unwrap();
+        cdb::enqueue_range(&pool, Some(u2), None, None, cdb::PRIORITY_MANUAL)
+            .await
+            .unwrap();
+        drain(&c).await;
+
+        let marked = cdb::enqueue_range(
+            &pool,
+            Some(u1),
+            Some(day(14)),
+            Some(day(15)),
+            cdb::PRIORITY_MANUAL,
+        )
+        .await
+        .unwrap();
+        assert_eq!(marked, 1);
+        assert_eq!(
+            ledger(&pool, u1).await,
+            vec![(day(13), false), (day(14), true), (day(15), false)]
+        );
+        assert!(ledger(&pool, u2).await.iter().all(|(_, dirty)| !*dirty));
+
+        cdb::enqueue_range(&pool, Some(u1), None, None, cdb::PRIORITY_MANUAL)
+            .await
+            .unwrap();
+        assert!(ledger(&pool, u1).await.iter().all(|(_, dirty)| *dirty));
+        assert!(ledger(&pool, u2).await.iter().all(|(_, dirty)| !*dirty));
+        drop_users(&pool, &[u1, u2]).await;
+    }
+
+    /// G8. Value: protects=the report's distribution and top-N match the
+    /// seeded labels; fails_when=a join/grouping error misleads the review.
+    #[tokio::test]
+    #[ignore]
+    async fn report_matches_seeded_labels() {
+        let pool = pool().await;
+        let c = classifier(&pool, TimeBudgetConfig::default()).await;
+        drain(&c).await;
+        let totals = |rows: Vec<cdb::StatusCount>| {
+            let mut by_status: HashMap<String, i64> = HashMap::new();
+            for r in rows {
+                *by_status.entry(r.status).or_default() += r.count;
+            }
+            by_status
+        };
+        let before = totals(cdb::status_distribution(&pool).await.unwrap());
+
+        let user = new_user(&pool).await;
+        let (a, t, _, _) = new_track(&pool, Some(200_000)).await;
+        let (na, nt, _, _) = new_track(&pool, None).await;
+        for k in 0..300 {
+            insert(
+                &pool,
+                user,
+                (a, t),
+                at(14, 20, 0) + ChronoDuration::seconds(10 * k),
+                "bot",
+            )
+            .await;
+        }
+        for k in 0..5 {
+            insert(
+                &pool,
+                user,
+                (na, nt),
+                at(14, 8, 0) + ChronoDuration::minutes(5 * k),
+                "extension",
+            )
+            .await;
+        }
+        cdb::enqueue_range(&pool, Some(user), None, None, cdb::PRIORITY_MANUAL)
+            .await
+            .unwrap();
+        drain(&c).await;
+
+        let ours = labels(&pool, user).await;
+        let (counted, suspect, no_data) = (
+            count(&ours, "counted") as i64,
+            count(&ours, "suspect") as i64,
+            count(&ours, "no_data") as i64,
+        );
+        assert!(suspect > 0 && no_data == 5);
+
+        let after = totals(cdb::status_distribution(&pool).await.unwrap());
+        let delta =
+            |s: &str| after.get(s).copied().unwrap_or(0) - before.get(s).copied().unwrap_or(0);
+        assert_eq!(
+            (delta("counted"), delta("suspect"), delta("no_data")),
+            (counted, suspect, no_data)
+        );
+
+        let top = cdb::top_suspects(&pool, 10_000).await.unwrap();
+        let row = top.iter().find(|r| r.user_id == user).expect("user listed");
+        assert_eq!(
+            (row.suspect, row.total),
+            (suspect, counted + suspect + no_data)
+        );
+        assert!(row.max_score.unwrap() > 1.0);
+        drop_users(&pool, &[user]).await;
+    }
+}
