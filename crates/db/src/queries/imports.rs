@@ -142,13 +142,13 @@ pub async fn reimport_from(
     Ok(window_to.map(|t| t - import_logic::REIMPORT_OVERLAP))
 }
 
-/// When `user_id` last finished an import they started themselves.
+/// When `user_id` last completed an import they started themselves.
 pub async fn last_verified_finish(
     pool: &PgPool,
     user_id: i64,
 ) -> Result<Option<DateTime<Utc>>, sqlx::Error> {
     sqlx::query_scalar!(
-        "SELECT max(finished_at) FROM scrobble_imports WHERE user_id = $1 AND verified",
+        "SELECT max(finished_at) FROM scrobble_imports WHERE user_id = $1 AND verified AND status = 'done'",
         user_id,
     )
     .fetch_one(pool)
@@ -280,6 +280,8 @@ pub struct ClaimedImport {
     pub window_to: DateTime<Utc>,
     pub cursor: Cursor,
     pub imported: i64,
+    /// Scrobbles the user's other imports added, for the per-user cap.
+    pub imported_before: i64,
     pub attempts: i32,
     pub lease_token: Uuid,
 }
@@ -295,6 +297,7 @@ struct ClaimRow {
     segment_page: Option<i32>,
     segment_oldest: Option<i64>,
     imported: i64,
+    imported_before: i64,
     attempts: i32,
     lease_token: Uuid,
 }
@@ -318,6 +321,7 @@ impl From<ClaimRow> for ClaimedImport {
             window_to: r.window_to,
             cursor,
             imported: r.imported,
+            imported_before: r.imported_before,
             attempts: r.attempts,
             lease_token: r.lease_token,
         }
@@ -349,7 +353,10 @@ pub async fn claim_next(
         )
         RETURNING id, user_id, external_user, verified, window_from,
                   window_to AS "window_to!", segment_to, segment_page, segment_oldest,
-                  imported, attempts, lease_token AS "lease_token!"
+                  imported, attempts, lease_token AS "lease_token!",
+                  (SELECT COALESCE(sum(o.imported), 0) FROM scrobble_imports o
+                   WHERE o.user_id = scrobble_imports.user_id AND o.id <> scrobble_imports.id
+                  )::bigint AS "imported_before!"
         "#,
         lease_secs,
         Uuid::new_v4(),
@@ -378,7 +385,10 @@ pub async fn claim(
           AND (leased_until IS NULL OR leased_until < NOW())
         RETURNING id, user_id, external_user, verified, window_from,
                   window_to AS "window_to!", segment_to, segment_page, segment_oldest,
-                  imported, attempts, lease_token AS "lease_token!"
+                  imported, attempts, lease_token AS "lease_token!",
+                  (SELECT COALESCE(sum(o.imported), 0) FROM scrobble_imports o
+                   WHERE o.user_id = scrobble_imports.user_id AND o.id <> scrobble_imports.id
+                  )::bigint AS "imported_before!"
         "#,
         id,
         lease_secs,

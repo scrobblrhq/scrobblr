@@ -414,6 +414,8 @@ pub struct ScrobbleImport {
     /// Scrobbles in the window according to the provider, known once the
     /// first page is in.
     pub total_expected: Option<i64>,
+    /// Scrobbles read so far; can end slightly above `total_expected`, as
+    /// pages at segment boundaries overlap.
     pub fetched: i64,
     pub imported: i64,
     pub duplicates: i64,

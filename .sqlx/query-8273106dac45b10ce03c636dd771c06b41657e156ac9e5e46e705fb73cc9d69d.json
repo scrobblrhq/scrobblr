@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        UPDATE scrobble_imports\n        SET status       = 'running',\n            started_at   = COALESCE(started_at, NOW()),\n            window_to    = COALESCE(window_to, NOW()),\n            lease_token  = $3,\n            leased_until = NOW() + make_interval(secs => $2)\n        WHERE id = $1 AND status IN ('pending', 'running')\n          AND (leased_until IS NULL OR leased_until < NOW())\n        RETURNING id, user_id, external_user, verified, window_from,\n                  window_to AS \"window_to!\", segment_to, segment_page, segment_oldest,\n                  imported, attempts, lease_token AS \"lease_token!\"\n        ",
+  "query": "\n        UPDATE scrobble_imports\n        SET status       = 'running',\n            started_at   = COALESCE(started_at, NOW()),\n            window_to    = COALESCE(window_to, NOW()),\n            lease_token  = $3,\n            leased_until = NOW() + make_interval(secs => $2)\n        WHERE id = $1 AND status IN ('pending', 'running')\n          AND (leased_until IS NULL OR leased_until < NOW())\n        RETURNING id, user_id, external_user, verified, window_from,\n                  window_to AS \"window_to!\", segment_to, segment_page, segment_oldest,\n                  imported, attempts, lease_token AS \"lease_token!\",\n                  (SELECT COALESCE(sum(o.imported), 0) FROM scrobble_imports o\n                   WHERE o.user_id = scrobble_imports.user_id AND o.id <> scrobble_imports.id\n                  )::bigint AS \"imported_before!\"\n        ",
   "describe": {
     "columns": [
       {
@@ -62,6 +62,11 @@
         "ordinal": 11,
         "name": "lease_token!",
         "type_info": "Uuid"
+      },
+      {
+        "ordinal": 12,
+        "name": "imported_before!",
+        "type_info": "Int8"
       }
     ],
     "parameters": {
@@ -83,8 +88,9 @@
       true,
       false,
       false,
-      true
+      true,
+      null
     ]
   },
-  "hash": "c4ff0ec214a48a07068a4dc7d3eb4405bf8a2ad5babdcb476e50e9b35061950a"
+  "hash": "8273106dac45b10ce03c636dd771c06b41657e156ac9e5e46e705fb73cc9d69d"
 }

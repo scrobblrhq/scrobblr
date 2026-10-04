@@ -7,11 +7,13 @@ use std::time::Duration;
 use anyhow::{Context, bail};
 use sqlx::PgPool;
 
-use super::{Importer, LEASE_SECS, SliceEnd};
+use super::{Importer, LEASE_SECS, SLICE_PAGES, SliceEnd};
 use crate::enrichment::ratelimit::RateLimiter;
 use db::queries::imports::{self as imports_db, NewImport};
 use db::queries::users as users_db;
 use shared::models::ScrobbleImport;
+
+const CLI_PACE: Duration = Duration::from_millis(400);
 
 pub const USAGE: &str =
     "       worker import lastfm --user NAME --lastfm LASTFM_USER [--full] [--detach]
@@ -21,14 +23,12 @@ pub const USAGE: &str =
        worker import status [--user NAME]
        worker import cancel ID";
 
-pub async fn run(
-    db: &PgPool,
-    http: reqwest::Client,
-    limiter: Arc<RateLimiter>,
-    args: &[String],
-) -> anyhow::Result<()> {
+pub async fn run(db: &PgPool, http: reqwest::Client, args: &[String]) -> anyhow::Result<()> {
     match args.first().map(String::as_str) {
         Some("lastfm") => {
+            // Slower than the worker's shared limiter: a worker running
+            // alongside this process makes its own Last.fm calls.
+            let limiter = Arc::new(RateLimiter::new(CLI_PACE));
             let importer = Importer::from_env(db.clone(), http, limiter)?
                 .context("LASTFM_API_KEY is not set")?;
             import(db, &importer, &args[1..]).await
@@ -129,13 +129,13 @@ pub(super) async fn import(
             if !current.status.is_active() {
                 return finished(db, user.id, &current).await;
             }
-            println!("another worker is running import #{id}; following it");
+            println!("{} (run by another worker)", progress(&current));
             tokio::time::sleep(Duration::from_secs(5)).await;
             continue;
         };
         let lease = job.clone();
         let end = tokio::select! {
-            end = importer.process(job, u32::MAX) => end?,
+            end = importer.process(job, SLICE_PAGES) => end?,
             _ = tokio::signal::ctrl_c() => {
                 imports_db::release(db, &lease).await?;
                 println!("\npaused; run the same command again to resume");

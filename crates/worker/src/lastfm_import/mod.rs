@@ -32,7 +32,7 @@ use shared::lastfm::{
 pub const LEASE_SECS: f64 = 180.0;
 const POLL_INTERVAL: Duration = Duration::from_secs(5);
 /// Pages per lease before the job goes back in line behind other imports.
-const SLICE_PAGES: u32 = 25;
+pub const SLICE_PAGES: u32 = 25;
 /// Consecutive transient failures (about four hours of backoff) before the
 /// job fails.
 const MAX_ATTEMPTS: i32 = 10;
@@ -142,11 +142,11 @@ impl Importer {
 
         let mut pages = 0;
         while pages < max_pages {
-            if job.imported >= self.max_scrobbles {
+            if job.imported_before + job.imported >= self.max_scrobbles {
                 self.checkpoint(job.id, job.user_id).await;
                 let message = format!(
-                    "stopped after {} scrobbles, the import limit (LASTFM_IMPORT_MAX_SCROBBLES)",
-                    job.imported
+                    "stopped at {} imported scrobbles for this user, the limit (LASTFM_IMPORT_MAX_SCROBBLES)",
+                    job.imported_before + job.imported
                 );
                 imports_db::fail(&self.db, &job, CAP_REACHED, &message).await?;
                 return Ok(SliceEnd::Failed(CAP_REACHED));

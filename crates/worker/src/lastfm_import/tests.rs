@@ -345,6 +345,20 @@ async fn rate_limits_cost_no_attempts_and_the_cap_stops_an_import() {
                 .unwrap()
                 .is_none()
         );
+
+        // The cap is per user: starting over doesn't get past it.
+        let again = new_import(&pool, user_id, "bot").await;
+        let (end, _) = drive(&importer, &pool, again).await;
+        assert_eq!(end, SliceEnd::Failed(super::CAP_REACHED));
+        assert_eq!(
+            count(
+                &pool,
+                "SELECT count(*) FROM scrobbles WHERE user_id = $1",
+                user_id
+            )
+            .await,
+            capped.imported
+        );
     })
     .await;
 }

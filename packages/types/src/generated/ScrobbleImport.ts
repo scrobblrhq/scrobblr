@@ -23,7 +23,12 @@ window_from: string | null, window_to: string | null,
  * Scrobbles in the window according to the provider, known once the
  * first page is in.
  */
-total_expected: number | null, fetched: number, imported: number, duplicates: number, skipped: number, 
+total_expected: number | null, 
+/**
+ * Scrobbles read so far; can end slightly above `total_expected`, as
+ * pages at segment boundaries overlap.
+ */
+fetched: number, imported: number, duplicates: number, skipped: number, 
 /**
  * How far back in time the import has reached.
  */

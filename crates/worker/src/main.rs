@@ -40,8 +40,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("worker: connecting to database...");
     let db = db::pool::connect(&database_url).await?;
 
-    // Every Last.fm caller shares one pace, and the import CLI shares it
-    // with nothing else in its process.
+    // Every Last.fm caller in the worker shares one pace.
     let lastfm_limiter = Arc::new(enrichment::ratelimit::RateLimiter::new(
         enrichment::LASTFM_INTERVAL,
     ));
@@ -60,7 +59,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Some("import") => {
             db::migrate::ensure_current(&db).await?;
-            return lastfm_import::cli::run(&db, lastfm_http, lastfm_limiter, &args[1..]).await;
+            return lastfm_import::cli::run(&db, lastfm_http, &args[1..]).await;
         }
         Some(other) => anyhow::bail!("unknown command `{other}` (see `worker --help`)"),
     }
