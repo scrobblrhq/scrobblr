@@ -1,0 +1,48 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT s.id, s.played_at, s.track_id, s.source,\n               COALESCE(t.duration_ms, s.duration_ms) AS \"duration_ms?\"\n        FROM scrobbles s\n        JOIN tracks t ON t.id = s.track_id\n        WHERE s.user_id = $1\n          AND s.played_at > $2\n          AND s.played_at < $3\n        ORDER BY s.played_at, s.id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "played_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "track_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "source",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "duration_ms?",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "36557069314f283af2f980f365ffc24f40c7957b5a91198572fbe78b701cc728"
+}

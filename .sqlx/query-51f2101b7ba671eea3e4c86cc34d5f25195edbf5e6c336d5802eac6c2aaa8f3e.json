@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE classification_days\n        SET claimed_at = NOW()\n        WHERE (user_id, day) IN (\n            SELECT user_id, day FROM classification_days\n            WHERE dirty\n              AND next_attempt_at <= NOW() - make_interval(secs => $2)\n              AND (claimed_at IS NULL OR claimed_at < NOW() - make_interval(secs => $3))\n            ORDER BY priority DESC, next_attempt_at\n            LIMIT $1\n            FOR UPDATE SKIP LOCKED\n        )\n        RETURNING user_id, day, dirty_gen, attempts\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "day",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "dirty_gen",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "attempts",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Float8",
+        "Float8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "51f2101b7ba671eea3e4c86cc34d5f25195edbf5e6c336d5802eac6c2aaa8f3e"
+}

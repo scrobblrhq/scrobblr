@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        DELETE FROM scrobble_classifications\n        WHERE user_id = $1\n          AND played_at >= $2\n          AND played_at <  $2 + INTERVAL '1 day'\n          AND NOT (scrobble_id = ANY($3::bigint[]))\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Timestamptz",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8b81bde239b1934b980c28bec31fbaa443bee3ebbeb5c6b1e02da5c69339d259"
+}

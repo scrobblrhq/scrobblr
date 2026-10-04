@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        DELETE FROM classification_track_refresh\n        WHERE track_id IN (\n            SELECT track_id FROM classification_track_refresh\n            WHERE enqueued_at < NOW() - make_interval(secs => $1)\n            ORDER BY enqueued_at\n            LIMIT $2\n            FOR UPDATE SKIP LOCKED\n        )\n        RETURNING track_id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "track_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Float8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "119fe29d92af7664ea5fb893f52a3b92b148bf1838cf6a1a51176e5b43a89886"
+}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO classification_days (user_id, day, priority)\n        SELECT DISTINCT c.user_id, d.day, $2::int\n        FROM scrobble_classifications c\n        CROSS JOIN (\n            SELECT COALESCE(\n                (SELECT (params->>'window_secs')::int\n                 FROM classification_rulesets\n                 WHERE activated_at IS NOT NULL\n                 ORDER BY activated_at DESC\n                 LIMIT 1),\n                86400) AS window_secs\n        ) w\n        CROSS JOIN LATERAL (VALUES\n            (time_bucket('1 day', c.played_at)),\n            (time_bucket('1 day', c.played_at + make_interval(secs => w.window_secs)))\n        ) AS d(day)\n        WHERE c.track_id = ANY($1::bigint[])\n        ON CONFLICT (user_id, day) DO UPDATE SET\n            dirty_gen       = classification_days.dirty_gen + 1,\n            priority        = CASE WHEN classification_days.dirty\n                                   THEN GREATEST(classification_days.priority, EXCLUDED.priority)\n                                   ELSE EXCLUDED.priority END,\n            next_attempt_at = CASE WHEN classification_days.dirty\n                                   THEN classification_days.next_attempt_at\n                                   ELSE NOW() END,\n            dirty           = TRUE\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0b7898ecd2771e3cac3f21656d698ebd4233d974de677ceab337edf7d2f74409"
+}

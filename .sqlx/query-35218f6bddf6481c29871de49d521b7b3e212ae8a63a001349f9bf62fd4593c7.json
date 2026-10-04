@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT d.user_id                                        AS \"user_id!\",\n               u.username                                       AS \"username!\",\n               u.is_private                                     AS \"is_private!\",\n               SUM(d.suspect)::bigint                           AS \"suspect!\",\n               SUM(d.counted + d.suspect + d.no_data)::bigint   AS \"total!\",\n               (SELECT MAX(c.score)\n                FROM scrobble_classifications c\n                WHERE c.user_id = d.user_id AND c.status = 'suspect') AS \"max_score?\"\n        FROM classification_days d\n        JOIN users u ON u.id = d.user_id\n        GROUP BY d.user_id, u.username, u.is_private\n        HAVING SUM(d.suspect) > 0\n        ORDER BY SUM(d.suspect) DESC, d.user_id\n        LIMIT $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "username!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "is_private!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "suspect!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "total!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "max_score?",
+        "type_info": "Float4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "35218f6bddf6481c29871de49d521b7b3e212ae8a63a001349f9bf62fd4593c7"
+}

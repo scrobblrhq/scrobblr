@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE classification_days\n        SET dirty           = TRUE,\n            dirty_gen       = dirty_gen + 1,\n            priority        = $2,\n            next_attempt_at = NOW()\n        WHERE NOT dirty AND ruleset_id IS DISTINCT FROM $1\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8da2f7a4fa3b6de8a654f6971c047f967e15690f49ef14db04855db5d1761938"
+}

@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod classification;
 pub mod community;
 pub mod connected_accounts;
 pub mod enrichment;

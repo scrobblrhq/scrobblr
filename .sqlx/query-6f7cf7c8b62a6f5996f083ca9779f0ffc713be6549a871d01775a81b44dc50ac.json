@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO classification_days (user_id, day, priority)\n        SELECT DISTINCT $1::bigint, d.day, $3::int\n        FROM (\n            SELECT COALESCE(\n                (SELECT (params->>'window_secs')::int\n                 FROM classification_rulesets\n                 WHERE activated_at IS NOT NULL\n                 ORDER BY activated_at DESC\n                 LIMIT 1),\n                86400) AS window_secs\n        ) w\n        CROSS JOIN LATERAL (VALUES\n            (time_bucket('1 day', $2::timestamptz)),\n            (time_bucket('1 day', $2::timestamptz + make_interval(secs => w.window_secs)))\n        ) AS d(day)\n        ON CONFLICT (user_id, day) DO UPDATE SET\n            dirty_gen       = classification_days.dirty_gen + 1,\n            priority        = CASE WHEN classification_days.dirty\n                                   THEN GREATEST(classification_days.priority, EXCLUDED.priority)\n                                   ELSE EXCLUDED.priority END,\n            next_attempt_at = CASE WHEN classification_days.dirty\n                                   THEN classification_days.next_attempt_at\n                                   ELSE NOW() END,\n            dirty           = TRUE\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Timestamptz",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6f7cf7c8b62a6f5996f083ca9779f0ffc713be6549a871d01775a81b44dc50ac"
+}

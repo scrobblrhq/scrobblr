@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            COUNT(*) FILTER (WHERE dirty)                                        AS \"dirty!\",\n            COUNT(*) FILTER (WHERE NOT dirty AND ruleset_id IS DISTINCT FROM $1) AS \"outdated!\",\n            COUNT(*) FILTER (WHERE NOT dirty AND ruleset_id = $1)                AS \"current!\",\n            COUNT(*) FILTER (WHERE last_error IS NOT NULL)                       AS \"erroring!\"\n        FROM classification_days\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "dirty!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "outdated!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "current!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "erroring!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "5f9bd43eb38d89f9e362716a4bbd9d697b9c624577a4a3fb3b7fd78cdfd19be9"
+}

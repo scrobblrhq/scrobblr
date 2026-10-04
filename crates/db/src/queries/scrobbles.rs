@@ -2,7 +2,9 @@ use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use thiserror::Error;
 
-use crate::queries::{enrichment as enrichment_db, tracks as tracks_db};
+use crate::queries::{
+    classification as classification_db, enrichment as enrichment_db, tracks as tracks_db,
+};
 use shared::models::{ActivityDay, NowPlayingRich, Scrobble, ScrobbleRich, TopArtist, TopTrack};
 use shared::scrobble::{self as scrobble_logic, ScrobbleInput, ScrobbleValidationError};
 
@@ -91,6 +93,13 @@ pub async fn ingest_scrobble(
         },
     )
     .await?;
+
+    // Best-effort, like the enrichment enqueue: shadow-mode classification
+    // must never reject a scrobble. A dropped mark is picked up by the
+    // worker's periodic reconciliation of recent days.
+    if let Err(e) = classification_db::mark_dirty(pool, user_id, input.played_at).await {
+        tracing::warn!("failed to mark scrobble day for classification: {e}");
+    }
 
     Ok(scrobble_id)
 }

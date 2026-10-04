@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE classification_days SET\n            counted         = $3,\n            suspect         = $4,\n            no_data         = $5,\n            ruleset_id      = $6,\n            classified_at   = NOW(),\n            claimed_at      = NULL,\n            attempts        = 0,\n            last_error      = NULL,\n            dirty           = (dirty_gen <> $7),\n            next_attempt_at = CASE WHEN dirty_gen <> $7 THEN NOW() ELSE next_attempt_at END\n        WHERE user_id = $1 AND day = $2\n        RETURNING NOT dirty AS \"clean!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "clean!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Timestamptz",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "e2458c7e67379a64ae70340405bc4fcb9b120a1f566aef54defce1579c137565"
+}

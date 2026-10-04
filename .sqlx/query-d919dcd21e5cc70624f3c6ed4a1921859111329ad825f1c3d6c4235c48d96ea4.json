@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO classification_days (user_id, day, priority)\n        SELECT a.user_id, a.day, $2::int\n        FROM (\n            SELECT user_id, time_bucket('1 day', played_at) AS day, COUNT(*) AS n\n            FROM scrobbles\n            WHERE played_at >= time_bucket('1 day', NOW()) - make_interval(days => $1)\n            GROUP BY 1, 2\n        ) a\n        LEFT JOIN classification_days c ON c.user_id = a.user_id AND c.day = a.day\n        WHERE c.user_id IS NULL\n           OR (NOT c.dirty AND c.counted + c.suspect + c.no_data <> a.n)\n        ON CONFLICT (user_id, day) DO UPDATE SET\n            dirty_gen       = classification_days.dirty_gen + 1,\n            priority        = CASE WHEN classification_days.dirty\n                                   THEN GREATEST(classification_days.priority, EXCLUDED.priority)\n                                   ELSE EXCLUDED.priority END,\n            next_attempt_at = CASE WHEN classification_days.dirty\n                                   THEN classification_days.next_attempt_at\n                                   ELSE NOW() END,\n            dirty           = TRUE\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d919dcd21e5cc70624f3c6ed4a1921859111329ad825f1c3d6c4235c48d96ea4"
+}

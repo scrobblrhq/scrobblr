@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO scrobble_classifications\n                (scrobble_id, played_at, user_id, track_id, status, reason, ruleset_id, score)\n            SELECT u.scrobble_id, u.played_at, $1, u.track_id, u.status, u.reason, $2, u.score\n            FROM UNNEST($3::bigint[], $4::timestamptz[], $5::bigint[], $6::text[], $7::text[], $8::real[])\n                AS u(scrobble_id, played_at, track_id, status, reason, score)\n            ON CONFLICT (scrobble_id, played_at) DO UPDATE SET\n                user_id       = EXCLUDED.user_id,\n                track_id      = EXCLUDED.track_id,\n                status        = EXCLUDED.status,\n                reason        = EXCLUDED.reason,\n                ruleset_id    = EXCLUDED.ruleset_id,\n                score         = EXCLUDED.score,\n                classified_at = NOW()\n            WHERE (scrobble_classifications.user_id, scrobble_classifications.track_id,\n                   scrobble_classifications.status, scrobble_classifications.reason,\n                   scrobble_classifications.ruleset_id, scrobble_classifications.score)\n                  IS DISTINCT FROM\n                  (EXCLUDED.user_id, EXCLUDED.track_id, EXCLUDED.status,\n                   EXCLUDED.reason, EXCLUDED.ruleset_id, EXCLUDED.score)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int4",
+        "Int8Array",
+        "TimestamptzArray",
+        "Int8Array",
+        "TextArray",
+        "TextArray",
+        "Float4Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4c843215a51161735a9a65f751ff72f5a2ac197fa1514fa147623f02faad7188"
+}
