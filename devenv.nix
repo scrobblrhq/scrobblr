@@ -1,4 +1,5 @@
-{ pkgs, lib, ... }: {
+{ pkgs, lib, ... }:
+{
   # Backend-only dev shell: Rust + Postgres/TimescaleDB + Redis + tooling.
   # (No Android/Flutter here — the mobile app lives in its own repo.)
   packages = with pkgs; [
