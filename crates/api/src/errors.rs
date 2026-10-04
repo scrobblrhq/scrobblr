@@ -39,6 +39,9 @@ pub enum AppError {
     #[error("too many requests")]
     RateLimited,
 
+    #[error("untrusted client: {0}")]
+    UntrustedClient(String),
+
     #[error("database error: {0}")]
     Database(#[from] sqlx::Error),
 
@@ -76,6 +79,10 @@ impl IntoResponse for AppError {
             AppError::EmailTaken => (StatusCode::CONFLICT, self.to_string()),
             AppError::ProviderAccountTaken => (StatusCode::CONFLICT, self.to_string()),
             AppError::RateLimited => (StatusCode::TOO_MANY_REQUESTS, self.to_string()),
+            AppError::UntrustedClient(reason) => {
+                tracing::warn!("rejected unsigned request to a first-party endpoint: {reason}");
+                (StatusCode::UNAUTHORIZED, "untrusted client".to_string())
+            }
             AppError::Database(e) => {
                 tracing::error!("database error: {e}");
                 (

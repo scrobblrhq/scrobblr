@@ -1,6 +1,6 @@
 use sqlx::PgPool;
 
-use shared::models::{Album, Artist, TopListener, TopTrack, Track};
+use shared::models::{Album, Artist, TopListener, TopTrack, Track, TrackArtistRole, TrackCredit};
 
 /// Looks up an artist by their normalized name, creating one if none exists.
 ///
@@ -125,6 +125,69 @@ pub async fn find_or_create_track(
         duration_ms,
     )
     .fetch_one(pool)
+    .await
+}
+
+/// Records the credit list for a track. Add-only: an existing credit is
+/// never rewritten or dropped, so a client that omits a collaborator on one
+/// submission cannot erase what an earlier, better-informed one reported.
+pub async fn record_track_credits(
+    pool: &PgPool,
+    track_id: i64,
+    primary_artist_id: i64,
+    featured_artist_ids: &[i64],
+) -> Result<(), sqlx::Error> {
+    let mut tx = pool.begin().await?;
+
+    sqlx::query!(
+        r#"
+        INSERT INTO track_artists (track_id, artist_id, role, position)
+        VALUES ($1, $2, 'primary', 0)
+        ON CONFLICT (track_id, artist_id) DO NOTHING
+        "#,
+        track_id,
+        primary_artist_id,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    if !featured_artist_ids.is_empty() {
+        sqlx::query!(
+            r#"
+            INSERT INTO track_artists (track_id, artist_id, role, position)
+            SELECT $1, credit.artist_id, 'featured', credit.ord::INT
+            FROM UNNEST($2::BIGINT[]) WITH ORDINALITY AS credit(artist_id, ord)
+            WHERE credit.artist_id <> $3
+            ON CONFLICT (track_id, artist_id) DO NOTHING
+            "#,
+            track_id,
+            featured_artist_ids,
+            primary_artist_id,
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await
+}
+
+pub async fn track_credits(pool: &PgPool, track_id: i64) -> Result<Vec<TrackCredit>, sqlx::Error> {
+    sqlx::query_as!(
+        TrackCredit,
+        r#"
+        SELECT ta.artist_id     AS "artist_id!",
+               a.name           AS "name!",
+               a.image_url      AS "image_url?",
+               ta.role          AS "role!: TrackArtistRole",
+               ta.position      AS "position!"
+        FROM track_artists ta
+        JOIN artists a ON a.id = ta.artist_id
+        WHERE ta.track_id = $1
+        ORDER BY ta.role, ta.position, a.name
+        "#,
+        track_id,
+    )
+    .fetch_all(pool)
     .await
 }
 

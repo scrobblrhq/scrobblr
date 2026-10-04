@@ -65,6 +65,14 @@ pub async fn ingest_scrobble(
     )
     .await?;
 
+    let featured =
+        scrobble_logic::normalize_featured_artists(&input.artist_name, &input.featured_artists);
+    let mut featured_ids = Vec::with_capacity(featured.len());
+    for name in &featured {
+        featured_ids.push(tracks_db::find_or_create_artist(pool, name).await?.id);
+    }
+    tracks_db::record_track_credits(pool, track.id, artist.id, &featured_ids).await?;
+
     // Best-effort: a failure here must never reject the scrobble.
     if let Err(e) = enrichment_db::enqueue_for_ingest(pool, artist.id, album_id, track.id).await {
         tracing::warn!("failed to enqueue enrichment for scrobble: {e}");

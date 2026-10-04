@@ -172,6 +172,7 @@ pub async fn get_current_user_id(
 pub struct RecentlyPlayedItem {
     pub track_title: String,
     pub artist_name: String,
+    pub featured_artists: Vec<String>,
     pub album_title: Option<String>,
     pub duration_ms: i32,
     pub played_at: DateTime<Utc>,
@@ -229,12 +230,8 @@ pub async fn get_recently_played(
         .into_iter()
         .map(|item| RecentlyPlayedItem {
             track_title: item.track.name,
-            artist_name: item
-                .track
-                .artists
-                .first()
-                .map(|a| a.name.clone())
-                .unwrap_or_default(),
+            artist_name: primary_artist(&item.track.artists),
+            featured_artists: featured_artists(&item.track.artists),
             album_title: Some(item.track.album.name),
             duration_ms: item.track.duration_ms,
             played_at: item.played_at,
@@ -248,6 +245,7 @@ pub async fn get_recently_played(
 pub struct CurrentlyPlaying {
     pub track_title: String,
     pub artist_name: String,
+    pub featured_artists: Vec<String>,
     pub album_title: Option<String>,
     pub duration_ms: i32,
     pub progress_ms: i32,
@@ -290,15 +288,20 @@ pub async fn get_currently_playing(
 
     Ok(Some(CurrentlyPlaying {
         track_title: item.name,
-        artist_name: item
-            .artists
-            .first()
-            .map(|a| a.name.clone())
-            .unwrap_or_default(),
+        artist_name: primary_artist(&item.artists),
+        featured_artists: featured_artists(&item.artists),
         album_title: Some(item.album.name),
         duration_ms: item.duration_ms,
         progress_ms: parsed.progress_ms.unwrap_or(0),
     }))
+}
+
+fn primary_artist(artists: &[SpotifyArtist]) -> String {
+    artists.first().map(|a| a.name.clone()).unwrap_or_default()
+}
+
+fn featured_artists(artists: &[SpotifyArtist]) -> Vec<String> {
+    artists.iter().skip(1).map(|a| a.name.clone()).collect()
 }
 
 /// Passes a successful response through, or turns a failure into a

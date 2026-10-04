@@ -13,24 +13,26 @@ use crate::{
     state::AppState,
 };
 use db::queries::{enrichment as enrichment_db, tracks as tracks_db, users as users_db};
-use shared::models::{Artist, TopListener, TopTrack, Track, UserProfile};
+use shared::models::{Artist, TopListener, TopTrack, Track, TrackWithCredits, UserProfile};
 
 /// GET /v1/track/:id
 pub async fn get_track(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-) -> ApiResult<Json<Track>> {
-    tracks_db::find_track_by_id(&state.db, id)
+) -> ApiResult<Json<TrackWithCredits>> {
+    let track = tracks_db::find_track_by_id(&state.db, id)
         .await?
-        .map(Json)
-        .ok_or(AppError::NotFound)
+        .ok_or(AppError::NotFound)?;
+    let artists = tracks_db::track_credits(&state.db, track.id).await?;
+
+    Ok(Json(TrackWithCredits { track, artists }))
 }
 
 pub fn _get_track_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Get a track")
-        .description("Returns catalog metadata for a single track by its internal ID, including title, artist, album, and duration.")
+        .description("Returns catalog metadata for a single track by its internal ID, including title, album, duration and the full artist credit list (primary artist first, then featured collaborators in billing order).")
         .tag("Catalog")
-        .response::<200, Json<Track>>()
+        .response::<200, Json<TrackWithCredits>>()
         .response_with::<404, (), _>(|r| r.description("Track not found"))
 }
 

@@ -1,0 +1,56 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT ta.artist_id     AS \"artist_id!\",\n               a.name           AS \"name!\",\n               a.image_url      AS \"image_url?\",\n               ta.role          AS \"role!: TrackArtistRole\",\n               ta.position      AS \"position!\"\n        FROM track_artists ta\n        JOIN artists a ON a.id = ta.artist_id\n        WHERE ta.track_id = $1\n        ORDER BY ta.role, ta.position, a.name\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "artist_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "image_url?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "role!: TrackArtistRole",
+        "type_info": {
+          "Custom": {
+            "name": "track_artist_role",
+            "kind": {
+              "Enum": [
+                "primary",
+                "featured"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "position!",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "6710445b35035db86f55509cd8c162bdea466deb517fc4817be9de9976da5916"
+}

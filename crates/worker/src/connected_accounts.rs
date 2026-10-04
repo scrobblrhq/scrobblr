@@ -134,6 +134,7 @@ impl ConnectedAccountsPoller {
             let input = ScrobbleInput {
                 track_title: item.track_title.clone(),
                 artist_name: item.artist_name.clone(),
+                featured_artists: item.featured_artists.clone(),
                 album_title: item.album_title.clone(),
                 played_at: item.played_at,
                 duration_ms: Some(item.duration_ms),
@@ -235,6 +236,16 @@ impl ConnectedAccountsPoller {
             Some(current.duration_ms),
         )
         .await?;
+
+        let featured = scrobble_logic::normalize_featured_artists(
+            &current.artist_name,
+            &current.featured_artists,
+        );
+        let mut featured_ids = Vec::with_capacity(featured.len());
+        for name in &featured {
+            featured_ids.push(tracks_db::find_or_create_artist(&self.db, name).await?.id);
+        }
+        tracks_db::record_track_credits(&self.db, track.id, artist.id, &featured_ids).await?;
 
         if let Err(e) =
             enrichment_db::enqueue_for_ingest(&self.db, artist.id, album_id, track.id).await

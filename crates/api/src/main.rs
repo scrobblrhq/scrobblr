@@ -26,6 +26,17 @@ async fn main() -> anyhow::Result<()> {
             .map_err(|e| anyhow::anyhow!("SPOTIFY_CLIENT_ID is set but {e}"))?;
     }
 
+    let app_keys = middleware::app_signature::AppKeys::from_env()?.map(std::sync::Arc::new);
+    match &app_keys {
+        Some(keys) => tracing::info!(
+            "auth endpoints restricted to signed clients: {}",
+            keys.app_ids().collect::<Vec<_>>().join(", ")
+        ),
+        None => tracing::warn!(
+            "AUTH_APP_KEYS not set - /v1/auth/register and /v1/auth/login accept unsigned clients"
+        ),
+    }
+
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL required");
     let redis_url =
         std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
@@ -60,7 +71,12 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // Axum
-    let state = state::AppState { db, redis, uploads };
+    let state = state::AppState {
+        db,
+        redis,
+        uploads,
+        app_keys,
+    };
     let app = router::build(state);
 
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;

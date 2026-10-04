@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO track_artists (track_id, artist_id, role, position)\n        VALUES ($1, $2, 'primary', 0)\n        ON CONFLICT (track_id, artist_id) DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0d1499f8f1666b9229a8a2ba41aa2fba4130ea45bc0e7f7b16a82fe9c652c2c7"
+}
