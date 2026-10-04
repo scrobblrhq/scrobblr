@@ -147,7 +147,7 @@ async fn execute(
 ) -> Result<(), sqlx::Error> {
     if migration.no_tx {
         for statement in split_statements(&migration.sql) {
-            sqlx::raw_sql(statement).execute(&mut *conn).await?;
+            execute_retrying(conn, statement).await?;
         }
         record(&mut *conn, migration, elapsed_ms(started)).await
     } else {
@@ -156,6 +156,32 @@ async fn execute(
         record(&mut tx, migration, elapsed_ms(started)).await?;
         tx.commit().await
     }
+}
+
+/// Runs one statement of a no-transaction migration, retrying while a lock
+/// is busy: Timescale's scheduler can start a policy refresh of the same
+/// aggregate the migration refreshes, which fails with `lock_not_available`.
+async fn execute_retrying(conn: &mut PgConnection, statement: &str) -> Result<(), sqlx::Error> {
+    const ATTEMPTS: u32 = 10;
+    let mut attempt = 1;
+    loop {
+        match sqlx::raw_sql(statement).execute(&mut *conn).await {
+            Ok(_) => return Ok(()),
+            Err(e) if attempt < ATTEMPTS && is_lock_not_available(&e) => {
+                tracing::warn!("migrate: lock busy, retrying ({attempt}/{ATTEMPTS}): {e}");
+                tokio::time::sleep(std::time::Duration::from_millis(500 * u64::from(attempt)))
+                    .await;
+                attempt += 1;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
+
+fn is_lock_not_available(err: &sqlx::Error) -> bool {
+    err.as_database_error()
+        .and_then(|e| e.code())
+        .is_some_and(|code| code == "55P03")
 }
 
 async fn record(
