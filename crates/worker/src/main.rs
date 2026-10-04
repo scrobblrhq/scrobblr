@@ -1,6 +1,11 @@
 mod classification;
 mod connected_accounts;
 mod enrichment;
+#[cfg(test)]
+mod fake_lastfm;
+mod lastfm_import;
+#[cfg(test)]
+mod test_support;
 
 use std::sync::Arc;
 
@@ -22,7 +27,11 @@ async fn main() -> anyhow::Result<()> {
         args.first().map(String::as_str),
         Some("help" | "--help" | "-h")
     ) {
-        println!("{USAGE}\n{}", classification::cli::USAGE);
+        println!(
+            "{USAGE}\n{}\n{}",
+            classification::cli::USAGE,
+            lastfm_import::cli::USAGE
+        );
         return Ok(());
     }
 
@@ -31,12 +40,27 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("worker: connecting to database...");
     let db = db::pool::connect(&database_url).await?;
 
+    // Every Last.fm caller shares one pace, and the import CLI shares it
+    // with nothing else in its process.
+    let lastfm_limiter = Arc::new(enrichment::ratelimit::RateLimiter::new(
+        enrichment::LASTFM_INTERVAL,
+    ));
+    let lastfm_http = reqwest::Client::builder()
+        .user_agent("scrobblr-worker/0.1 (+https://github.com/scrobblrhq/scrobblr)")
+        .timeout(std::time::Duration::from_secs(30))
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .build()?;
+
     match args.first().map(String::as_str) {
         None => {}
         Some("migrate") => return migrate(&db, &args[1..]).await,
         Some("classify") => {
             db::migrate::ensure_current(&db).await?;
             return classification::cli::run(&db, &args[1..]).await;
+        }
+        Some("import") => {
+            db::migrate::ensure_current(&db).await?;
+            return lastfm_import::cli::run(&db, lastfm_http, lastfm_limiter, &args[1..]).await;
         }
         Some(other) => anyhow::bail!("unknown command `{other}` (see `worker --help`)"),
     }
@@ -70,7 +94,11 @@ async fn main() -> anyhow::Result<()> {
 
     // Claims jobs from enrichment_jobs and queries the metadata providers
     // (MusicBrainz, Cover Art Archive, Deezer, optionally Last.fm).
-    let enricher = Arc::new(enrichment::Enricher::from_env(db.clone(), redis.clone())?);
+    let enricher = Arc::new(enrichment::Enricher::from_env(
+        db.clone(),
+        redis.clone(),
+        lastfm_limiter.clone(),
+    )?);
     let enrichment_handle = tokio::spawn(enricher.clone().run());
     let maintenance_handle = tokio::spawn(enricher.run_maintenance());
 
@@ -83,6 +111,18 @@ async fn main() -> anyhow::Result<()> {
     );
     let connected_accounts_handle = tokio::spawn(connected_accounts_poller.run());
 
+    // Runs Last.fm history imports, started from the API or `worker import`.
+    let importer = lastfm_import::Importer::from_env(db.clone(), lastfm_http, lastfm_limiter)?;
+    let import_handle = tokio::spawn(async move {
+        match importer {
+            Some(importer) => Arc::new(importer).run().await,
+            None => {
+                tracing::info!("worker: LASTFM_API_KEY not set — Last.fm imports disabled");
+                std::future::pending().await
+            }
+        }
+    });
+
     // Labels scrobbles counted / suspect / no_data (shadow mode).
     let classifier = Arc::new(classification::Classifier::from_env(db.clone()).await?);
     let classification_handle = tokio::spawn(classifier.clone().run());
@@ -94,6 +134,7 @@ async fn main() -> anyhow::Result<()> {
         _ = enrichment_handle => tracing::warn!("enrichment task exited unexpectedly"),
         _ = maintenance_handle => tracing::warn!("enrichment maintenance task exited unexpectedly"),
         _ = connected_accounts_handle => tracing::warn!("connected-accounts poller exited unexpectedly"),
+        _ = import_handle => tracing::warn!("import task exited unexpectedly"),
         _ = classification_handle => tracing::warn!("classification task exited unexpectedly"),
         _ = classification_sweep_handle => tracing::warn!("classification sweep exited unexpectedly"),
         _ = tokio::signal::ctrl_c() => tracing::info!("received Ctrl-C, shutting down"),

@@ -108,6 +108,29 @@ pub async fn list_connected_accounts(
     .await
 }
 
+/// One user's connection to `provider`, tokens decrypted.
+pub async fn find_account(
+    pool: &PgPool,
+    user_id: i64,
+    provider: &str,
+) -> Result<Option<ConnectedAccount>, ConnectedAccountError> {
+    let account = sqlx::query_as!(
+        ConnectedAccount,
+        r#"
+        SELECT id, user_id, provider, provider_user_id, access_token, refresh_token,
+               token_type, scope, expires_at, last_polled_at, history_cursor_at,
+               last_error, is_active, created_at, updated_at
+        FROM connected_accounts
+        WHERE user_id = $1 AND provider = $2
+        "#,
+        user_id,
+        provider,
+    )
+    .fetch_optional(pool)
+    .await?;
+    account.map(decrypt_tokens).transpose()
+}
+
 pub async fn delete_connected_account(
     pool: &PgPool,
     user_id: i64,

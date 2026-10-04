@@ -1,110 +1,115 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT u.username, i.id, i.provider, i.external_user, i.verified, i.status,\n               i.error_code, i.error_message, i.window_from, i.window_to, i.total_expected,\n               i.fetched, i.imported, i.duplicates, i.skipped, i.oldest_played_at, i.attempts,\n               i.next_attempt_at, i.created_at, i.started_at, i.finished_at\n        FROM scrobble_imports i\n        JOIN users u ON u.id = i.user_id\n        WHERE $1::bigint IS NULL OR i.user_id = $1\n        ORDER BY i.created_at DESC, i.id DESC\n        LIMIT $2\n        ",
+  "query": "\n        SELECT i.user_id, u.username, i.id, i.provider, i.external_user, i.verified, i.status,\n               i.error_code, i.error_message, i.window_from, i.window_to, i.total_expected,\n               i.fetched, i.imported, i.duplicates, i.skipped, i.oldest_played_at, i.attempts,\n               i.next_attempt_at, i.created_at, i.started_at, i.finished_at\n        FROM scrobble_imports i\n        JOIN users u ON u.id = i.user_id\n        WHERE $1::bigint IS NULL OR i.user_id = $1\n        ORDER BY i.created_at DESC, i.id DESC\n        LIMIT $2\n        ",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
         "name": "username",
         "type_info": "Text"
       },
       {
-        "ordinal": 1,
+        "ordinal": 2,
         "name": "id",
         "type_info": "Int8"
       },
       {
-        "ordinal": 2,
+        "ordinal": 3,
         "name": "provider",
         "type_info": "Text"
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "external_user",
         "type_info": "Text"
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "verified",
         "type_info": "Bool"
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "status",
         "type_info": "Text"
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "error_code",
         "type_info": "Text"
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "error_message",
         "type_info": "Text"
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "window_from",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "window_to",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "total_expected",
         "type_info": "Int8"
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "fetched",
         "type_info": "Int8"
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "imported",
         "type_info": "Int8"
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "duplicates",
         "type_info": "Int8"
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "skipped",
         "type_info": "Int8"
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "oldest_played_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 16,
+        "ordinal": 17,
         "name": "attempts",
         "type_info": "Int4"
       },
       {
-        "ordinal": 17,
+        "ordinal": 18,
         "name": "next_attempt_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 18,
+        "ordinal": 19,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 19,
+        "ordinal": 20,
         "name": "started_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 20,
+        "ordinal": 21,
         "name": "finished_at",
         "type_info": "Timestamptz"
       }
@@ -116,6 +121,7 @@
       ]
     },
     "nullable": [
+      false,
       false,
       false,
       false,
@@ -139,5 +145,5 @@
       true
     ]
   },
-  "hash": "91b025f6644a40a05eeebbd4f22aa9d03f6b107df20f118569df9e465379bd19"
+  "hash": "efb9fadfb47446f0663b343f6726c6cb25fb956dfa42aed007f42c2324585dba"
 }

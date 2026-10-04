@@ -22,6 +22,15 @@ check:
 migrate *args:
     SQLX_OFFLINE=true cargo run -q -p worker -- migrate {{args}}
 
+# import a Last.fm history for a Scrobblr user, in the foreground (needs
+# LASTFM_API_KEY; Ctrl-C pauses, rerunning resumes)
+import-lastfm user lastfm *args:
+    SQLX_OFFLINE=true cargo run -q -p worker -- import lastfm --user {{user}} --lastfm {{lastfm}} {{args}}
+
+# progress of recent imports
+import-status *args:
+    SQLX_OFFLINE=true cargo run -q -p worker -- import status {{args}}
+
 # unit tests (no database needed)
 test:
     cargo test --workspace

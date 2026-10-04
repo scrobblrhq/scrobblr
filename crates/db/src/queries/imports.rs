@@ -175,16 +175,16 @@ pub async fn active_for_user(
     Ok(row.map(Into::into))
 }
 
-/// `(username, import)`, newest first; `user_id = None` lists everyone's
-/// (operator CLI).
+/// `(user_id, username, import)`, newest first; `user_id = None` lists
+/// everyone's (operator CLI).
 pub async fn list(
     pool: &PgPool,
     user_id: Option<i64>,
     limit: i64,
-) -> Result<Vec<(String, ScrobbleImport)>, sqlx::Error> {
+) -> Result<Vec<(i64, String, ScrobbleImport)>, sqlx::Error> {
     let rows = sqlx::query!(
         r#"
-        SELECT u.username, i.id, i.provider, i.external_user, i.verified, i.status,
+        SELECT i.user_id, u.username, i.id, i.provider, i.external_user, i.verified, i.status,
                i.error_code, i.error_message, i.window_from, i.window_to, i.total_expected,
                i.fetched, i.imported, i.duplicates, i.skipped, i.oldest_played_at, i.attempts,
                i.next_attempt_at, i.created_at, i.started_at, i.finished_at
@@ -224,7 +224,7 @@ pub async fn list(
                 started_at: r.started_at,
                 finished_at: r.finished_at,
             };
-            (r.username, import.into())
+            (r.user_id, r.username, import.into())
         })
         .collect())
 }

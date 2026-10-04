@@ -3675,10 +3675,12 @@ name = "worker"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum",
  "chrono",
  "db",
  "dotenvy",
  "fred",
+ "futures-util",
  "rand",
  "reqwest",
  "serde",

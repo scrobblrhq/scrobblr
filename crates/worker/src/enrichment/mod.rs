@@ -51,11 +51,13 @@ const RESWEEP_PER_TABLE: i64 = 200;
 const MUSICBRAINZ_INTERVAL: Duration = Duration::from_millis(1100); // hard 1 req/s limit
 const COVERART_INTERVAL: Duration = Duration::from_millis(600); // no hard limit; be nice
 const DEEZER_INTERVAL: Duration = Duration::from_millis(250); // limit is 50 req / 5 s
-const LASTFM_INTERVAL: Duration = Duration::from_millis(250);
+/// Shared by every Last.fm caller in the worker (bios, imports, lengths):
+/// Last.fm allows 5 requests/s averaged over 5 minutes.
+pub const LASTFM_INTERVAL: Duration = Duration::from_millis(250);
 
 struct Lastfm {
     api_key: String,
-    limiter: RateLimiter,
+    limiter: Arc<RateLimiter>,
 }
 
 pub struct Enricher {
@@ -79,7 +81,11 @@ enum Processed {
 }
 
 impl Enricher {
-    pub fn from_env(db: PgPool, redis: Option<fred::clients::Client>) -> anyhow::Result<Self> {
+    pub fn from_env(
+        db: PgPool,
+        redis: Option<fred::clients::Client>,
+        lastfm_limiter: Arc<RateLimiter>,
+    ) -> anyhow::Result<Self> {
         let http = reqwest::Client::builder()
             // MusicBrainz requires an identifying User-Agent.
             .user_agent("scrobblr-worker/0.1 (+https://github.com/scrobblrhq/scrobblr)")
@@ -89,7 +95,7 @@ impl Enricher {
 
         let lastfm = std::env::var("LASTFM_API_KEY").ok().map(|api_key| Lastfm {
             api_key,
-            limiter: RateLimiter::new(LASTFM_INTERVAL),
+            limiter: lastfm_limiter,
         });
         if lastfm.is_none() {
             tracing::info!("enrichment: LASTFM_API_KEY not set — artist bios disabled");

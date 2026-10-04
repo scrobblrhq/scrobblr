@@ -1,0 +1,107 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id, user_id, provider, provider_user_id, access_token, refresh_token,\n               token_type, scope, expires_at, last_polled_at, history_cursor_at,\n               last_error, is_active, created_at, updated_at\n        FROM connected_accounts\n        WHERE user_id = $1 AND provider = $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "provider",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "provider_user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "access_token",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "refresh_token",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "token_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "scope",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "expires_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "last_polled_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 10,
+        "name": "history_cursor_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 11,
+        "name": "last_error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "is_active",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 13,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 14,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "af6daacb1b0ca0726d8240134af7edd3f603b28175eb17f733de473b8783c5d2"
+}
