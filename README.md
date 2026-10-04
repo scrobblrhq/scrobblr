@@ -89,6 +89,22 @@ and worker refuse to start until you do). `just migrate status` lists them. A
 database migrated by hand before the runner existed can be adopted with
 `just migrate --baseline 9`.
 
+### Importing a Last.fm history
+
+With `LASTFM_API_KEY` set, import a Last.fm account into an existing Scrobblr
+user from the command line (it runs in the foreground; Ctrl-C pauses and
+running it again resumes):
+
+```bash
+just import-lastfm <scrobblr-username> <lastfm-username>
+just import-status
+```
+
+Keep the worker running (`cargo run -p worker`) to fill in track lengths and
+classify the imported scrobbles. Users can import their own account through
+the API once they connect it (`GET /v1/connect/lastfm`, which needs
+`LASTFM_SHARED_SECRET` and `TOKEN_ENCRYPTION_KEY`), then `POST /v1/import/lastfm`.
+
 Interactive API docs are served at [`/docs`](http://localhost:8080/docs) (OpenAPI spec at `/api.json`).
 
 ---

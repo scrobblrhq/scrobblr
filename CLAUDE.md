@@ -15,6 +15,8 @@ cargo run -p api          # run the API (requires DATABASE_URL; listens on BIND_
 cargo run -p worker       # background jobs (session/now_playing cleanup, metadata enrichment, now-playing SSE republish, scrobble classification)
 cargo run -p worker -- classify report   # classification review CLI (`worker --help` lists commands)
 just migrate              # apply pending migrations (`just migrate status` lists them)
+just import-lastfm USER LASTFM_USER   # import a Last.fm history in the foreground (needs LASTFM_API_KEY)
+just import-status        # progress of recent imports
 
 just fmt                  # cargo fmt --all
 just lint                 # cargo clippy --workspace --all-targets -- -D warnings
@@ -53,7 +55,7 @@ Migration is a deploy step, never automatic: the API and worker only call `db::m
 Rust workspace crates and their dependency direction: `api` → `db` → `shared`; `worker` is a standalone binary.
 
 - **`crates/shared`** — domain models (`models.rs`) and password hashing. Every API-facing model derives `Serialize + JsonSchema + ts_rs::TS`; these three derives keep the OpenAPI spec and the TypeScript types in sync with the Rust structs.
-- **`crates/db`** — all SQL lives here as `sqlx` query functions under `src/queries/` (one module per area: auth, users, scrobbles, tracks, enrichment, community, classification), plus the migration runner in `src/migrate.rs`. Handlers never write inline SQL (exception: a couple of one-offs in handlers use `sqlx::query_scalar!` directly).
+- **`crates/db`** — all SQL lives here as `sqlx` query functions under `src/queries/` (one module per area: auth, users, scrobbles, tracks, enrichment, community, classification, imports), plus the migration runner in `src/migrate.rs`. Handlers never write inline SQL (exception: a couple of one-offs in handlers use `sqlx::query_scalar!` directly).
 - **`crates/api`** — Axum 0.8 HTTP layer:
   - `router.rs` merges four route groups into one app: authed routes behind `require_auth`, a separate authed **upload** group with a larger `DefaultBodyLimit` (8 MiB, for multipart image uploads), public routes, and user routes behind `optional_auth` (injects `AuthUser` if a valid Bearer token is present, without requiring one — needed for things like `is_following` on public profiles and `has_voted` on image candidates). Uploaded images are served statically from `/uploads` via `ServeDir`. Global layers: rate limiting, tracing, gzip, permissive CORS.
   - `middleware/` — `auth.rs` (session/API-token auth, inserts `AuthUser` into request extensions; handlers extract it with `Extension(auth_user)`), `rate_limit.rs`, `visibility.rs` (enforces `is_private` profiles).
@@ -81,6 +83,34 @@ The worker labels every scrobble `counted`, `suspect` or `no_data` after ingest 
 - **Keeping it fresh:** ingest (`ingest_scrobble`, hence also the Spotify poller) queues the scrobble's day with `ON CONFLICT DO NOTHING` and a 30 s settle, so a burst costs one index probe per scrobble. When enrichment first learns a track's MusicBrainz length, it queues the track's plays from the last 30 days. A 5-minute sweep queues days that are missing, classified under another ruleset, or whose count no longer matches `user_activity_daily`. That covers crashed claims and dropped days, but a late insert into an already-materialized bucket reaches it only after the hourly aggregate refresh. The same sweep re-checks flags whose track has since gained a length. A day whose last window changes queues the next day, whose lookback it is.
 - **Imports:** after inserting history, call `classification::enqueue_scrobble_classification(pool, user_id, from, to)`, alongside `scrobbles::refresh_scrobble_aggregates`.
 - **CLI:** `worker classify report [--user NAME]` shows coverage, totals per ruleset, top suspect users, clients reporting lengths far below MusicBrainz's, and catalog/MusicBrainz disagreements. `reclassify [--user] [--from] [--to] [--dry-run]` recomputes synchronously and prints label transitions; run it with different `CLASSIFIER_*` values plus `--dry-run` to preview a threshold change. `backfill [--dry-run]` queues every missing or stale day.
+
+### Last.fm history import
+
+How users bring their Last.fm history over: `POST /v1/import/lastfm` (API) or `worker import lastfm --user NAME --lastfm USER` (operator CLI, `just import-lastfm`). The pieces: the client and cursor in `shared::lastfm`, dedup in `shared::import`, jobs and the page transaction in `db::queries::imports` (migration `0011`), the runner and CLI in `crates/worker/src/lastfm_import/`, and track lengths in `crates/worker/src/enrichment/lengths.rs`.
+
+- **Jobs** (`scrobble_imports`): at most one active per user. A worker leases a job for 25 pages at a time, so imports take turns, and every page commits together with the job's cursor. A crash, restart or expired lease therefore resumes at the next page. The walk goes newest to oldest under a window fixed when the job starts. It runs in segments of 20 pages, each restarting at page 1 one second above the oldest scrobble seen; that avoids deep page offsets and is correct whether Last.fm's `to` is inclusive or not.
+- **Errors:** 29 (rate limit) cools every Last.fm caller down for 60 s without spending an attempt. Other transient errors back off from 30 s to 1 h, and the job fails after 10 attempts. 6 fails it as `user_not_found` and 17 as `history_hidden` (a verified import signs requests with the user's session, which can read a hidden history). `LASTFM_IMPORT_MAX_SCROBBLES` fails it as `cap_reached`.
+- **Writes** (`record_page`, one transaction per page):
+  - Catalog upserts are set-based and use ingest's normalization; new tracks get their primary credit.
+  - Dedup (`shared::import::new_plays`) compares against the user's stored rows in the page's time span. It skips an earlier import's row with the same second and track, and a live scrobble of the same track within 10 min, matched one-for-one.
+  - Rows are inserted with `source = 'lastfm_import'` and `import_id`. `import_id` is set by the server, so rules should trust it rather than `source`.
+  - Counters are updated set-based: `increment_scrobble_counts` skips rows with `import_id`, and `last_seen_at` only moves forward.
+  - Old history lands in the uncompressed part of compressed chunks, and the compression policy recompresses them. The primary-key uniqueness check decompresses overlapping batches in memory, so insert cost grows with the number of users active in that week.
+- **Checkpoints** (segment boundary, end of a lease's pages, end of the job; tracked as `pending_from`/`pending_to`) — never per scrobble:
+  - `refresh_scrobble_aggregates`, retried while the scheduled refresh holds the lock;
+  - `enqueue_scrobble_classification`;
+  - enrichment for new catalog entries at priority 20–29 by play count, below live ingest.
+- **Re-imports** start 14 days before the last completed import's `window_to`, since Last.fm accepts scrobbles up to two weeks late. `full` rescans everything. Neither duplicates anything.
+- **Track lengths:** Last.fm history has none, which would leave the classifier with only `no_data`.
+  - A backfill asks `track.getInfo` (2/s inside the shared 4/s Last.fm limiter) about tracks with no length anywhere, most scrobbled first. It fills the catalog `duration_ms` and doesn't ask again for 30 days after a miss.
+  - The MusicBrainz track job looks up the recording mbid Last.fm reported (`tracks.mbid_hint`) directly, adopting it only if its title and artist match.
+  - The classifier's sweep relabels `no_data` days as lengths arrive.
+- **Anti-abuse:**
+  - API imports require connecting the Last.fm account through its web auth (`GET /v1/connect/lastfm`). That needs `LASTFM_SHARED_SECRET` and `TOKEN_ENCRYPTION_KEY`, and `connected_accounts` allows one Scrobblr user per Last.fm account. These imports are `verified`.
+  - API imports are limited to one a day per user and are capped.
+  - Every imported day goes through classification, and `import_id` lets rankings discount imports later.
+  - CLI imports are trusted as coming from an operator and are stored with `verified = false`.
+- **Tests:** the worker's tests run imports against an in-process fake Last.fm (`crates/worker/src/fake_lastfm.rs`), never the real API.
 
 ### Community contributions (uploads, image voting, comments)
 

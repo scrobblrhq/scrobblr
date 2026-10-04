@@ -22,7 +22,7 @@ async fn main() -> anyhow::Result<()> {
     // actually configured — deployments not using connected accounts don't
     // need a key at all.
     for feature in ["SPOTIFY_CLIENT_ID", "LASTFM_SHARED_SECRET"] {
-        if std::env::var(feature).is_ok() {
+        if std::env::var(feature).is_ok_and(|v| !v.trim().is_empty()) {
             shared::crypto::check_key().map_err(|e| anyhow::anyhow!("{feature} is set but {e}"))?;
         }
     }
