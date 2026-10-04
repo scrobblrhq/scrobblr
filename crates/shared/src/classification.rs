@@ -1,0 +1,449 @@
+//! Scrobble classification rules (anti-botting, shadow mode).
+//!
+//! Pure: the worker loads one user's scrobbles for a UTC day plus the window
+//! before it, and stores what [`classify`] returns. The result depends only
+//! on those scrobbles and [`BudgetParams`], so reclassifying is repeatable.
+//!
+//! **Listening-time budget.** Nobody can hear more music than real time
+//! allows. Each scrobble occupies some listening time (see [`occupancy_ms`]);
+//! a scrobble is `suspect` when the occupancy of every scrobble in the window
+//! ending at it, itself included, exceeds `window * max_ratio + slack`. The
+//! ratio tolerates several devices playing at once, the slack imprecise
+//! durations. A scrobble with no known track duration is `no_data` and takes
+//! up no budget, so it can never push another one over.
+
+use chrono::{DateTime, TimeDelta, Utc};
+use thiserror::Error;
+
+use crate::scrobble::MIN_LISTEN_MS;
+
+/// Bump when the rule's logic changes, so stored labels are reclassified.
+pub const RULES_VERSION: u32 = 1;
+
+pub const REASON_NO_DURATION: &str = "no_duration";
+pub const REASON_LISTENING_BUDGET: &str = "listening_budget";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BudgetParams {
+    pub window_ms: i64,
+    /// Allowed listening time per unit of real time, in thousandths.
+    pub max_ratio_permille: i64,
+    pub slack_ms: i64,
+}
+
+#[derive(Debug, Error)]
+pub enum ParamsError {
+    #[error("window must be between 60 s and 24 h")]
+    Window,
+    #[error("max ratio must be between 1 and 100")]
+    Ratio,
+    #[error("slack must be between 0 and 24 h")]
+    Slack,
+}
+
+impl Default for BudgetParams {
+    fn default() -> Self {
+        Self {
+            window_ms: 3_600_000,
+            max_ratio_permille: 2_000,
+            slack_ms: 900_000,
+        }
+    }
+}
+
+impl BudgetParams {
+    pub fn new(window_secs: i64, max_ratio: f64, slack_secs: i64) -> Result<Self, ParamsError> {
+        const DAY_SECS: i64 = 86_400;
+        if !(60..=DAY_SECS).contains(&window_secs) {
+            return Err(ParamsError::Window);
+        }
+        if !(1.0..=100.0).contains(&max_ratio) {
+            return Err(ParamsError::Ratio);
+        }
+        if !(0..=DAY_SECS).contains(&slack_secs) {
+            return Err(ParamsError::Slack);
+        }
+        Ok(Self {
+            window_ms: window_secs * 1000,
+            max_ratio_permille: (max_ratio * 1000.0).round() as i64,
+            slack_ms: slack_secs * 1000,
+        })
+    }
+
+    pub fn budget_ms(&self) -> i64 {
+        self.window_ms * self.max_ratio_permille / 1000 + self.slack_ms
+    }
+
+    pub fn window(&self) -> TimeDelta {
+        TimeDelta::milliseconds(self.window_ms)
+    }
+
+    /// Identifies the rule version and thresholds; stored labels made under
+    /// another fingerprint are stale.
+    pub fn fingerprint(&self) -> String {
+        format!(
+            "listening_budget/v{RULES_VERSION} window_ms={} max_ratio_permille={} slack_ms={}",
+            self.window_ms, self.max_ratio_permille, self.slack_ms
+        )
+    }
+}
+
+/// One scrobble as the rule sees it.
+#[derive(Debug, Clone)]
+pub struct Play {
+    pub id: i64,
+    pub played_at: DateTime<Utc>,
+    pub mb_duration_ms: Option<i32>,
+    /// `tracks.duration_ms`: whichever client reported the track first.
+    pub catalog_duration_ms: Option<i32>,
+    /// The track length this scrobble's client reported.
+    pub reported_duration_ms: Option<i32>,
+    pub listened_ms: Option<i32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Status {
+    Counted,
+    Suspect,
+    NoData,
+}
+
+impl Status {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Status::Counted => "counted",
+            Status::Suspect => "suspect",
+            Status::NoData => "no_data",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DurationSource {
+    MusicBrainz,
+    Catalog,
+    Reported,
+}
+
+impl DurationSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DurationSource::MusicBrainz => "musicbrainz",
+            DurationSource::Catalog => "catalog",
+            DurationSource::Reported => "reported",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Label {
+    pub id: i64,
+    pub status: Status,
+    pub reason: Option<&'static str>,
+    pub duration_source: Option<DurationSource>,
+    pub occupancy_ms: i64,
+    pub load_ms: i64,
+}
+
+/// The track length the rule trusts. MusicBrainz first: it is the only
+/// value a client can't choose. Then the shared catalog value, which a bot
+/// can only plant on tracks nobody reported before it, then this play's own.
+pub fn reference_duration(play: &Play) -> Option<(i64, DurationSource)> {
+    let known = |d: Option<i32>| d.filter(|d| *d > 0).map(i64::from);
+    known(play.mb_duration_ms)
+        .map(|d| (d, DurationSource::MusicBrainz))
+        .or_else(|| known(play.catalog_duration_ms).map(|d| (d, DurationSource::Catalog)))
+        .or_else(|| known(play.reported_duration_ms).map(|d| (d, DurationSource::Reported)))
+}
+
+/// Listening time a scrobble accounts for, or `None` without a duration.
+///
+/// `listened_ms` (a skip after 40 s takes 40 s, not the whole track) is
+/// clamped between the least a valid scrobble needs, measured against the
+/// trusted length rather than the client's, and the track length. No play
+/// occupies more than one window.
+pub fn occupancy_ms(play: &Play, params: &BudgetParams) -> Option<(i64, DurationSource)> {
+    let (length, source) = reference_duration(play)?;
+    let occupancy = match play.listened_ms.filter(|l| *l >= 0) {
+        Some(listened) => {
+            let floor = i64::from(MIN_LISTEN_MS).min(length / 2);
+            i64::from(listened).clamp(floor, length)
+        }
+        None => length,
+    };
+    Some((occupancy.min(params.window_ms), source))
+}
+
+/// Labels the plays at or after `from`; earlier plays only fill the window.
+/// Input order doesn't matter: plays are ordered by `(played_at, id)`.
+pub fn classify(plays: &[Play], from: DateTime<Utc>, params: &BudgetParams) -> Vec<Label> {
+    let mut plays: Vec<&Play> = plays.iter().collect();
+    plays.sort_by_key(|p| (p.played_at, p.id));
+
+    let occupancy: Vec<Option<(i64, DurationSource)>> =
+        plays.iter().map(|p| occupancy_ms(p, params)).collect();
+    let used = |i: usize| occupancy[i].map_or(0, |(ms, _)| ms);
+    let budget = params.budget_ms();
+    let window = params.window();
+
+    let mut labels = Vec::new();
+    let mut start = 0;
+    let mut load = 0;
+    for (i, play) in plays.iter().enumerate() {
+        load += used(i);
+        while plays[start].played_at <= play.played_at - window {
+            load -= used(start);
+            start += 1;
+        }
+        if play.played_at < from {
+            continue;
+        }
+
+        let label = match occupancy[i] {
+            None => Label {
+                id: play.id,
+                status: Status::NoData,
+                reason: Some(REASON_NO_DURATION),
+                duration_source: None,
+                occupancy_ms: 0,
+                load_ms: load,
+            },
+            Some((ms, source)) => {
+                let over = load > budget;
+                Label {
+                    id: play.id,
+                    status: if over {
+                        Status::Suspect
+                    } else {
+                        Status::Counted
+                    },
+                    reason: over.then_some(REASON_LISTENING_BUDGET),
+                    duration_source: Some(source),
+                    occupancy_ms: ms,
+                    load_ms: load,
+                }
+            }
+        };
+        labels.push(label);
+    }
+    labels
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const MIN: i64 = 60_000;
+
+    fn t0() -> DateTime<Utc> {
+        "2026-09-01T00:00:00Z".parse().unwrap()
+    }
+
+    fn play(id: i64, at_ms: i64, duration_ms: Option<i32>) -> Play {
+        Play {
+            id,
+            played_at: t0() + TimeDelta::milliseconds(at_ms),
+            mb_duration_ms: None,
+            catalog_duration_ms: duration_ms,
+            reported_duration_ms: duration_ms,
+            listened_ms: None,
+        }
+    }
+
+    /// Back-to-back plays of `duration_ms` from `start_ms` for `span_ms`.
+    fn session(first_id: i64, start_ms: i64, span_ms: i64, duration_ms: i32) -> Vec<Play> {
+        (0..span_ms / i64::from(duration_ms))
+            .map(|n| {
+                play(
+                    first_id + n,
+                    start_ms + n * i64::from(duration_ms),
+                    Some(duration_ms),
+                )
+            })
+            .collect()
+    }
+
+    fn count(labels: &[Label], status: Status) -> usize {
+        labels.iter().filter(|l| l.status == status).count()
+    }
+
+    fn run(plays: &[Play]) -> Vec<Label> {
+        classify(plays, t0(), &BudgetParams::default())
+    }
+
+    #[test]
+    fn normal_listening_is_counted() {
+        let plays = session(1, 0, 10 * 60 * MIN, 213_000);
+        let labels = run(&plays);
+        assert_eq!(labels.len(), plays.len());
+        assert_eq!(count(&labels, Status::Counted), plays.len());
+    }
+
+    #[test]
+    fn naive_bot_is_suspect_beyond_the_budget() {
+        // 3,000 plays of a 3-minute track within one hour.
+        let plays: Vec<Play> = (0..3000)
+            .map(|n| play(n, n * 1200, Some(180_000)))
+            .collect();
+        let labels = run(&plays);
+        let budget = BudgetParams::default().budget_ms();
+        let allowed = (budget / 180_000) as usize;
+        assert_eq!(count(&labels, Status::Counted), allowed);
+        assert_eq!(count(&labels, Status::Suspect), 3000 - allowed);
+        assert!(
+            labels[..allowed]
+                .iter()
+                .all(|l| l.status == Status::Counted)
+        );
+    }
+
+    #[test]
+    fn short_track_looped_all_night_is_counted() {
+        let plays = session(1, 0, 8 * 60 * MIN, 30_000);
+        assert_eq!(plays.len(), 960);
+        assert_eq!(count(&run(&plays), Status::Counted), 960);
+    }
+
+    #[test]
+    fn album_of_very_short_tracks_is_counted() {
+        let plays = session(1, 0, 40 * MIN, 9_000);
+        assert_eq!(count(&run(&plays), Status::Counted), plays.len());
+    }
+
+    #[test]
+    fn missing_duration_is_no_data_and_never_suspect() {
+        // Bot-rate plays without any duration, mixed into normal listening.
+        let mut plays: Vec<Play> = (0..2000).map(|n| play(n, n * 1000, None)).collect();
+        plays.extend(session(10_000, 0, 60 * MIN, 200_000));
+        let labels = run(&plays);
+        assert_eq!(count(&labels, Status::NoData), 2000);
+        assert_eq!(count(&labels, Status::Suspect), 0);
+        assert!(
+            labels
+                .iter()
+                .filter(|l| l.status == Status::NoData)
+                .all(|l| l.reason == Some(REASON_NO_DURATION))
+        );
+    }
+
+    #[test]
+    fn two_devices_at_once_are_counted() {
+        // Durations run ~5 % longer than the gaps between plays, as when
+        // clients report imprecise lengths.
+        let mut plays = Vec::new();
+        for (device, offset) in [(0, 0), (100_000, 37_000)] {
+            plays.extend((0..90).map(|n| Play {
+                reported_duration_ms: Some(210_000),
+                catalog_duration_ms: Some(210_000),
+                ..play(device + n, offset + n * 200_000, None)
+            }));
+        }
+        assert_eq!(count(&run(&plays), Status::Counted), plays.len());
+    }
+
+    #[test]
+    fn three_devices_at_once_exceed_the_budget() {
+        let mut plays = Vec::new();
+        for device in 0..3 {
+            plays.extend(session(device * 1000, device * 1000, 3 * 60 * MIN, 200_000));
+        }
+        assert!(count(&run(&plays), Status::Suspect) > 0);
+    }
+
+    #[test]
+    fn classification_is_deterministic_and_order_independent() {
+        let mut plays: Vec<Play> = (0..500).map(|n| play(n, n * 2000, Some(150_000))).collect();
+        plays.extend(session(1000, 0, 2 * 60 * MIN, 30_000));
+        let first = run(&plays);
+        assert_eq!(first, run(&plays));
+        plays.reverse();
+        assert_eq!(first, run(&plays));
+    }
+
+    #[test]
+    fn long_mix_alone_is_counted() {
+        let plays = vec![
+            play(1, 0, Some(3 * 60 * 60 * 1000)),
+            play(2, 1000, Some(180_000)),
+        ];
+        assert_eq!(count(&run(&plays), Status::Counted), 2);
+    }
+
+    #[test]
+    fn listened_ms_keeps_heavy_skipping_counted() {
+        // 150 skips after ~35 s on 4-minute tracks within an hour.
+        let plays: Vec<Play> = (0..150)
+            .map(|n| Play {
+                listened_ms: Some(35_000),
+                ..play(n, n * 24_000, Some(240_000))
+            })
+            .collect();
+        assert_eq!(count(&run(&plays), Status::Counted), 150);
+        let without: Vec<Play> = plays
+            .iter()
+            .map(|p| Play {
+                listened_ms: None,
+                ..p.clone()
+            })
+            .collect();
+        assert!(count(&run(&without), Status::Suspect) > 0);
+    }
+
+    #[test]
+    fn musicbrainz_length_beats_a_short_claimed_duration() {
+        // A bot claims 10 s tracks and 5 s listens; MusicBrainz says 200 s.
+        let plays: Vec<Play> = (0..300)
+            .map(|n| Play {
+                listened_ms: Some(5_000),
+                ..play(n, n * 10_000, Some(10_000))
+            })
+            .collect();
+        assert_eq!(count(&run(&plays), Status::Suspect), 0);
+        let known: Vec<Play> = plays
+            .iter()
+            .map(|p| Play {
+                mb_duration_ms: Some(200_000),
+                ..p.clone()
+            })
+            .collect();
+        let labels = run(&known);
+        assert!(count(&labels, Status::Suspect) > 0);
+        assert!(
+            labels
+                .iter()
+                .all(|l| l.duration_source == Some(DurationSource::MusicBrainz))
+        );
+        assert!(
+            labels
+                .iter()
+                .all(|l| l.occupancy_ms == i64::from(MIN_LISTEN_MS))
+        );
+    }
+
+    #[test]
+    fn previous_window_counts_but_is_not_labelled() {
+        let from = t0() + TimeDelta::hours(24);
+        let plays: Vec<Play> = (0..100)
+            .map(|n| play(n, 24 * 60 * MIN - 10 * MIN + n * 10_000, Some(180_000)))
+            .collect();
+        let labels = classify(&plays, from, &BudgetParams::default());
+        assert_eq!(
+            labels.len(),
+            plays.iter().filter(|p| p.played_at >= from).count()
+        );
+        assert!(labels.iter().all(|l| l.status == Status::Suspect));
+    }
+
+    #[test]
+    fn params_are_validated_and_fingerprinted() {
+        assert!(BudgetParams::new(30, 2.0, 0).is_err());
+        assert!(BudgetParams::new(3600, 0.5, 0).is_err());
+        let params = BudgetParams::new(3600, 2.0, 900).unwrap();
+        assert_eq!(params, BudgetParams::default());
+        assert_eq!(params.budget_ms(), 8_100_000);
+        assert_ne!(
+            params.fingerprint(),
+            BudgetParams::new(3600, 2.5, 900).unwrap().fingerprint()
+        );
+    }
+}

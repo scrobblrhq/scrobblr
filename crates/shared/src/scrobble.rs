@@ -4,7 +4,7 @@ use thiserror::Error;
 use crate::models::Scrobble;
 
 /// Minimum listened duration to count as a valid scrobble (ms)
-const MIN_LISTEN_MS: i32 = 30_000; // 30 seconds
+pub const MIN_LISTEN_MS: i32 = 30_000; // 30 seconds
 
 pub const MAX_FEATURED_ARTISTS: usize = 16;
 pub const MAX_NAME_LEN: usize = 300;
