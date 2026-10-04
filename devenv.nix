@@ -51,6 +51,13 @@
   git-hooks.hooks = {
     rustfmt.enable = true;
     nixfmt.enable = true;
-    biome.enable = true;
+    biome = {
+      enable = true;
+      # Mirror biome.json's ignores: biome errors when every file it's given is ignored.
+      excludes = [
+        "^\\.sqlx/"
+        "^packages/types/src/generated/"
+      ];
+    };
   };
 }
