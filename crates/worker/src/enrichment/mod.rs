@@ -513,7 +513,7 @@ fn note(transient: &mut Vec<String>, err: ProviderError) {
 
 /// Exponential backoff with ±20 % jitter: ~1 min, 5 min, 25 min, ~2 h,
 /// capped at 24 h.
-fn backoff_secs(attempt: i32) -> f64 {
+pub(crate) fn backoff_secs(attempt: i32) -> f64 {
     let base = 60.0 * 5f64.powi(attempt - 1);
     let capped = base.min(86_400.0);
     let jitter = rand::thread_rng().gen_range(0.8..1.2);

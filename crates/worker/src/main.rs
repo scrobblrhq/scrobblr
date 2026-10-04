@@ -1,3 +1,4 @@
+mod classifier;
 mod connected_accounts;
 mod enrichment;
 
@@ -61,16 +62,57 @@ async fn main() -> anyhow::Result<()> {
     );
     let connected_accounts_handle = tokio::spawn(connected_accounts_poller.run());
 
+    // Shadow-mode anti-botting classifier: labels scrobbles, changes nothing
+    // else. Misconfiguration disables it (logged) rather than taking down
+    // enrichment and the poller with it.
+    let (classifier_handle, classifier_maintenance_handle) = match classifier::Settings::from_env()
+    {
+        Ok(Some(settings)) => match classifier::Classifier::start(db.clone(), settings).await {
+            Ok(classifier) => {
+                let classifier = Arc::new(classifier);
+                (
+                    Some(tokio::spawn(classifier.clone().run())),
+                    Some(tokio::spawn(classifier.run_maintenance())),
+                )
+            }
+            Err(e) => {
+                tracing::error!("classifier: failed to start, disabled: {e}");
+                (None, None)
+            }
+        },
+        Ok(None) => {
+            tracing::info!("classifier: disabled (CLASSIFIER_ENABLED=false)");
+            (None, None)
+        }
+        Err(e) => {
+            tracing::error!("classifier: invalid configuration, disabled: {e}");
+            (None, None)
+        }
+    };
+
     // The tasks loop forever; reaching select! means one died or Ctrl-C.
     tokio::select! {
         _ = cleanup_handle => tracing::warn!("cleanup task exited unexpectedly"),
         _ = enrichment_handle => tracing::warn!("enrichment task exited unexpectedly"),
         _ = maintenance_handle => tracing::warn!("enrichment maintenance task exited unexpectedly"),
         _ = connected_accounts_handle => tracing::warn!("connected-accounts poller exited unexpectedly"),
+        _ = until_exit(classifier_handle) => tracing::warn!("classifier task exited unexpectedly"),
+        _ = until_exit(classifier_maintenance_handle) => tracing::warn!("classifier maintenance task exited unexpectedly"),
         _ = tokio::signal::ctrl_c() => tracing::info!("received Ctrl-C, shutting down"),
     }
 
     Ok(())
+}
+
+/// Resolves when an optional background task exits; never, if it wasn't
+/// started (so a disabled task doesn't end the select! above).
+async fn until_exit(handle: Option<tokio::task::JoinHandle<()>>) {
+    match handle {
+        Some(handle) => {
+            let _ = handle.await;
+        }
+        None => std::future::pending().await,
+    }
 }
 
 /// Connects to Redis for now-playing republishing. Any failure (unset,
