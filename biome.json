@@ -6,7 +6,8 @@
 		"useIgnoreFile": true
 	},
 	"files": {
-		"ignoreUnknown": false
+		"ignoreUnknown": false,
+		"includes": ["**", "!.sqlx", "!packages/types/src/generated"]
 	},
 	"formatter": {
 		"enabled": true,
