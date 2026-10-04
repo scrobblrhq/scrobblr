@@ -244,8 +244,8 @@ pub async fn get_recent_scrobbles(
 /// total play count descending.
 ///
 /// Reads from the `scrobbles_daily_by_artist` continuous aggregate, so this
-/// query is effectively a materialized view scan — no raw scrobble rows are
-/// touched.
+/// query is effectively a materialized view scan — only rows past the
+/// watermark (about the last day) are read raw.
 ///
 /// `since` should be aligned to a day boundary to maximise aggregate cache hits.
 pub async fn get_top_artists(
