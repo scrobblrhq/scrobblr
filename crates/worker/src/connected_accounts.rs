@@ -50,13 +50,14 @@ impl ConnectedAccountsPoller {
             tracing::info!(
                 "worker: SPOTIFY_CLIENT_ID/SPOTIFY_CLIENT_SECRET not set — connected-accounts polling disabled"
             );
-            return;
+            // Park instead of returning: main treats a finished task as fatal.
+            return std::future::pending().await;
         }
         // Stored tokens are ciphertext; without a usable key every poll
         // would fail on decrypt. Bail loudly once instead of once per tick.
         if let Err(e) = shared::crypto::check_key() {
             tracing::error!("worker: connected-accounts polling disabled — {e}");
-            return;
+            return std::future::pending().await;
         }
 
         let mut interval =
