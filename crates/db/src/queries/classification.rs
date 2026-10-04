@@ -1,6 +1,6 @@
 //! Shadow-mode scrobble classification: ruleset registry, the per user-day
 //! work ledger (`classification_days`) and the per-scrobble labels
-//! (`scrobble_classifications`). See migrations/0007 for the schema notes.
+//! (`scrobble_classifications`). See migrations/0008 for the schema notes.
 //!
 //! Ledger states:
 //!

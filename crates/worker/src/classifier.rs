@@ -585,7 +585,7 @@ usage:
 
 /// Database integration tests — `#[ignore]`d so `cargo test` keeps needing
 /// no database. Run them against a scratch database with migrations
-/// 0001–0007 applied, serially:
+/// 0001–0008 applied, serially:
 ///
 /// ```text
 /// createdb scrobblr_test   # then psql scrobblr_test -f migrations/000N_*.sql for N = 1..7
