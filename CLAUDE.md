@@ -12,7 +12,8 @@ Dev environment is managed with devenv (nix): `devenv up` starts PostgreSQL (wit
 
 ```bash
 cargo run -p api          # run the API (requires DATABASE_URL; listens on BIND_ADDR, default 0.0.0.0:8080)
-cargo run -p worker       # background jobs (session/now_playing cleanup, metadata enrichment, now-playing SSE republish)
+cargo run -p worker       # background jobs (session/now_playing cleanup, metadata enrichment, now-playing SSE republish, scrobble classifier)
+cargo run -p worker -- classify report|reclassify|backfill   # internal shadow-mode review CLI (see below)
 
 just fmt                  # cargo fmt --all
 just lint                 # cargo clippy --workspace --all-targets -- -D warnings
@@ -39,14 +40,14 @@ Query macros (`sqlx::query!` etc.) compile against the `.sqlx/` cache, so no dat
 
 ### Migrations
 
-Numbered plain-SQL files applied **in order**: `0001_initial.sql`, `0002_enrichment.sql` (enrichment columns + `enrichment_jobs`), `0003_uploads.sql` (`image_locked` on artists/albums), `0004_community.sql` (`image_candidates`, `image_candidate_votes`, `comments`), `0005_scrobbles_artist_index.sql`, `0006_connected_accounts.sql` (`connected_accounts` — third-party OAuth connections), `0007_track_artists.sql` (`track_artists` + the `track_artist_role` enum). Automatic migration on API startup is **commented out** in `crates/api/src/main.rs`; there is no migration runner — apply each file manually with `psql scrobblr -f migrations/000N_*.sql`. devenv only initializes `0001` on first DB init, so after pulling schema changes you must apply the newer files yourself. (The README's mention of a `crates/core` crate is stale — the actual crate is `crates/shared`.)
+Numbered plain-SQL files applied **in order**: `0001_initial.sql`, `0002_enrichment.sql` (enrichment columns + `enrichment_jobs`), `0003_uploads.sql` (`image_locked` on artists/albums), `0004_community.sql` (`image_candidates`, `image_candidate_votes`, `comments`), `0005_scrobbles_artist_index.sql`, `0006_connected_accounts.sql` (`connected_accounts` — third-party OAuth connections), `0007_track_artists.sql` (`track_artists` + the `track_artist_role` enum), `0007_scrobble_classification.sql` (shadow-mode anti-botting: `classification_rulesets`, `scrobble_classifications`, `classification_days`, `classification_track_refresh` + a trigger on `tracks`). Automatic migration on API startup is **commented out** in `crates/api/src/main.rs`; there is no migration runner — apply each file manually with `psql scrobblr -f migrations/000N_*.sql`. devenv only initializes `0001` on first DB init, so after pulling schema changes you must apply the newer files yourself. (The README's mention of a `crates/core` crate is stale — the actual crate is `crates/shared`.)
 
 ## Architecture
 
 Rust workspace crates and their dependency direction: `api` → `db` → `shared`; `worker` is a standalone binary.
 
 - **`crates/shared`** — domain models (`models.rs`) and password hashing. Every API-facing model derives `Serialize + JsonSchema + ts_rs::TS`; these three derives keep the OpenAPI spec and the TypeScript types in sync with the Rust structs.
-- **`crates/db`** — all SQL lives here as `sqlx` query functions under `src/queries/` (one module per area: auth, users, scrobbles, tracks, enrichment, community). Handlers never write inline SQL (exception: a couple of one-offs in handlers use `sqlx::query_scalar!` directly).
+- **`crates/db`** — all SQL lives here as `sqlx` query functions under `src/queries/` (one module per area: auth, users, scrobbles, tracks, enrichment, community, connected_accounts, classification). Handlers never write inline SQL (exception: a couple of one-offs in handlers use `sqlx::query_scalar!` directly).
 - **`crates/api`** — Axum 0.8 HTTP layer:
   - `router.rs` merges four route groups into one app: authed routes behind `require_auth`, a separate authed **upload** group with a larger `DefaultBodyLimit` (8 MiB, for multipart image uploads), public routes, and user routes behind `optional_auth` (injects `AuthUser` if a valid Bearer token is present, without requiring one — needed for things like `is_following` on public profiles and `has_voted` on image candidates). Uploaded images are served statically from `/uploads` via `ServeDir`. Global layers: rate limiting, tracing, gzip, permissive CORS.
   - `middleware/` — `auth.rs` (session/API-token auth, inserts `AuthUser` into request extensions; handlers extract it with `Extension(auth_user)`), `rate_limit.rs`, `visibility.rs` (enforces `is_private` profiles).
@@ -86,6 +87,16 @@ Credits are written by `tracks_db::record_track_credits` from ingest (`/v1/scrob
 `shared::validation` owns every credential rule (username charset/length, RFC-lite email structure, password length + complexity, display-name sanitization) and is enforced **only at registration** — `login` applies just the bounds needed to keep a hostile body away from Argon2, since re-applying the current rules would lock out older accounts. `login` also verifies against a decoy hash when no user matches, so response latency can't be used to enumerate usernames.
 
 `middleware/app_signature.rs` gates `/v1/auth/register` and `/v1/auth/login` behind an HMAC-SHA256 request signature when `AUTH_APP_KEYS` is set (unset = open, so existing clients keep working). Nonces are burned in Redis, and a Redis failure rejects rather than passes.
+
+### Scrobble classification (anti-botting, shadow mode)
+
+`crates/worker/src/classifier.rs` + `db/src/queries/classification.rs`, rule in `shared/src/classification.rs`. Every scrobble gets a label (`counted` / `suspect` / `no_data`, a reason, the ruleset id, a score) **after** ingest. **Shadow mode:** nothing reads the labels — no chart, ranking, query or endpoint uses them and nobody is blocked; ingest never rejects for being suspicious. Labels live in side tables, not on `scrobbles` (compressed-chunk updates and cagg invalidations).
+
+- **Rule 1, time budget:** for each scrobble, durations (each clipped to the window W) of the scrobbles in `(t − W, t]` must not exceed `(W + own duration) × CLASSIFIER_MARGIN_RATIO + CLASSIFIER_MARGIN_SLACK_SECS`. Unknown duration → `no_data`, never suspect, adds nothing to neighbours. Extension + Spotify copies of the same play (same track, different source, within the play's duration) are paired one-to-one and counted once. Duration = `COALESCE(tracks.duration_ms, scrobbles.duration_ms)` (note: `scrobbles.duration_ms` holds the client-reported *track* length, despite its column comment).
+- **Rulesets:** `RULES_VERSION` (bump when the rule's logic changes) + the env thresholds. On startup the worker upserts and activates its ruleset and re-queues every day labeled under another one (background priority) — so changing a threshold reclassifies history. Run a single worker: two workers with different configs would keep re-queueing each other's days.
+- **Ledger:** `classification_days`, one row per (user, UTC day): `dirty` + `dirty_gen` (a mark during processing keeps the day dirty), `next_attempt_at` + the worker's settle delay, a claim lease (crashed worker → reclaimable after 15 min), per-status counts. Marked by: a best-effort call in `ingest_scrobble` (day + next day if within W of midnight; W comes from the active ruleset, since the API has no classifier config); a 6h reconciliation of the last 3 days (catches dropped marks — a dropped mark on an import older than that needs `classify backfill`); the `tracks` trigger when a duration goes NULL→value (re-checks `no_data`); the CLI.
+- **CLI:** `worker classify report [--top N]` (distribution, ledger state, top suspect users incl. private ones), `reclassify [--user NAME | --user-id ID] [--from RFC3339] [--to RFC3339]`, `backfill` (queue all existing history — run once after applying 0007 on a database with history). These only mark days; the running worker classifies.
+- **Tests:** rule scenarios are offline unit tests. DB tests are `#[ignore]`d in `classifier.rs` and must run serially against a scratch DB (they flip the active ruleset and add temporary `CHECK (false)` constraints): `createdb scrobblr_test`, apply 0001–0007, then `DATABASE_URL=postgresql://localhost:5432/scrobblr_test cargo test -p worker -- --ignored --test-threads=1`.
 
 ### Username semantics
 
