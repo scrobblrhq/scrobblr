@@ -2,7 +2,9 @@ use chrono::{DateTime, NaiveTime, TimeDelta, Utc};
 use sqlx::PgPool;
 use thiserror::Error;
 
-use crate::queries::{enrichment as enrichment_db, tracks as tracks_db};
+use crate::queries::{
+    classification as classification_db, enrichment as enrichment_db, tracks as tracks_db,
+};
 use shared::models::{ActivityDay, NowPlayingRich, Scrobble, ScrobbleRich, TopArtist, TopTrack};
 use shared::scrobble::{self as scrobble_logic, ScrobbleInput, ScrobbleValidationError};
 
@@ -92,6 +94,12 @@ pub async fn ingest_scrobble(
         },
     )
     .await?;
+
+    // After the insert, so a classification already under way for this day
+    // can't miss it. Best-effort, like the enrichment enqueue.
+    if let Err(e) = classification_db::mark_scrobble_dirty(pool, user_id, input.played_at).await {
+        tracing::warn!("failed to queue classification for scrobble: {e}");
+    }
 
     Ok(scrobble_id)
 }

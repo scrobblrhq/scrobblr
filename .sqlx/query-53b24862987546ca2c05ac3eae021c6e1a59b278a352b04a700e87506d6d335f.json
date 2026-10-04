@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO classification_queue (user_id, day, priority, not_before)\n        VALUES ($1, ($2::timestamptz AT TIME ZONE 'UTC')::date, $3, NOW() + make_interval(secs => $4))\n        ON CONFLICT (user_id, day) DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Timestamptz",
+        "Int4",
+        "Float8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "53b24862987546ca2c05ac3eae021c6e1a59b278a352b04a700e87506d6d335f"
+}

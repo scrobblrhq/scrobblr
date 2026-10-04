@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT r.id, r.fingerprint, count(*) AS \"days!\",\n               sum(d.counted)::bigint AS \"counted!\", sum(d.suspect)::bigint AS \"suspect!\",\n               sum(d.no_data)::bigint AS \"no_data!\"\n        FROM scrobble_classification_days d\n        JOIN classifier_rulesets r ON r.id = d.ruleset_id\n        WHERE d.day BETWEEN $1 AND $2\n        GROUP BY r.id, r.fingerprint\n        ORDER BY r.id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "fingerprint",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "days!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "counted!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "suspect!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "no_data!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Date",
+        "Date"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "ebb5cb6c001aecfd382a52674d069e8b989b09bfb825ffb983ff6e4ef6ac5a05"
+}

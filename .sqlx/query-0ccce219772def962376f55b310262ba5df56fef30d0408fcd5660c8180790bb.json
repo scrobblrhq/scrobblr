@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO classification_queue (user_id, day, priority, not_before)\n        VALUES ($1, $2, $3, NOW() + make_interval(secs => $4))\n        ON CONFLICT (user_id, day) DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Date",
+        "Int4",
+        "Float8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0ccce219772def962376f55b310262ba5df56fef30d0408fcd5660c8180790bb"
+}

@@ -1,0 +1,48 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH activity AS (\n            SELECT user_id, (day AT TIME ZONE 'UTC')::date AS day, scrobble_count\n            FROM user_activity_daily\n            WHERE day >= $2::date::timestamp AT TIME ZONE 'UTC'\n              AND day <= $3::date::timestamp AT TIME ZONE 'UTC'\n        ), stored AS (\n            SELECT user_id, day, ruleset_id, scrobble_count\n            FROM scrobble_classification_days\n            WHERE day BETWEEN $2 AND $3\n        )\n        SELECT\n            count(a.user_id) AS \"user_days!\",\n            count(*) FILTER (WHERE a.user_id IS NOT NULL AND d.ruleset_id = $1\n                                   AND d.scrobble_count = a.scrobble_count) AS \"current!\",\n            count(*) FILTER (WHERE d.user_id IS NOT NULL\n                                   AND (a.user_id IS NULL OR d.ruleset_id <> $1\n                                        OR d.scrobble_count <> a.scrobble_count)) AS \"stale!\",\n            count(*) FILTER (WHERE d.user_id IS NULL) AS \"missing!\",\n            (SELECT count(*) FROM classification_queue WHERE day BETWEEN $2 AND $3) AS \"queued!\"\n        FROM activity a\n        FULL JOIN stored d USING (user_id, day)\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_days!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "current!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "stale!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "missing!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "queued!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Date",
+        "Date"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "d7954257f3ce551065d2edad294362977f5e857def48e588cc09329bf19113bc"
+}

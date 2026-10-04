@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO classification_queue (user_id, day, priority)\n        SELECT $1, d::date, $4\n        FROM generate_series(($2::timestamptz AT TIME ZONE 'UTC')::date,\n                             ($3::timestamptz AT TIME ZONE 'UTC')::date,\n                             INTERVAL '1 day') AS d\n        ON CONFLICT (user_id, day) DO UPDATE\n            SET priority   = GREATEST(classification_queue.priority, EXCLUDED.priority),\n                not_before = LEAST(classification_queue.not_before, EXCLUDED.not_before)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Timestamptz",
+        "Timestamptz",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a25248804d3bf9edc1b0c43b867a97707eb914a98f30776255091626394942ce"
+}

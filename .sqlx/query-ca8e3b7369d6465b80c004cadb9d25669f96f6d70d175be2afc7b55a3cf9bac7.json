@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH activity AS (\n            SELECT user_id, (day AT TIME ZONE 'UTC')::date AS day, scrobble_count\n            FROM user_activity_daily\n            WHERE ($3::date IS NULL OR day >= $3::date::timestamp AT TIME ZONE 'UTC')\n              AND ($4::date IS NULL OR day <= $4::date::timestamp AT TIME ZONE 'UTC')\n        ), stored AS (\n            SELECT user_id, day, ruleset_id, scrobble_count\n            FROM scrobble_classification_days\n            WHERE ($3::date IS NULL OR day >= $3) AND ($4::date IS NULL OR day <= $4)\n        ), stale AS (\n            SELECT user_id, day\n            FROM activity a\n            FULL JOIN stored d USING (user_id, day)\n            WHERE a.user_id IS NULL\n               OR d.user_id IS NULL\n               OR d.ruleset_id <> $1\n               OR d.scrobble_count <> a.scrobble_count\n        )\n        INSERT INTO classification_queue (user_id, day, priority)\n        SELECT s.user_id, s.day, $2\n        FROM stale s\n        WHERE NOT EXISTS (\n            SELECT 1 FROM classification_queue q WHERE q.user_id = s.user_id AND q.day = s.day\n        )\n        ORDER BY s.day DESC\n        LIMIT $5\n        ON CONFLICT (user_id, day) DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int4",
+        "Date",
+        "Date",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ca8e3b7369d6465b80c004cadb9d25669f96f6d70d175be2afc7b55a3cf9bac7"
+}

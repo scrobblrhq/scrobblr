@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO classification_queue (user_id, day, priority)\n        SELECT DISTINCT user_id, (played_at AT TIME ZONE 'UTC')::date, $2::int\n        FROM scrobbles\n        WHERE track_id = $1 AND played_at > NOW() - INTERVAL '30 days'\n        ON CONFLICT (user_id, day) DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "cdad2832c984ba8ad691d3dfb82f8f88f3c3cda000a28f1e34ff69a20e7059cc"
+}

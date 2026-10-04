@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT max_scrobble_id FROM scrobble_classification_days WHERE user_id = $1 AND day = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "max_scrobble_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Date"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "9a77d15caf6cf3d493da8f44f1ed58c15f6dbf016bb836fb974e546129b168a5"
+}

@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO classifier_rulesets (fingerprint, params)\n        VALUES ($1, jsonb_build_object(\n            'rules_version', $2::int,\n            'window_ms',     $3::bigint,\n            'max_ratio',     $4::bigint / 1000.0,\n            'slack_ms',      $5::bigint,\n            'budget_ms',     $6::bigint))\n        ON CONFLICT (fingerprint) DO UPDATE SET fingerprint = EXCLUDED.fingerprint\n        RETURNING id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "50246713c30137e5014380ec3a72bdfe3a171bfdeedae8668dc15d9859dacf3c"
+}

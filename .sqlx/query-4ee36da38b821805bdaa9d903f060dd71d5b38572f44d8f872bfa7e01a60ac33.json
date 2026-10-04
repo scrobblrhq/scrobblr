@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM scrobble_flags WHERE user_id = $1 AND day = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Date"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4ee36da38b821805bdaa9d903f060dd71d5b38572f44d8f872bfa7e01a60ac33"
+}

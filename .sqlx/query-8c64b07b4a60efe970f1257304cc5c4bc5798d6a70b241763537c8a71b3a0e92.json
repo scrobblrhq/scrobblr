@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT lookback_count FROM scrobble_classification_days WHERE user_id = $1 AND day = $2 AND ruleset_id = $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "lookback_count",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Date",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "8c64b07b4a60efe970f1257304cc5c4bc5798d6a70b241763537c8a71b3a0e92"
+}

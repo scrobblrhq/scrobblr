@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT t.id AS track_id, a.name AS artist_name, t.title,\n               t.duration_ms AS \"catalog_ms!\", t.mb_duration_ms AS \"musicbrainz_ms!\",\n               t.scrobble_count\n        FROM tracks t\n        JOIN artists a ON a.id = t.artist_id\n        WHERE t.duration_ms > 0 AND t.mb_duration_ms > 0\n          AND (t.duration_ms * 2 < t.mb_duration_ms OR t.mb_duration_ms * 2 < t.duration_ms)\n        ORDER BY t.scrobble_count DESC, t.id\n        LIMIT $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "track_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "artist_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "catalog_ms!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "musicbrainz_ms!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "scrobble_count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "081b023fb8d38a21b1fd665fd815678ee19865bcedab3bae8a4ff981c863a485"
+}

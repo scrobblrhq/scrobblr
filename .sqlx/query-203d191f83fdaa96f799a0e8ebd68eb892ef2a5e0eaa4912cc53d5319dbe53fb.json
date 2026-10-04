@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        DELETE FROM classification_queue\n        WHERE (user_id, day) IN (\n            SELECT user_id, day FROM classification_queue\n            WHERE not_before <= NOW()\n            ORDER BY priority DESC, not_before\n            LIMIT $1\n            FOR UPDATE SKIP LOCKED\n        )\n        RETURNING user_id, day\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "day",
+        "type_info": "Date"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "203d191f83fdaa96f799a0e8ebd68eb892ef2a5e0eaa4912cc53d5319dbe53fb"
+}
