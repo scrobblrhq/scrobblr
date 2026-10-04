@@ -1,0 +1,89 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE scrobble_imports\n        SET status       = 'running',\n            started_at   = COALESCE(started_at, NOW()),\n            window_to    = COALESCE(window_to, NOW()),\n            lease_token  = $2,\n            leased_until = NOW() + make_interval(secs => $1)\n        WHERE id = (\n            SELECT id FROM scrobble_imports\n            WHERE status IN ('pending', 'running') AND next_attempt_at <= NOW()\n              AND (leased_until IS NULL OR leased_until < NOW())\n            ORDER BY updated_at, id\n            LIMIT 1\n            FOR UPDATE SKIP LOCKED\n        )\n        RETURNING id, user_id, external_user, verified, window_from,\n                  window_to AS \"window_to!\", segment_to, segment_page, segment_oldest,\n                  imported, attempts, lease_token AS \"lease_token!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "external_user",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "verified",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "window_from",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "window_to!",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "segment_to",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "segment_page",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 8,
+        "name": "segment_oldest",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "imported",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "attempts",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 11,
+        "name": "lease_token!",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Float8",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "dd80adc7365c46e7fcdc636ee805f2ab35d34b1821fc981a08fa7d8b42cae082"
+}

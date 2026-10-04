@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH input AS (\n                SELECT * FROM UNNEST($1::text[], $2::text[]) AS i(name, name_normalized)\n            ), inserted AS (\n                INSERT INTO artists (name, name_normalized)\n                SELECT name, name_normalized FROM input\n                ON CONFLICT (name_normalized) DO NOTHING\n                RETURNING id, name_normalized\n            )\n            SELECT id AS \"id!\", name_normalized AS \"name_normalized!\" FROM inserted\n            UNION ALL\n            SELECT a.id, a.name_normalized FROM artists a JOIN input i USING (name_normalized)\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "name_normalized!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "eb79115e097f09ba7a2232e42ef3bb5ebdfccc0d1bf538dabd9ce9cd0fc51de8"
+}

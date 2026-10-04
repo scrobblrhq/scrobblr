@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE scrobble_imports\n        SET status = 'failed', error_code = $3, error_message = $4, finished_at = NOW(),\n            lease_token = NULL, leased_until = NULL\n        WHERE id = $1 AND lease_token = $2\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e2c887606807da6c070a722fb0d9c9e10fa60f1f2dabf21b78c27dcae8db5f81"
+}

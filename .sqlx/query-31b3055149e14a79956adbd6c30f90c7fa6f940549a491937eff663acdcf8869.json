@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT pending_from, pending_to FROM scrobble_imports WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pending_from",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 1,
+        "name": "pending_to",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "31b3055149e14a79956adbd6c30f90c7fa6f940549a491937eff663acdcf8869"
+}

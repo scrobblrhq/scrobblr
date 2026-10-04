@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE tracks t\n        SET album_id  = COALESCE(t.album_id, NULLIF(i.album_id, 0)),\n            mbid_hint = CASE WHEN t.mbid IS NULL THEN COALESCE(t.mbid_hint, NULLIF(i.hint, '')::uuid)\n                             ELSE t.mbid_hint END\n        FROM UNNEST($1::bigint[], $2::bigint[], $3::text[]) AS i(id, album_id, hint)\n        WHERE t.id = i.id\n          AND ((t.album_id IS NULL AND i.album_id <> 0)\n            OR (t.mbid IS NULL AND t.mbid_hint IS NULL AND i.hint <> ''))\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "Int8Array",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "39057bff4b4280d3c3a7213165fde73ba1866ba397556ddcb889fd0441321f79"
+}

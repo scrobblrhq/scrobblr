@@ -354,3 +354,75 @@ pub struct ConnectedAccountSummary {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export)]
+pub enum ImportStatus {
+    Pending,
+    Running,
+    Done,
+    Failed,
+    Cancelled,
+}
+
+impl ImportStatus {
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "pending" => Self::Pending,
+            "running" => Self::Running,
+            "done" => Self::Done,
+            "failed" => Self::Failed,
+            "cancelled" => Self::Cancelled,
+            _ => return None,
+        })
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Running => "running",
+            Self::Done => "done",
+            Self::Failed => "failed",
+            Self::Cancelled => "cancelled",
+        }
+    }
+
+    pub fn is_active(self) -> bool {
+        matches!(self, Self::Pending | Self::Running)
+    }
+}
+
+/// A listening-history import (currently from Last.fm) and its progress.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct ScrobbleImport {
+    pub id: i64,
+    pub provider: String,
+    pub external_user: String,
+    /// Ownership of the external account was proven through its auth flow.
+    pub verified: bool,
+    pub status: ImportStatus,
+    /// Set when `status` is `failed`: `user_not_found`, `history_hidden`,
+    /// `cap_reached`, `lastfm_unavailable` or `lastfm_error`.
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
+    /// Imports cover scrobbles after `window_from` (re-imports only) up to
+    /// `window_to`, fixed when the import starts.
+    pub window_from: Option<DateTime<Utc>>,
+    pub window_to: Option<DateTime<Utc>>,
+    /// Scrobbles in the window according to the provider, known once the
+    /// first page is in.
+    pub total_expected: Option<i64>,
+    pub fetched: i64,
+    pub imported: i64,
+    pub duplicates: i64,
+    pub skipped: i64,
+    /// How far back in time the import has reached.
+    pub oldest_played_at: Option<DateTime<Utc>>,
+    /// Set while a running import waits out a provider error.
+    pub retrying_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub started_at: Option<DateTime<Utc>>,
+    pub finished_at: Option<DateTime<Utc>>,
+}

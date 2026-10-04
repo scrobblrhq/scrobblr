@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE scrobble_imports SET lease_token = NULL, leased_until = NULL WHERE id = $1 AND lease_token = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "45582e9cce84fc01be90c39950a4e4f94c1bd368ca5be8c078f3f8c6c5d408d9"
+}

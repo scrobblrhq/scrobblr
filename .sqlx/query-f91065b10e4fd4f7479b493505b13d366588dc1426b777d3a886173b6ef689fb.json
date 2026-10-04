@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE scrobble_imports\n        SET attempts = $3, next_attempt_at = NOW() + make_interval(secs => $4),\n            error_message = $5, lease_token = NULL, leased_until = NULL\n        WHERE id = $1 AND lease_token = $2\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Int4",
+        "Float8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f91065b10e4fd4f7479b493505b13d366588dc1426b777d3a886173b6ef689fb"
+}

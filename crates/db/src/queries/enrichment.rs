@@ -4,6 +4,9 @@ use uuid::Uuid;
 
 /// Job priorities; higher runs first.
 pub const PRIORITY_BACKFILL: i32 = 10;
+/// History imports: 20 plus up to 9 by play count, so an import's most
+/// played entities go first without delaying live ingest.
+pub const PRIORITY_IMPORT: i32 = 20;
 pub const PRIORITY_INGEST: i32 = 50;
 pub const PRIORITY_REFRESH: i32 = 100;
 

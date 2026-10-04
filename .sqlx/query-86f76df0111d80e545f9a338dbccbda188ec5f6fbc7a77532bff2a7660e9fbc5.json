@@ -1,0 +1,44 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH input AS (\n                SELECT * FROM UNNEST($1::bigint[], $2::text[], $3::text[], $4::bigint[], $5::text[])\n                    AS i(artist_id, title, title_normalized, album_id, hint)\n            ), inserted AS (\n                INSERT INTO tracks (artist_id, album_id, title, title_normalized, mbid_hint)\n                SELECT artist_id, NULLIF(album_id, 0), title, title_normalized,\n                       NULLIF(hint, '')::uuid\n                FROM input\n                ON CONFLICT (artist_id, title_normalized) DO NOTHING\n                RETURNING id, artist_id, title_normalized\n            )\n            SELECT id AS \"id!\", artist_id AS \"artist_id!\", title_normalized AS \"title_normalized!\",\n                   TRUE AS \"created!\"\n            FROM inserted\n            UNION ALL\n            SELECT t.id, t.artist_id, t.title_normalized, FALSE\n            FROM tracks t JOIN input i USING (artist_id, title_normalized)\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "artist_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "title_normalized!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "created!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "TextArray",
+        "TextArray",
+        "Int8Array",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "86f76df0111d80e545f9a338dbccbda188ec5f6fbc7a77532bff2a7660e9fbc5"
+}

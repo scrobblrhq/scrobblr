@@ -1,0 +1,137 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id, provider, external_user, verified, status, error_code, error_message,\n               window_from, window_to, total_expected, fetched, imported, duplicates, skipped,\n               oldest_played_at, attempts, next_attempt_at, created_at, started_at, finished_at\n        FROM scrobble_imports\n        WHERE id = $1 AND ($2::bigint IS NULL OR user_id = $2)\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "provider",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "external_user",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "verified",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "error_code",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "error_message",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "window_from",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
+        "name": "window_to",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "total_expected",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "fetched",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "imported",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "duplicates",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 13,
+        "name": "skipped",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 14,
+        "name": "oldest_played_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 15,
+        "name": "attempts",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 16,
+        "name": "next_attempt_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 17,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 18,
+        "name": "started_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 19,
+        "name": "finished_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "57bb55b9de47f741a2b7beda77c6b3ddbb80699d1e826f8a151b4f91c3c1cbd0"
+}

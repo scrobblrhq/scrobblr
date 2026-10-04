@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH plays AS (\n            SELECT track_id, artist_id, album_id FROM scrobbles\n            WHERE user_id = $1 AND import_id = $2 AND played_at BETWEEN $3 AND $4\n        ), counts AS (\n            SELECT 'track' AS entity_type, track_id AS entity_id, count(*) AS n\n            FROM plays GROUP BY track_id\n            UNION ALL\n            SELECT 'artist', artist_id, count(*) FROM plays GROUP BY artist_id\n            UNION ALL\n            SELECT 'album', album_id, count(*) FROM plays WHERE album_id IS NOT NULL GROUP BY album_id\n        )\n        INSERT INTO enrichment_jobs (entity_type, entity_id, priority)\n        SELECT c.entity_type, c.entity_id,\n               $5 + LEAST(9, floor(log(2, c.n::numeric)))::int\n        FROM counts c\n        WHERE (c.entity_type = 'track'\n               AND EXISTS (SELECT 1 FROM tracks t WHERE t.id = c.entity_id AND t.enriched_at IS NULL))\n           OR (c.entity_type = 'artist'\n               AND EXISTS (SELECT 1 FROM artists a WHERE a.id = c.entity_id AND a.enriched_at IS NULL))\n           OR (c.entity_type = 'album'\n               AND EXISTS (SELECT 1 FROM albums al WHERE al.id = c.entity_id AND al.enriched_at IS NULL))\n        ON CONFLICT (entity_type, entity_id) DO UPDATE\n            SET priority = GREATEST(enrichment_jobs.priority, EXCLUDED.priority)\n            WHERE enrichment_jobs.status = 'pending'\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Timestamptz",
+        "Timestamptz",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7569f139997657141b2baf47069ab2e8c7eeb4b978f80cb318088c3de5e91919"
+}

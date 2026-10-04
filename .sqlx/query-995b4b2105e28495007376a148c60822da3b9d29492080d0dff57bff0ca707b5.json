@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE scrobble_imports SET pending_from = NULL, pending_to = NULL\n        WHERE id = $1 AND pending_from = $2 AND pending_to = $3\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "995b4b2105e28495007376a148c60822da3b9d29492080d0dff57bff0ca707b5"
+}

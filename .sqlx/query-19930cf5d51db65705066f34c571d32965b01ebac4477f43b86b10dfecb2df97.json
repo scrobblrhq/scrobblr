@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE users\n        SET scrobble_count = scrobble_count + $2,\n            last_seen_at   = GREATEST(last_seen_at, $3)\n        WHERE id = $1\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "19930cf5d51db65705066f34c571d32965b01ebac4477f43b86b10dfecb2df97"
+}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO track_artists (track_id, artist_id, role, position)\n            SELECT c.track_id, c.artist_id, 'primary', 0\n            FROM UNNEST($1::bigint[], $2::bigint[]) AS c(track_id, artist_id)\n            ON CONFLICT DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "51fd1ae74c9827f8c729a5b74b656ba81b536bb922201a733952035e445bc78a"
+}

@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE scrobble_imports SET\n            segment_to       = $2,\n            segment_page     = $3,\n            segment_oldest   = $4,\n            total_expected   = COALESCE(total_expected, $5),\n            fetched          = fetched + $6,\n            imported         = imported + $7,\n            duplicates       = duplicates + $8,\n            skipped          = skipped + $9,\n            oldest_played_at = LEAST(oldest_played_at, $10),\n            pending_from     = LEAST(pending_from, $11),\n            pending_to       = GREATEST(pending_to, $12),\n            attempts         = 0,\n            error_message    = NULL,\n            leased_until     = NOW() + make_interval(secs => $13)\n        WHERE id = $1\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int4",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Timestamptz",
+        "Timestamptz",
+        "Timestamptz",
+        "Float8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1bbc159150d4a4d80c63b45e8e095a28bc54c1ed8faa350757b1239f7a6e514a"
+}
