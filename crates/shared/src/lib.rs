@@ -1,3 +1,4 @@
+pub mod classification;
 pub mod crypto;
 pub mod models;
 pub mod scrobble;
