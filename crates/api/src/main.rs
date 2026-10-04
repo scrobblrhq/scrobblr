@@ -46,8 +46,10 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("connecting to database...");
     let db = db::pool::connect(&database_url).await?;
 
-    // tracing::info!("running migrations...");
-    // sqlx::migrate!("../../migrations").run(&db).await?;
+    // Migrations are a deploy step (`worker migrate`), never run on startup:
+    // replicas and the worker would race, and long or non-transactional ones
+    // don't belong in a boot path. Refuse to serve an outdated schema instead.
+    db::migrate::ensure_current(&db).await?;
 
     // Redis
     tracing::info!("connecting to redis...");

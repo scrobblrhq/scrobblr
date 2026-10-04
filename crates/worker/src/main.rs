@@ -17,9 +17,18 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL required");
+    let args: Vec<String> = std::env::args().skip(1).collect();
 
     tracing::info!("worker: connecting to database...");
     let db = db::pool::connect(&database_url).await?;
+
+    match args.first().map(String::as_str) {
+        None => {}
+        Some("migrate") => return migrate(&db, &args[1..]).await,
+        Some(other) => anyhow::bail!("unknown command `{other}`\n\n{USAGE}"),
+    }
+
+    db::migrate::ensure_current(&db).await?;
 
     // Redis lets the worker re-publish now-playing over the API's SSE channel
     // once it fills an image, so live cards swap the fallback for the cover.
@@ -70,6 +79,34 @@ async fn main() -> anyhow::Result<()> {
         _ = tokio::signal::ctrl_c() => tracing::info!("received Ctrl-C, shutting down"),
     }
 
+    Ok(())
+}
+
+const USAGE: &str = "\
+usage: worker                      run the background jobs
+       worker migrate              apply pending migrations
+       worker migrate status       list migrations and whether each is applied
+       worker migrate --baseline N record 1..=N as applied without running them";
+
+async fn migrate(db: &sqlx::PgPool, args: &[String]) -> anyhow::Result<()> {
+    let applied = match args {
+        [] => db::migrate::run(db).await?,
+        [cmd] if cmd == "status" => {
+            for m in db::migrate::status(db).await? {
+                let state = if m.applied { "applied" } else { "pending" };
+                println!("{:04} {:<8} {}", m.version, state, m.description);
+            }
+            return Ok(());
+        }
+        [flag, version] if flag == "--baseline" => {
+            db::migrate::baseline(db, version.parse()?).await?
+        }
+        _ => anyhow::bail!("{USAGE}"),
+    };
+    match applied.as_slice() {
+        [] => println!("database is up to date"),
+        versions => println!("applied {} migration(s): {versions:?}", versions.len()),
+    }
     Ok(())
 }
 
