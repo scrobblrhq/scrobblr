@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveTime, TimeDelta, Utc};
 use sqlx::PgPool;
 use thiserror::Error;
 
@@ -370,6 +370,44 @@ pub async fn get_activity_heatmap(
     )
     .fetch_all(pool)
     .await
+}
+
+const SCROBBLE_AGGREGATES: [&str; 3] = [
+    "scrobbles_daily_by_artist",
+    "scrobbles_daily_by_track",
+    "user_activity_daily",
+];
+
+/// Refreshes the daily aggregates over `[from, to]` so backfilled scrobbles
+/// show up now instead of on the next hourly policy run. Call it after the
+/// inserts commit: Timescale rejects the refresh inside a transaction.
+pub async fn refresh_scrobble_aggregates(
+    pool: &PgPool,
+    from: DateTime<Utc>,
+    to: DateTime<Utc>,
+) -> Result<(), sqlx::Error> {
+    // Timescale skips partially covered buckets, so widen to whole UTC days.
+    // Stop before today's open bucket: materializing it would leave today's
+    // later scrobbles out until tomorrow.
+    let day_start = |t: DateTime<Utc>| t.date_naive().and_time(NaiveTime::MIN).and_utc();
+    let start = day_start(from);
+    let end = (day_start(to) + TimeDelta::days(1)).min(day_start(Utc::now()));
+    if start >= end {
+        return Ok(());
+    }
+
+    for aggregate in SCROBBLE_AGGREGATES {
+        sqlx::query(
+            "CALL refresh_continuous_aggregate($1::regclass, $2::timestamptz, $3::timestamptz)",
+        )
+        .bind(aggregate)
+        .bind(start)
+        .bind(end)
+        .execute(pool)
+        .await?;
+    }
+
+    Ok(())
 }
 
 /// Returns the most recent scrobble for a user, or `None` if the user has no
