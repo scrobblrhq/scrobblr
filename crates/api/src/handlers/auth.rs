@@ -29,7 +29,7 @@ const RESERVED_USERNAMES: &[&str] = &["me", "settings", "admin", "api"];
 /// Hash of a value nobody can supply, verified against when no user
 /// matches so a missing account costs the same Argon2 work as a real one.
 /// Without it, response latency turns login into a username oracle.
-fn decoy_password_hash() -> &'static str {
+pub(crate) fn decoy_password_hash() -> &'static str {
     static HASH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     HASH.get_or_init(|| {
         let filler = hex::encode(rand::random::<[u8; 32]>());
@@ -133,34 +133,53 @@ pub struct LoginRequest {
     pub password: String,
 }
 
-/// POST /v1/login
-pub async fn login(
-    State(state): State<AppState>,
-    Json(body): Json<LoginRequest>,
-) -> ApiResult<Json<AuthResponse>> {
-    // Deliberately no charset or complexity rules here: those apply at
-    // registration, and re-applying them would lock out accounts created
-    // before the current rules. Only the bounds that keep a hostile body
-    // from reaching Argon2 are enforced.
-    let username = body.username.trim();
+/// Checks a username and password the way every password login must: only
+/// the bounds that keep a hostile body away from Argon2 (not the
+/// registration rules, which would lock out accounts made before them),
+/// then Argon2 against the user's hash or, when no user matches, a decoy,
+/// so a missing account costs the same time as a wrong password.
+/// `with_email` also accepts the account's email address as the username.
+pub(crate) async fn verify_password_login(
+    db: &sqlx::PgPool,
+    username: &str,
+    password: &str,
+    with_email: bool,
+) -> ApiResult<Option<shared::models::User>> {
+    let username = username.trim();
+    let max_len = if with_email {
+        validation::EMAIL_MAX_LEN
+    } else {
+        USERNAME_MAX_LEN
+    };
     if username.is_empty()
-        || username.chars().count() > USERNAME_MAX_LEN
-        || body.password.len() > PASSWORD_LOGIN_MAX_LEN
+        || username.chars().count() > max_len
+        || password.len() > PASSWORD_LOGIN_MAX_LEN
     {
-        return Err(AppError::InvalidCredentials);
+        return Ok(None);
     }
 
-    let user = users_db::find_by_username(&state.db, username).await?;
+    let user = if with_email && username.contains('@') {
+        users_db::find_by_email(db, username).await?
+    } else {
+        users_db::find_by_username(db, username).await?
+    };
 
     let password_hash = user
         .as_ref()
         .map(|u| u.password_hash.as_str())
         .unwrap_or_else(|| decoy_password_hash());
-    let verified = verify_password(&body.password, password_hash).is_ok();
+    let verified = verify_password(password, password_hash).is_ok();
+    Ok(user.filter(|_| verified))
+}
 
-    let (Some(user), true) = (user, verified) else {
-        return Err(AppError::InvalidCredentials);
-    };
+/// POST /v1/login
+pub async fn login(
+    State(state): State<AppState>,
+    Json(body): Json<LoginRequest>,
+) -> ApiResult<Json<AuthResponse>> {
+    let user = verify_password_login(&state.db, &body.username, &body.password, false)
+        .await?
+        .ok_or(AppError::InvalidCredentials)?;
 
     let session = auth_db::create_session(&state.db, user.id, None, None).await?;
 

@@ -123,10 +123,23 @@ pub async fn update_now_playing(
             "too many featured artists for one track".into(),
         ));
     }
+    let source = body.source.clone().unwrap_or_else(|| "extension".into());
+    set_now_playing(&state, auth_user.id, &body, &source).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
 
-    let artist = tracks_db::find_or_create_artist(&state.db, &body.artist).await?;
+/// Records what the user is playing and pushes it to their live listeners
+/// (also for the scrobbler-compatible APIs). The entry expires when the
+/// track would end, or after 5 minutes without a length.
+pub(crate) async fn set_now_playing(
+    state: &AppState,
+    user_id: i64,
+    playing: &NowPlayingRequest,
+    source: &str,
+) -> ApiResult<()> {
+    let artist = tracks_db::find_or_create_artist(&state.db, &playing.artist).await?;
 
-    let album_id = if let Some(album_title) = &body.album {
+    let album_id = if let Some(album_title) = &playing.album {
         Some(tracks_db::find_or_create_album(&state.db, artist.id, album_title).await?)
     } else {
         None
@@ -136,13 +149,13 @@ pub async fn update_now_playing(
         &state.db,
         artist.id,
         album_id,
-        &body.track,
-        body.duration_ms,
+        &playing.track,
+        playing.duration_ms,
     )
     .await?;
 
     let featured =
-        shared::scrobble::normalize_featured_artists(&body.artist, &body.featured_artists);
+        shared::scrobble::normalize_featured_artists(&playing.artist, &playing.featured_artists);
     let mut featured_ids = Vec::with_capacity(featured.len());
     for name in &featured {
         featured_ids.push(tracks_db::find_or_create_artist(&state.db, name).await?.id);
@@ -155,25 +168,25 @@ pub async fn update_now_playing(
         tracing::warn!("failed to enqueue enrichment for now-playing: {e}");
     }
 
-    let duration_ms = track.duration_ms.or(body.duration_ms).unwrap_or(300_000); // default 5 min
+    let duration_ms = track.duration_ms.or(playing.duration_ms).unwrap_or(300_000);
     let expires_at = Utc::now() + Duration::milliseconds(duration_ms as i64);
 
     scrobbles_db::upsert_now_playing(
         &state.db,
         &scrobbles_db::UpsertNowPlaying {
-            user_id: auth_user.id,
+            user_id,
             track_id: track.id,
             artist_id: artist.id,
             album_id,
-            source: body.source.unwrap_or_else(|| "extension".into()),
+            source: source.to_string(),
             expires_at,
         },
     )
     .await?;
 
     // Query rich details to publish
-    if let Some(rich) = scrobbles_db::get_now_playing(&state.db, auth_user.id).await? {
-        let channel = format!("now_playing:{}", auth_user.id);
+    if let Some(rich) = scrobbles_db::get_now_playing(&state.db, user_id).await? {
+        let channel = format!("now_playing:{user_id}");
         let payload =
             serde_json::to_string(&rich).map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
         let _: () = state
@@ -183,7 +196,7 @@ pub async fn update_now_playing(
             .map_err(AppError::Redis)?;
     }
 
-    Ok(StatusCode::NO_CONTENT)
+    Ok(())
 }
 
 pub fn _update_now_playing_doc(op: TransformOperation) -> TransformOperation {
