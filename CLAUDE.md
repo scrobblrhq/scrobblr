@@ -131,6 +131,10 @@ Listener/social sections and the private-profile rules: `artist_listeners`/`trac
 
 Credits are written by `tracks_db::record_track_credits` from ingest (`/v1/scrobble`, `/v1/now-playing`, and the Spotify poller, which maps `track.artists[0]` to primary and the rest to featured) and are **add-only** — a client omitting a collaborator never erases one. Aggregate surfaces (`artist_top_tracks`, `artist_listeners`, search) deliberately stay primary-artist-only; making featured credits count there means rewriting them to join `track_artists`.
 
+### Scrobble clients
+
+`scrobbles.source` is whatever the client claims. `scrobbles.client_id` (migration `0013`) points at `scrobble_clients`: the protocol the scrobble arrived by, the client as that protocol identifies it, and `verified` when the server checked that identity. Native `/v1/scrobble` records `scrobblr` with its claimed source (unverified), the Spotify poller `spotify` (verified). Ingest callers pass `ScrobbleInput.client_id`; the API resolves ids through `AppState.clients`, a bounded cache, since names are client-chosen. Imports leave it NULL (`import_id` already says where they came from).
+
 ### Auth input rules and client attestation
 
 `shared::validation` owns every credential rule (username charset/length, RFC-lite email structure, password length + complexity, display-name sanitization) and is enforced **only at registration** — `login` applies just the bounds needed to keep a hostile body away from Argon2, since re-applying the current rules would lock out older accounts. `login` also verifies against a decoy hash when no user matches, so response latency can't be used to enumerate usernames.

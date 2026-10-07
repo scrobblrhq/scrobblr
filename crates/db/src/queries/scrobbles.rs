@@ -91,6 +91,7 @@ pub async fn ingest_scrobble(
             source: input.source.clone(),
             duration_ms: input.duration_ms,
             listened_ms: input.listened_ms,
+            client_id: input.client_id,
         },
     )
     .await?;
@@ -116,6 +117,7 @@ pub struct InsertScrobble {
     pub duration_ms: Option<i32>,
     /// How long the client says the user actually listened.
     pub listened_ms: Option<i32>,
+    pub client_id: Option<i32>,
 }
 
 /// Inserts a new scrobble row and returns the generated row ID.
@@ -125,8 +127,8 @@ pub struct InsertScrobble {
 pub async fn insert_scrobble(pool: &PgPool, s: &InsertScrobble) -> Result<i64, sqlx::Error> {
     let row = sqlx::query!(
         r#"
-        INSERT INTO scrobbles (user_id, track_id, artist_id, album_id, played_at, source, duration_ms, listened_ms)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        INSERT INTO scrobbles (user_id, track_id, artist_id, album_id, played_at, source, duration_ms, listened_ms, client_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING id
         "#,
         s.user_id,
@@ -137,6 +139,7 @@ pub async fn insert_scrobble(pool: &PgPool, s: &InsertScrobble) -> Result<i64, s
         s.source,
         s.duration_ms,
         s.listened_ms,
+        s.client_id,
     )
         .fetch_one(pool)
         .await?;

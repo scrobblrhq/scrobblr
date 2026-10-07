@@ -211,6 +211,7 @@ async fn plays_already_scrobbled_live_are_skipped() {
             duration_ms: Some(330_000),
             listened_ms: None,
             source: "extension".into(),
+            client_id: None,
         };
         scrobbles_db::ingest_scrobble(&pool, user_id, &input)
             .await

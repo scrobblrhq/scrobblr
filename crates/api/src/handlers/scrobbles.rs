@@ -14,6 +14,7 @@ use axum::{
     response::sse::{Event, KeepAlive, Sse},
 };
 use chrono::{Duration, Utc};
+use db::queries::scrobble_clients::{ClientIdentity, PROTOCOL_SCROBBLR};
 use db::queries::{
     enrichment as enrichment_db, scrobbles as scrobbles_db, tracks as tracks_db, users as users_db,
 };
@@ -53,6 +54,8 @@ pub async fn scrobble(
     Extension(auth_user): Extension<AuthUser>,
     Json(body): Json<ScrobbleRequest>,
 ) -> ApiResult<impl IntoApiResponse> {
+    let source = body.source.clone().unwrap_or_else(|| "extension".into());
+    let client = ClientIdentity::new(PROTOCOL_SCROBBLR, &source, false);
     let input = ScrobbleInput {
         track_title: body.track.clone(),
         artist_name: body.artist.clone(),
@@ -61,7 +64,8 @@ pub async fn scrobble(
         played_at: body.played_at,
         duration_ms: body.duration_ms,
         listened_ms: body.listened_ms,
-        source: body.source.clone().unwrap_or_else(|| "extension".into()),
+        source,
+        client_id: state.clients.id(&state.db, &client).await,
     };
 
     // Validation, catalog resolution, dedup, and insertion all live in

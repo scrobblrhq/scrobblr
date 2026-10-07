@@ -7,6 +7,7 @@
 use std::sync::Arc;
 
 use chrono::Utc;
+use db::queries::scrobble_clients::{self as clients_db, ClientIdentity, PROTOCOL_SPOTIFY};
 use db::queries::{
     connected_accounts as connected_accounts_db, enrichment as enrichment_db,
     scrobbles as scrobbles_db, tracks as tracks_db,
@@ -28,6 +29,7 @@ pub struct ConnectedAccountsPoller {
     http: reqwest::Client,
     spotify_client_id: Option<String>,
     spotify_client_secret: Option<String>,
+    scrobble_client: tokio::sync::OnceCell<i32>,
 }
 
 impl ConnectedAccountsPoller {
@@ -38,7 +40,22 @@ impl ConnectedAccountsPoller {
             http: reqwest::Client::new(),
             spotify_client_id: std::env::var("SPOTIFY_CLIENT_ID").ok(),
             spotify_client_secret: std::env::var("SPOTIFY_CLIENT_SECRET").ok(),
+            scrobble_client: tokio::sync::OnceCell::new(),
         }
+    }
+
+    /// The poller's own `scrobble_clients` row: Spotify's API, read by the
+    /// server, so verified.
+    async fn scrobble_client(&self) -> Option<i32> {
+        let client = ClientIdentity::new(PROTOCOL_SPOTIFY, "spotify", true);
+        self.scrobble_client
+            .get_or_try_init(|| clients_db::resolve_client(&self.db, &client))
+            .await
+            .map_err(|e| {
+                tracing::warn!("connected_accounts: failed to resolve scrobble client: {e}")
+            })
+            .ok()
+            .copied()
     }
 
     /// Runs forever, polling active Spotify connections on a fixed
@@ -143,6 +160,7 @@ impl ConnectedAccountsPoller {
                 // enough to record, so it always clears our own thresholds.
                 listened_ms: Some(item.duration_ms),
                 source: "spotify".into(),
+                client_id: self.scrobble_client().await,
             };
 
             match scrobbles_db::ingest_scrobble(&self.db, account.user_id, &input).await {

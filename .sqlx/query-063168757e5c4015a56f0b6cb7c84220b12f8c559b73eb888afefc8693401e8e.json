@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH inserted AS (\n            INSERT INTO scrobble_clients (protocol, name, verified)\n            VALUES ($1, $2, $3)\n            ON CONFLICT (protocol, name, verified) DO NOTHING\n            RETURNING id\n        )\n        SELECT id AS \"id!\" FROM inserted\n        UNION ALL\n        SELECT id FROM scrobble_clients WHERE protocol = $1 AND name = $2 AND verified = $3\n        LIMIT 1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "063168757e5c4015a56f0b6cb7c84220b12f8c559b73eb888afefc8693401e8e"
+}

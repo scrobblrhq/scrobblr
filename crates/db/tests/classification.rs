@@ -55,6 +55,7 @@ async fn scrobble(
             source: "test".into(),
             duration_ms,
             listened_ms: None,
+            client_id: None,
         },
     )
     .await
@@ -140,6 +141,7 @@ async fn ingest_queues_the_day_and_classification_labels_it() {
                 duration_ms: Some(230_000),
                 listened_ms: Some(200_000),
                 source: "test".into(),
+                client_id: None,
             };
             scrobbles_db::ingest_scrobble(&pool, user_id, &input)
                 .await

@@ -39,6 +39,8 @@ pub struct ScrobbleInput {
     /// How long the user actually listened (may be less than full track)
     pub listened_ms: Option<i32>,
     pub source: String,
+    /// `scrobble_clients.id`: the client as the server saw it.
+    pub client_id: Option<i32>,
 }
 
 /// Trims, drops blanks, removes the primary artist and de-duplicates

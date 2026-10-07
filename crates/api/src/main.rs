@@ -88,6 +88,7 @@ async fn main() -> anyhow::Result<()> {
         uploads,
         app_keys,
         trusted_proxy_hops,
+        clients: Default::default(),
     };
     let app = router::build(state);
 

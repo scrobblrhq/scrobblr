@@ -1,11 +1,13 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use axum::extract::FromRef;
 use fred::clients::Client as RedisClient;
 use sqlx::PgPool;
 
 use crate::middleware::app_signature::AppKeys;
+use db::queries::scrobble_clients::{self as clients_db, ClientIdentity};
 
 /// Where uploaded images are written and how their public URLs are built.
 #[derive(Debug)]
@@ -29,6 +31,38 @@ pub struct AppState {
     /// Reverse proxies in front of the API (`TRUSTED_PROXY_HOPS`), whose
     /// `X-Forwarded-For` entries name the client; 0 trusts none.
     pub trusted_proxy_hops: usize,
+    pub clients: Arc<ClientCache>,
+}
+
+/// `scrobble_clients` ids already resolved, so ingest doesn't look one up
+/// per scrobble. Names are client-chosen, hence the bound.
+#[derive(Default)]
+pub struct ClientCache(Mutex<HashMap<ClientIdentity, i32>>);
+
+impl ClientCache {
+    const MAX_ENTRIES: usize = 10_000;
+
+    /// `None` (logged) if the lookup fails: the scrobble is still worth
+    /// recording without it.
+    pub async fn id(&self, db: &PgPool, client: &ClientIdentity) -> Option<i32> {
+        if let Some(id) = self.0.lock().unwrap().get(client) {
+            return Some(*id);
+        }
+        match clients_db::resolve_client(db, client).await {
+            Ok(id) => {
+                let mut cached = self.0.lock().unwrap();
+                if cached.len() >= Self::MAX_ENTRIES {
+                    cached.clear();
+                }
+                cached.insert(client.clone(), id);
+                Some(id)
+            }
+            Err(e) => {
+                tracing::warn!(?client, "failed to resolve scrobble client: {e}");
+                None
+            }
+        }
+    }
 }
 
 impl FromRef<AppState> for PgPool {
