@@ -8,7 +8,7 @@ use std::net::SocketAddr;
 use axum::body::Body;
 use axum::extract::ConnectInfo;
 use axum::http::{Method, Request, StatusCode, header};
-use chrono::{TimeDelta, Utc};
+use chrono::{DateTime, TimeDelta, Utc};
 use serde_json::{Value, json};
 
 use crate::compat::CompatConfig;
@@ -377,8 +377,31 @@ async fn tokens_get_only_scopes_the_server_knows() {
         );
         let (status, _) = create(json!([])).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        // An expiry must be 1 to 3650 days: zero or less is expired already,
+        // and a huge count overflowed the date, which panicked the handler
+        // and dropped the connection unanswered.
+        let expiring = |days: i64| {
+            app.api(
+                Method::POST,
+                "/v1/auth/tokens",
+                Some(json!({ "name": "script", "expires_days": days })),
+            )
+        };
+        for days in [0, -1, 3651, 100_000_000_000] {
+            let (status, body) = expiring(days).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{days}: {body}");
+            assert!(
+                body["error"].as_str().unwrap().contains("expires_days"),
+                "{body}"
+            );
+        }
         let (_, listed) = app.api(Method::GET, "/v1/auth/tokens", None).await;
         assert_eq!(listed, json!([]));
+        let (status, created) = expiring(3650).await;
+        assert_eq!(status, StatusCode::CREATED, "{created}");
+        let expires_at: DateTime<Utc> = created["expires_at"].as_str().unwrap().parse().unwrap();
+        assert!((expires_at - Utc::now() - TimeDelta::days(3650)).abs() < TimeDelta::minutes(1));
 
         let (status, created) = create(json!(["write", "read", "write"])).await;
         assert_eq!(status, StatusCode::CREATED, "{created}");
