@@ -1,15 +1,23 @@
 //! Scrobbler-compatible APIs, so existing scrobblers work by changing only
-//! the server URL: ListenBrainz (`/1/…`). What they submit goes through
+//! the server URL: Last.fm 2.0 (`/2.0/`) and ListenBrainz (`/1/…`). What they submit goes through
 //! `ingest_scrobble` like native scrobbles, recorded with the protocol and
 //! client it came from.
 //!
 //! Clients authenticate with `scrobbler_credentials`, never the native
-//! API's sessions or tokens: tokens a user makes to paste into a client.
+//! API's sessions or tokens: tokens a user makes to paste into a client,
+//! and Last.fm session keys clients obtain by logging in. A third-party
+//! server can't trust Last.fm request signatures (they are made with
+//! secrets of Last.fm's or of the client's developer, embedded in public
+//! clients), so authentication rests on those credentials; signatures are
+//! checked when the server knows the secret (see [`lastfm`]).
 
 pub mod credentials;
+pub mod lastfm;
 pub mod listenbrainz;
 #[cfg(test)]
 mod tests;
+
+use std::collections::HashMap;
 
 use axum::body::Bytes;
 use axum::routing::{get, post};
@@ -31,35 +39,80 @@ use shared::scrobble::{MAX_CLOCK_SKEW, MAX_NAME_LEN, ScrobbleInput, ScrobbleVali
 pub const MAX_SCROBBLE_AGE: TimeDelta = TimeDelta::days(14);
 const MAX_BODY_BYTES: usize = 2 * 1024 * 1024;
 const REQUESTS_PER_USER_MINUTE: i64 = 120;
+const LOGIN_WINDOW_SECS: i64 = 15 * 60;
+const LOGIN_ATTEMPTS_PER_USER: i64 = 10;
+const LOGIN_ATTEMPTS_PER_IP: i64 = 20;
 const DEFAULT_DAILY_LIMIT: i64 = 3_000;
 
 #[derive(Debug, Clone)]
 pub struct CompatConfig {
+    /// Last.fm API keys whose shared secret the server knows
+    /// (`SCROBBLER_API_KEYS`), so their signatures are checked.
+    pub api_keys: HashMap<String, String>,
+    /// Reject API keys the server doesn't know (`SCROBBLER_STRICT_API_KEYS`).
+    pub strict_api_keys: bool,
+    /// Whether Last.fm logins take account passwords as well as tokens
+    /// (`SCROBBLER_PASSWORD_LOGIN`). Off by default when `AUTH_APP_KEYS`
+    /// gates the native login: an unsigned password login here would
+    /// bypass that gate.
+    pub password_login: bool,
     /// Scrobbles a user may submit per UTC day (`SCROBBLER_DAILY_LIMIT`).
     pub daily_limit: i64,
+    /// The web app's origin (`WEB_APP_URL`), where users approve Last.fm
+    /// clients in the browser.
+    pub web_app_url: Option<String>,
 }
 
 impl Default for CompatConfig {
     fn default() -> Self {
         Self {
+            api_keys: HashMap::new(),
+            strict_api_keys: false,
+            password_login: true,
             daily_limit: DEFAULT_DAILY_LIMIT,
+            web_app_url: None,
         }
     }
 }
 
 impl CompatConfig {
-    pub fn from_env() -> anyhow::Result<Self> {
-        let daily_limit = match std::env::var("SCROBBLER_DAILY_LIMIT")
-            .ok()
-            .filter(|v| !v.trim().is_empty())
-        {
+    pub fn from_env(attested_login: bool) -> anyhow::Result<Self> {
+        let var = |name: &str| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
+        let flag = |name: &str, default: bool| -> anyhow::Result<bool> {
+            match var(name).as_deref().map(str::trim) {
+                None => Ok(default),
+                Some("true" | "1") => Ok(true),
+                Some("false" | "0") => Ok(false),
+                Some(other) => anyhow::bail!("{name}={other}: expected true or false"),
+            }
+        };
+
+        let mut api_keys = HashMap::new();
+        for entry in var("SCROBBLER_API_KEYS").iter().flat_map(|v| v.split(',')) {
+            let entry = entry.trim();
+            if entry.is_empty() {
+                continue;
+            }
+            let (key, secret) = entry.split_once(':').ok_or_else(|| {
+                anyhow::anyhow!("SCROBBLER_API_KEYS entries must be api_key:shared_secret")
+            })?;
+            api_keys.insert(key.trim().to_string(), secret.trim().to_string());
+        }
+        let daily_limit = match var("SCROBBLER_DAILY_LIMIT") {
             Some(v) => v
                 .trim()
                 .parse()
                 .map_err(|e| anyhow::anyhow!("SCROBBLER_DAILY_LIMIT={v}: {e}"))?,
             None => DEFAULT_DAILY_LIMIT,
         };
-        Ok(Self { daily_limit })
+
+        Ok(Self {
+            api_keys,
+            strict_api_keys: flag("SCROBBLER_STRICT_API_KEYS", false)?,
+            password_login: flag("SCROBBLER_PASSWORD_LOGIN", !attested_login)?,
+            daily_limit,
+            web_app_url: var("WEB_APP_URL").map(|v| v.trim().trim_end_matches('/').to_string()),
+        })
     }
 }
 
@@ -67,6 +120,10 @@ impl CompatConfig {
 /// services' protocols.
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route("/2.0", get(lastfm::api).post(lastfm::api))
+        .route("/2.0/", get(lastfm::api).post(lastfm::api))
+        .route("/api/auth", get(credentials::browser_authorization))
+        .route("/api/auth/", get(credentials::browser_authorization))
         .route("/1/validate-token", get(listenbrainz::validate_token))
         .route("/1/submit-listens", post(listenbrainz::submit_listens))
 }
@@ -97,6 +154,10 @@ impl Params {
     pub fn text(&self, name: &str) -> Option<&str> {
         self.get(name).map(str::trim).filter(|v| !v.is_empty())
     }
+
+    pub fn pairs(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.0.iter().map(|(n, v)| (n.as_str(), v.as_str()))
+    }
 }
 
 /// The request's parts and body, read up to [`MAX_BODY_BYTES`].
@@ -106,6 +167,14 @@ pub async fn read_request(req: Request) -> ApiResult<(axum::http::request::Parts
         .await
         .map_err(|_| AppError::BadRequest("request body too large".into()))?;
     Ok((parts, body))
+}
+
+pub fn request_ip(state: &AppState, parts: &axum::http::request::Parts) -> String {
+    let peer = parts
+        .extensions
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        .map(|axum::extract::ConnectInfo(addr)| *addr);
+    crate::middleware::rate_limit::client_ip(&parts.headers, peer, state.trusted_proxy_hops)
 }
 
 /// A random secret like Last.fm's session keys: 32 hex characters.
@@ -146,6 +215,42 @@ pub async fn within_request_limit(state: &AppState, user_id: i64) -> bool {
             true
         }
     }
+}
+
+fn login_keys(ip: &str, username: &str) -> [String; 2] {
+    [
+        format!("scrobbler_login:ip:{ip}"),
+        format!("scrobbler_login:user:{}", username.trim().to_lowercase()),
+    ]
+}
+
+/// Counts a login attempt and says whether it may be checked: at most
+/// [`LOGIN_ATTEMPTS_PER_USER`] per username and [`LOGIN_ATTEMPTS_PER_IP`]
+/// per IP in [`LOGIN_WINDOW_SECS`]. Counted before checking, so parallel
+/// attempts can't slip past, and whether or not the account exists, so
+/// being blocked says nothing about it. A success resets the username's
+/// count ([`login_succeeded`]). Fails closed: without Redis, no limit.
+pub async fn login_attempt(state: &AppState, ip: &str, username: &str) -> ApiResult<bool> {
+    let mut allowed = true;
+    for (key, limit) in login_keys(ip, username)
+        .into_iter()
+        .zip([LOGIN_ATTEMPTS_PER_IP, LOGIN_ATTEMPTS_PER_USER])
+    {
+        let count: i64 = state.redis.incr(&key).await?;
+        if count == 1 {
+            let _ = state
+                .redis
+                .expire::<i64, _>(&key, LOGIN_WINDOW_SECS, None)
+                .await;
+        }
+        allowed &= count <= limit;
+    }
+    Ok(allowed)
+}
+
+pub async fn login_succeeded(state: &AppState, username: &str) {
+    let [_, user_key] = login_keys("", username);
+    let _ = state.redis.del::<i64, _>(&user_key).await;
 }
 
 /// One play as a compatibility protocol submitted it.

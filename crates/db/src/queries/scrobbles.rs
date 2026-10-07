@@ -270,6 +270,63 @@ pub async fn get_recent_scrobbles(
     Ok(scrobbles)
 }
 
+/// One page of a user's scrobbles in `[from, to]`, newest first, by offset
+/// (Last.fm's `user.getRecentTracks` pages that way).
+pub async fn recent_scrobbles_page(
+    pool: &PgPool,
+    user_id: i64,
+    from: Option<DateTime<Utc>>,
+    to: Option<DateTime<Utc>>,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<ScrobbleRich>, sqlx::Error> {
+    sqlx::query_as!(
+        ScrobbleRich,
+        r#"
+        SELECT s.id, s.played_at, s.source, s.track_id, t.title AS track_title,
+               s.artist_id, a.name AS artist_name, s.album_id,
+               al.title AS "album_title?", al.image_url AS "album_image?", s.duration_ms
+        FROM scrobbles s
+        JOIN tracks  t  ON t.id = s.track_id
+        JOIN artists a  ON a.id = s.artist_id
+        LEFT JOIN albums al ON al.id = s.album_id
+        WHERE s.user_id = $1
+          AND ($2::timestamptz IS NULL OR s.played_at >= $2)
+          AND ($3::timestamptz IS NULL OR s.played_at <= $3)
+        ORDER BY s.played_at DESC, s.id DESC
+        LIMIT $4 OFFSET $5
+        "#,
+        user_id,
+        from,
+        to,
+        limit,
+        offset,
+    )
+    .fetch_all(pool)
+    .await
+}
+
+pub async fn count_scrobbles(
+    pool: &PgPool,
+    user_id: i64,
+    from: Option<DateTime<Utc>>,
+    to: Option<DateTime<Utc>>,
+) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar!(
+        r#"
+        SELECT count(*) AS "count!" FROM scrobbles
+        WHERE user_id = $1
+          AND ($2::timestamptz IS NULL OR played_at >= $2)
+          AND ($3::timestamptz IS NULL OR played_at <= $3)
+        "#,
+        user_id,
+        from,
+        to,
+    )
+    .fetch_one(pool)
+    .await
+}
+
 /// Returns the top artists for a user within the given time window, ordered by
 /// total play count descending.
 ///

@@ -186,6 +186,27 @@ pub fn build(state: AppState) -> Router {
                 compat::credentials::_create_token_doc,
             ),
         )
+        .api_route(
+            "/v1/scrobbler/authorizations",
+            post_with(
+                compat::credentials::authorize_callback,
+                compat::credentials::_authorize_callback_doc,
+            ),
+        )
+        .api_route(
+            "/v1/scrobbler/authorizations/{token}",
+            get_with(
+                compat::credentials::get_authorization,
+                compat::credentials::_get_authorization_doc,
+            ),
+        )
+        .api_route(
+            "/v1/scrobbler/authorizations/{token}/approve",
+            post_with(
+                compat::credentials::approve_authorization,
+                compat::credentials::_approve_authorization_doc,
+            ),
+        )
         .layer(middleware::from_fn_with_state(state.clone(), require_auth));
 
     // Image uploads: authed like the routes above, but with a larger body

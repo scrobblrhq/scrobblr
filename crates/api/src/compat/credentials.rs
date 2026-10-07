@@ -1,13 +1,16 @@
-//! What the web app needs for scrobblers: the user's scrobbler tokens
-//! (list, create, revoke). Managing them takes the `write` scope, so a
-//! session, not a scrobble token.
+//! What the web app needs for scrobblers: the user's scrobbler tokens and
+//! Last.fm sessions (list, create, revoke), and the browser authorization
+//! a Last.fm-API client sends the user to (`/api/auth/`). Managing them
+//! takes the `write` scope, so a session, not a scrobble token.
 
 use aide::transform::TransformOperation;
 use axum::{
     Json,
-    extract::{Extension, Path, State},
+    extract::{Extension, Path, RawQuery, State},
     http::StatusCode,
+    response::{Html, IntoResponse, Redirect, Response},
 };
+use chrono::{TimeDelta, Utc};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use uuid::Uuid;
@@ -18,15 +21,46 @@ use crate::{
     state::AppState,
 };
 use db::queries::scrobblers::{self as scrobblers_db, KIND_TOKEN};
-use shared::models::{CreatedScrobblerToken, ScrobblerCredential};
+use shared::models::{
+    CreatedScrobblerToken, ScrobblerAuthorization, ScrobblerAuthorizationRedirect,
+    ScrobblerCredential,
+};
 
 const NAME_MAX_CHARS: usize = 100;
+const CALLBACK_MAX_LEN: usize = 2048;
+const WEB_FLOW_TOKEN_TTL: TimeDelta = TimeDelta::minutes(10);
 
 fn require_write(user: &AuthUser) -> ApiResult<()> {
     if user.scopes.iter().any(|s| s == "write") {
         Ok(())
     } else {
         Err(AppError::Forbidden)
+    }
+}
+
+/// GET /api/auth/?api_key=…&token=… (desktop flow) or ?api_key=…&cb=… (web
+/// flow), where Last.fm-API clients send the user's browser. The approval
+/// page is the web app's; the query goes along unchanged.
+pub async fn browser_authorization(
+    State(state): State<AppState>,
+    RawQuery(query): RawQuery,
+) -> Response {
+    match &state.compat.web_app_url {
+        Some(web) => Redirect::to(&format!(
+            "{web}/scrobbler/authorize?{}",
+            query.unwrap_or_default()
+        ))
+        .into_response(),
+        None => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Html(
+                "<!doctype html><meta charset=\"utf-8\"><title>Scrobblr</title>\
+                 <p>This server isn't set up for signing in from the browser. In your \
+                 player, sign in with your Scrobblr username and a scrobbler token as the \
+                 password instead.</p>",
+            ),
+        )
+            .into_response(),
     }
 }
 
@@ -43,9 +77,7 @@ pub async fn list_credentials(
 
 pub fn _list_credentials_doc(op: TransformOperation) -> TransformOperation {
     op.summary("List scrobbler credentials")
-        .description(
-            "The tokens the user made for third-party scrobblers. Secrets are never returned.",
-        )
+        .description("The tokens the user made for third-party scrobblers and the Last.fm sessions clients obtained with them or by logging in. Secrets are never returned.")
         .tag("Scrobblers")
         .response::<200, Json<Vec<ScrobblerCredential>>>()
         .response_with::<401, (), _>(|r| r.description("Not authenticated"))
@@ -111,4 +143,124 @@ pub fn _delete_credential_doc(op: TransformOperation) -> TransformOperation {
         .response_with::<401, (), _>(|r| r.description("Not authenticated"))
         .response_with::<403, (), _>(|r| r.description("Needs a session (the `write` scope)"))
         .response_with::<404, (), _>(|r| r.description("No such credential of this user"))
+}
+
+/// GET /v1/scrobbler/authorizations/{token}
+pub async fn get_authorization(
+    State(state): State<AppState>,
+    Extension(auth_user): Extension<AuthUser>,
+    Path(token): Path<String>,
+) -> ApiResult<Json<ScrobblerAuthorization>> {
+    require_write(&auth_user)?;
+    let a = scrobblers_db::get_authorization(&state.db, &token)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    let status = if a.expires_at <= Utc::now() {
+        "expired"
+    } else if a.user_id.is_some() {
+        "approved"
+    } else {
+        "pending"
+    };
+    Ok(Json(ScrobblerAuthorization {
+        api_key: a.api_key,
+        status: status.into(),
+        expires_at: a.expires_at,
+    }))
+}
+
+pub fn _get_authorization_doc(op: TransformOperation) -> TransformOperation {
+    op.summary("Show a scrobbler authorization request")
+        .description("For the page a Last.fm-API client sends the user to (`/api/auth/?api_key=…&token=…`, forwarded to the web app's `/scrobbler/authorize`): which client asks, and whether the request is still pending.")
+        .tag("Scrobblers")
+        .response::<200, Json<ScrobblerAuthorization>>()
+        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
+        .response_with::<403, (), _>(|r| r.description("Needs a session (the `write` scope)"))
+        .response_with::<404, (), _>(|r| r.description("Unknown token"))
+}
+
+/// POST /v1/scrobbler/authorizations/{token}/approve
+pub async fn approve_authorization(
+    State(state): State<AppState>,
+    Extension(auth_user): Extension<AuthUser>,
+    Path(token): Path<String>,
+) -> ApiResult<StatusCode> {
+    require_write(&auth_user)?;
+    if scrobblers_db::approve_authorization(&state.db, &token, auth_user.id).await? {
+        return Ok(StatusCode::NO_CONTENT);
+    }
+    match scrobblers_db::get_authorization(&state.db, &token).await? {
+        None => Err(AppError::NotFound),
+        Some(a) if a.expires_at <= Utc::now() => {
+            Err(AppError::BadRequest("this request has expired".into()))
+        }
+        Some(a) if a.user_id == Some(auth_user.id) => Ok(StatusCode::NO_CONTENT),
+        Some(_) => Err(AppError::Conflict(
+            "another user approved this request".into(),
+        )),
+    }
+}
+
+pub fn _approve_authorization_doc(op: TransformOperation) -> TransformOperation {
+    op.summary("Approve a scrobbler authorization request")
+        .description("Lets the Last.fm-API client that holds the token scrobble for the user: its next `auth.getSession` gets a session key. Desktop flow.")
+        .tag("Scrobblers")
+        .response_with::<204, (), _>(|r| r.description("Approved"))
+        .response_with::<400, (), _>(|r| r.description("The request expired (they last an hour)"))
+        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
+        .response_with::<403, (), _>(|r| r.description("Needs a session (the `write` scope)"))
+        .response_with::<404, (), _>(|r| r.description("Unknown token"))
+        .response_with::<409, (), _>(|r| r.description("Approved by another user already"))
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct AuthorizeCallbackRequest {
+    pub api_key: String,
+    /// The client's `cb` parameter: where the browser goes with the token.
+    pub callback: String,
+}
+
+/// POST /v1/scrobbler/authorizations
+pub async fn authorize_callback(
+    State(state): State<AppState>,
+    Extension(auth_user): Extension<AuthUser>,
+    Json(body): Json<AuthorizeCallbackRequest>,
+) -> ApiResult<Json<ScrobblerAuthorizationRedirect>> {
+    require_write(&auth_user)?;
+    let api_key = body.api_key.trim();
+    if api_key.is_empty() || api_key.len() > 64 {
+        return Err(AppError::BadRequest("invalid api_key".into()));
+    }
+    let callback = body.callback.trim();
+    let valid = callback.len() <= CALLBACK_MAX_LEN
+        && reqwest::Url::parse(callback).is_ok_and(|u| matches!(u.scheme(), "http" | "https"));
+    if !valid {
+        return Err(AppError::BadRequest(
+            "callback must be an http(s) URL".into(),
+        ));
+    }
+    let token = super::new_secret();
+    scrobblers_db::create_authorization(
+        &state.db,
+        &token,
+        api_key,
+        Some(auth_user.id),
+        WEB_FLOW_TOKEN_TTL,
+    )
+    .await?;
+    let separator = if callback.contains('?') { '&' } else { '?' };
+    Ok(Json(ScrobblerAuthorizationRedirect {
+        redirect_url: format!("{callback}{separator}token={token}"),
+        token,
+    }))
+}
+
+pub fn _authorize_callback_doc(op: TransformOperation) -> TransformOperation {
+    op.summary("Authorize a web-flow scrobbler")
+        .description("For a Last.fm-API client that sent the user with a callback (`/api/auth/?api_key=…&cb=…`): approves it at once and returns the callback URL with the token, which the client trades for a session key with `auth.getSession` within 10 minutes.")
+        .tag("Scrobblers")
+        .response::<200, Json<ScrobblerAuthorizationRedirect>>()
+        .response_with::<400, (), _>(|r| r.description("Invalid api_key or callback"))
+        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
+        .response_with::<403, (), _>(|r| r.description("Needs a session (the `write` scope)"))
 }

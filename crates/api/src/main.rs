@@ -79,7 +79,12 @@ async fn main() -> anyhow::Result<()> {
         public_base_url: public_base_url.trim_end_matches('/').to_string(),
     });
 
-    let compat = std::sync::Arc::new(compat::CompatConfig::from_env()?);
+    let compat = std::sync::Arc::new(compat::CompatConfig::from_env(app_keys.is_some())?);
+    if !compat.password_login {
+        tracing::info!(
+            "scrobbler APIs take scrobbler tokens only, not account passwords (SCROBBLER_PASSWORD_LOGIN)"
+        );
+    }
 
     let trusted_proxy_hops = match std::env::var("TRUSTED_PROXY_HOPS") {
         Ok(v) if !v.trim().is_empty() => v
