@@ -1,5 +1,6 @@
 use aide::axum::routing::patch_with;
-use aide::transform::TransformOpenApi;
+use aide::transform::{TransformOpenApi, TransformOperation};
+use aide::util::iter_operations_mut;
 use aide::{
     axum::{
         ApiRouter, IntoApiResponse,
@@ -21,19 +22,28 @@ use crate::{
     compat,
     handlers::{auth, community, connected_accounts, imports, scrobbles, tracks, uploads, users},
     middleware::{
-        app_signature::require_app_signature, auth::optional_auth, auth::require_auth,
+        app_signature::require_app_signature,
+        auth::{Access, Scope, optional_auth, require_auth},
         rate_limit::rate_limit,
     },
     state::AppState,
 };
 
+#[cfg(test)]
+mod tests;
+
 async fn serve_api(Extension(api): Extension<Arc<OpenApi>>) -> impl IntoApiResponse {
     Json(api)
 }
 pub fn build(state: AppState) -> Router {
-    // Authenticated routes
-    let authed = ApiRouter::new()
-        // Scrobbling
+    // Authenticated routes, grouped by what they need of the credential
+    // (`Access`, checked by `require_auth`): a session may do anything, an
+    // API token only what its scopes cover, and only a session may manage
+    // credentials. A new route goes in the group that fits it, and in the
+    // list in `router/tests.rs`, which fails until it's there.
+
+    // Scrobbling: all a player's `scrobble` token needs.
+    let scrobble_routes = ApiRouter::new()
         .api_route(
             "/v1/scrobble",
             post_with(scrobbles::scrobble, scrobbles::_scrobble_doc),
@@ -44,8 +54,10 @@ pub fn build(state: AppState) -> Router {
                 scrobbles::update_now_playing,
                 scrobbles::_update_now_playing_doc,
             ),
-        )
-        // Connected accounts (Spotify, Last.fm)
+        );
+
+    // Reading the account's own data.
+    let read_routes = ApiRouter::new()
         .api_route(
             "/v1/connect",
             get_with(
@@ -54,12 +66,21 @@ pub fn build(state: AppState) -> Router {
             ),
         )
         .api_route(
-            "/v1/connect/{provider}",
-            get_with(
-                connected_accounts::connect_provider,
-                connected_accounts::_connect_provider_doc,
-            ),
+            "/v1/imports",
+            get_with(imports::list_imports, imports::_list_imports_doc),
         )
+        .api_route(
+            "/v1/imports/{id}",
+            get_with(imports::get_import, imports::_get_import_doc),
+        )
+        .api_route(
+            "/v1/user/me",
+            get_with(users::get_own_profile, users::_get_own_profile_doc),
+        );
+
+    // Changing the account and posting as it.
+    let write_routes = ApiRouter::new()
+        // Connected accounts (Spotify, Last.fm)
         .api_route(
             "/v1/connect/{provider}",
             delete_with(
@@ -76,22 +97,10 @@ pub fn build(state: AppState) -> Router {
             ),
         )
         .api_route(
-            "/v1/imports",
-            get_with(imports::list_imports, imports::_list_imports_doc),
-        )
-        .api_route(
-            "/v1/imports/{id}",
-            get_with(imports::get_import, imports::_get_import_doc),
-        )
-        .api_route(
             "/v1/imports/{id}",
             delete_with(imports::cancel_import, imports::_cancel_import_doc),
         )
         // User profile
-        .api_route(
-            "/v1/user/me",
-            get_with(users::get_own_profile, users::_get_own_profile_doc),
-        )
         .api_route(
             "/v1/user/me",
             patch_with(users::update_settings, users::_update_settings_doc),
@@ -145,15 +154,47 @@ pub fn build(state: AppState) -> Router {
         .api_route(
             "/v1/comments/{id}",
             delete_with(community::delete_comment, community::_delete_comment_doc),
+        );
+
+    // Image uploads: `write` like the routes above, but with a larger body
+    // limit than the default 2 MiB (axum caps multipart at DefaultBodyLimit).
+    let upload_routes = ApiRouter::new()
+        .api_route(
+            "/v1/user/me/avatar",
+            post_with(uploads::upload_avatar, uploads::_upload_avatar_doc),
+        )
+        .api_route(
+            "/v1/artist/{id}/image",
+            post_with(
+                uploads::upload_artist_image,
+                uploads::_upload_artist_image_doc,
+            ),
+        )
+        .api_route(
+            "/v1/album/{id}/image",
+            post_with(
+                uploads::upload_album_image,
+                uploads::_upload_album_image_doc,
+            ),
+        )
+        .layer(DefaultBodyLimit::max(8 * 1024 * 1024));
+
+    // Credentials and account links: sessions only, so that a leaked API
+    // token can't mint a credential (or link an account that scrobbles)
+    // that outlives its revocation, nor revoke the user's others.
+    let session_routes = ApiRouter::new()
+        // Connected accounts (Spotify, Last.fm)
+        .api_route(
+            "/v1/connect/{provider}",
+            get_with(
+                connected_accounts::connect_provider,
+                connected_accounts::_connect_provider_doc,
+            ),
         )
         // API tokens
         .api_route(
             "/v1/auth/tokens",
             post_with(auth::create_api_token, auth::_create_api_token_doc),
-        )
-        .api_route(
-            "/v1/auth/tokens",
-            get_with(auth::list_api_tokens, auth::_list_api_tokens_doc),
         )
         .api_route(
             "/v1/auth/tokens/{id}",
@@ -206,32 +247,14 @@ pub fn build(state: AppState) -> Router {
                 compat::credentials::approve_authorization,
                 compat::credentials::_approve_authorization_doc,
             ),
-        )
-        .layer(middleware::from_fn_with_state(state.clone(), require_auth));
+        );
 
-    // Image uploads: authed like the routes above, but with a larger body
-    // limit than the default 2 MiB (axum caps multipart at DefaultBodyLimit).
-    let upload_routes = ApiRouter::new()
-        .api_route(
-            "/v1/user/me/avatar",
-            post_with(uploads::upload_avatar, uploads::_upload_avatar_doc),
-        )
-        .api_route(
-            "/v1/artist/{id}/image",
-            post_with(
-                uploads::upload_artist_image,
-                uploads::_upload_artist_image_doc,
-            ),
-        )
-        .api_route(
-            "/v1/album/{id}/image",
-            post_with(
-                uploads::upload_album_image,
-                uploads::_upload_album_image_doc,
-            ),
-        )
-        .layer(DefaultBodyLimit::max(8 * 1024 * 1024))
-        .layer(middleware::from_fn_with_state(state.clone(), require_auth));
+    // Any credential: an API token lists only itself here, which is how a
+    // client (the browser extension) checks the token it was given.
+    let any_credential_routes = ApiRouter::new().api_route(
+        "/v1/auth/tokens",
+        get_with(auth::list_api_tokens, auth::_list_api_tokens_doc),
+    );
 
     // Credential endpoints, gated on a first-party app signature whenever
     // AUTH_APP_KEYS is configured. Kept in their own group so the layer
@@ -372,8 +395,16 @@ pub fn build(state: AppState) -> Router {
 
     ApiRouter::new()
         .route("/docs", Scalar::new("/api.json").axum_route())
-        .merge(authed)
-        .merge(upload_routes)
+        .merge(authed(
+            &state,
+            Access::Scope(Scope::Scrobble),
+            scrobble_routes,
+        ))
+        .merge(authed(&state, Access::Scope(Scope::Read), read_routes))
+        .merge(authed(&state, Access::Scope(Scope::Write), write_routes))
+        .merge(authed(&state, Access::Scope(Scope::Write), upload_routes))
+        .merge(authed(&state, Access::Session, session_routes))
+        .merge(authed(&state, Access::Any, any_credential_routes))
         .merge(auth_public)
         .merge(public)
         .merge(optional_authed_users)
@@ -392,6 +423,35 @@ pub fn build(state: AppState) -> Router {
         .finish_api_with(&mut api, api_docs)
         .layer(Extension(Arc::new(api)))
         .with_state(state)
+}
+
+/// Puts `routes` behind [`require_auth`] with `access`, and documents the
+/// 403 a credential without it gets.
+fn authed(state: &AppState, access: Access, routes: ApiRouter<AppState>) -> ApiRouter<AppState> {
+    let denied = match access {
+        Access::Any => None,
+        Access::Scope(scope) => Some(format!(
+            "Needs a session or an API token with the `{scope}` scope"
+        )),
+        Access::Session => Some("Needs a session: API tokens can't do this".to_string()),
+    };
+    routes
+        .with_path_items(|mut item| {
+            if let Some(denied) = &denied {
+                for (_, op) in iter_operations_mut(item.inner_mut()) {
+                    let _ = TransformOperation::new(op)
+                        .response_with::<403, (), _>(|r| r.description(denied));
+                    if let Some(responses) = &mut op.responses {
+                        responses.responses.sort_keys();
+                    }
+                }
+            }
+            item
+        })
+        .layer(middleware::from_fn_with_state(
+            (state.clone(), access),
+            require_auth,
+        ))
 }
 
 async fn health() -> &'static str {

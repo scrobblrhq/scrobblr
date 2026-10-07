@@ -1,35 +1,115 @@
+use std::fmt;
+
 use axum::{
     extract::{Request, State},
     middleware::Next,
     response::Response,
 };
 use fred::{interfaces::KeysInterface, types::Expiration};
-use schemars::JsonSchema;
 use uuid::Uuid;
 
 use crate::{errors::AppError, state::AppState};
 use db::queries::auth as auth_db;
 use db::queries::users as users_db;
 
-/// Authenticated user injected into request extensions.
-#[expect(dead_code)] // temporary
-#[derive(Clone, Debug, JsonSchema)]
-pub struct AuthUser {
-    pub id: i64,
-    pub username: String,
-    pub scopes: Vec<String>,
+/// What an API token may be allowed to do; a session may do all of it.
+/// Scopes don't imply one another: a token that should read and write is
+/// created with both.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Scope {
+    /// Submitting scrobbles and now playing, all a player needs.
+    Scrobble,
+    /// Reading the account's own data: profile, imports, connected accounts.
+    Read,
+    /// Changing the account and posting as it: profile, follows, comments,
+    /// votes, uploads, imports, catalog refreshes.
+    Write,
 }
 
-/// Middleware that validates the `Authorization: Bearer <token>` header.
+impl Scope {
+    pub const ALL: [Scope; 3] = [Scope::Scrobble, Scope::Read, Scope::Write];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Scope::Scrobble => "scrobble",
+            Scope::Read => "read",
+            Scope::Write => "write",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|scope| scope.as_str() == name)
+    }
+}
+
+impl fmt::Display for Scope {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// What a group of routes needs of the credential, checked by
+/// [`require_auth`]. Every authenticated group in `router.rs` names one.
+#[derive(Clone, Copy, Debug)]
+pub enum Access {
+    /// Any credential.
+    Any,
+    /// A session, or an API token holding the scope.
+    Scope(Scope),
+    /// A session only. For what manages credentials or links accounts, so
+    /// that no API token can mint a credential that outlives its revocation.
+    Session,
+}
+
+/// The credential a request authenticated with.
+#[derive(Clone, Debug)]
+pub enum Credential {
+    /// A login session, which may do anything.
+    Session,
+    /// An API token, with those of its scopes this server knows.
+    ApiToken { id: Uuid, scopes: Vec<Scope> },
+}
+
+impl Credential {
+    /// Whether this credential may use routes that need `access`.
+    pub fn check(&self, access: Access) -> Result<(), AppError> {
+        match (self, access) {
+            (Credential::Session, _) | (_, Access::Any) => Ok(()),
+            (Credential::ApiToken { scopes, .. }, Access::Scope(scope)) => {
+                if scopes.contains(&scope) {
+                    Ok(())
+                } else {
+                    Err(AppError::MissingScope(scope))
+                }
+            }
+            (Credential::ApiToken { .. }, Access::Session) => Err(AppError::SessionRequired),
+        }
+    }
+}
+
+/// Authenticated user injected into request extensions.
+#[derive(Clone, Debug)]
+pub struct AuthUser {
+    pub id: i64,
+    #[expect(dead_code)] // temporary
+    pub username: String,
+    pub credential: Credential,
+}
+
+/// Middleware that validates the `Authorization: Bearer <token>` header and
+/// that its credential has the `access` the routes behind it need (403
+/// otherwise).
 ///
 /// Accepts two token formats:
 /// - **Session UUID** — validated against `user_sessions` (cached in Redis).
-/// - **API token** — SHA-256 hashed, validated against `api_tokens`.
+///   A session may do anything.
+/// - **API token** — SHA-256 hashed, validated against `api_tokens`. It may
+///   do what its scopes cover, and nothing that takes a session.
 ///
 /// In both cases `last_used_at` is updated in a background task so it does
 /// not block the request.
 pub async fn require_auth(
-    State(state): State<AppState>,
+    State((state, access)): State<(AppState, Access)>,
     mut req: Request,
     next: Next,
 ) -> Result<Response, AppError> {
@@ -49,7 +129,7 @@ pub async fn require_auth(
         AuthUser {
             id: user.id,
             username: user.username,
-            scopes: vec!["scrobble".into(), "read".into(), "write".into()],
+            credential: Credential::Session,
         }
     } else {
         let hash = auth_db::hash_api_token(&token);
@@ -70,10 +150,19 @@ pub async fn require_auth(
         AuthUser {
             id: user.id,
             username: user.username,
-            scopes: api_token.scopes,
+            credential: Credential::ApiToken {
+                id: api_token.id,
+                // Names stored before creation checked them grant nothing.
+                scopes: api_token
+                    .scopes
+                    .iter()
+                    .filter_map(|name| Scope::parse(name))
+                    .collect(),
+            },
         }
     };
 
+    auth_user.credential.check(access)?;
     req.extensions_mut().insert(auth_user);
     Ok(next.run(req).await)
 }
@@ -89,7 +178,7 @@ async fn try_authenticate_session(state: &AppState, token: &str) -> Option<AuthU
     Some(AuthUser {
         id: user.id,
         username: user.username,
-        scopes: vec!["scrobble".into(), "read".into(), "write".into()],
+        credential: Credential::Session,
     })
 }
 
@@ -160,4 +249,72 @@ fn extract_bearer_token(req: &Request) -> Result<String, AppError> {
         .strip_prefix("Bearer ")
         .map(|s| s.to_string())
         .ok_or(AppError::Unauthorized)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn token(scopes: &[Scope]) -> Credential {
+        Credential::ApiToken {
+            id: Uuid::nil(),
+            scopes: scopes.to_vec(),
+        }
+    }
+
+    #[test]
+    fn a_session_may_do_anything() {
+        for access in [
+            Access::Any,
+            Access::Scope(Scope::Scrobble),
+            Access::Scope(Scope::Read),
+            Access::Scope(Scope::Write),
+            Access::Session,
+        ] {
+            assert!(Credential::Session.check(access).is_ok(), "{access:?}");
+        }
+    }
+
+    #[test]
+    fn a_token_may_do_what_its_scopes_cover_and_nothing_more() {
+        let scrobbler = token(&[Scope::Scrobble]);
+        assert!(scrobbler.check(Access::Any).is_ok());
+        assert!(scrobbler.check(Access::Scope(Scope::Scrobble)).is_ok());
+        assert!(matches!(
+            scrobbler.check(Access::Scope(Scope::Read)),
+            Err(AppError::MissingScope(Scope::Read))
+        ));
+        assert!(matches!(
+            scrobbler.check(Access::Scope(Scope::Write)),
+            Err(AppError::MissingScope(Scope::Write))
+        ));
+
+        // Scopes don't imply one another.
+        let writer = token(&[Scope::Write]);
+        assert!(writer.check(Access::Scope(Scope::Write)).is_ok());
+        assert!(writer.check(Access::Scope(Scope::Read)).is_err());
+        assert!(writer.check(Access::Scope(Scope::Scrobble)).is_err());
+
+        assert!(token(&[]).check(Access::Any).is_ok());
+        assert!(token(&[]).check(Access::Scope(Scope::Scrobble)).is_err());
+    }
+
+    #[test]
+    fn no_token_passes_for_a_session() {
+        assert!(matches!(
+            token(&Scope::ALL).check(Access::Session),
+            Err(AppError::SessionRequired)
+        ));
+    }
+
+    #[test]
+    fn scope_names_round_trip() {
+        for scope in Scope::ALL {
+            assert_eq!(Scope::parse(scope.as_str()), Some(scope));
+            assert_eq!(scope.to_string(), scope.as_str());
+        }
+        assert_eq!(Scope::parse("admin"), None);
+        assert_eq!(Scope::parse("Write"), None);
+        assert_eq!(Scope::parse(""), None);
+    }
 }

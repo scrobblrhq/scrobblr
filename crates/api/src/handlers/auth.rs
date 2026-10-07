@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use crate::{
     errors::{ApiResult, AppError},
-    middleware::auth::AuthUser,
+    middleware::auth::{AuthUser, Credential, Scope},
     state::AppState,
 };
 use db::queries::{auth as auth_db, users as users_db};
@@ -235,6 +235,7 @@ pub fn _logout_doc(op: TransformOperation) -> TransformOperation {
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct CreateTokenRequest {
     pub name: String,
+    /// Any of `scrobble`, `read` and `write`; `["scrobble"]` when omitted.
     pub scopes: Option<Vec<String>>,
     /// Days until the token expires, 1 to 3650; it never does when omitted.
     pub expires_days: Option<i64>,
@@ -266,7 +267,13 @@ pub async fn create_api_token(
     // response and can never be recovered afterwards.
     let token_hash = auth_db::hash_api_token(&raw_token);
 
-    let scopes = body.scopes.unwrap_or_else(|| vec!["scrobble".into()]);
+    let scopes: Vec<String> = match &body.scopes {
+        Some(names) => parse_scopes(names)?,
+        None => vec![Scope::Scrobble],
+    }
+    .into_iter()
+    .map(|scope| scope.as_str().to_string())
+    .collect();
 
     let api_token = auth_db::create_api_token(
         &state.db,
@@ -291,6 +298,30 @@ pub async fn create_api_token(
     ))
 }
 
+/// The scopes a new token asks for, deduplicated in canonical order. A name
+/// this server doesn't know is an error rather than stored, and a token
+/// needs at least one scope.
+fn parse_scopes(names: &[String]) -> ApiResult<Vec<Scope>> {
+    let known = || Scope::ALL.map(Scope::as_str).join(", ");
+    if let Some(unknown) = names.iter().find(|name| Scope::parse(name).is_none()) {
+        return Err(AppError::BadRequest(format!(
+            "unknown scope `{unknown}` (the scopes are {})",
+            known()
+        )));
+    }
+    let scopes: Vec<Scope> = Scope::ALL
+        .into_iter()
+        .filter(|scope| names.iter().any(|name| name == scope.as_str()))
+        .collect();
+    if scopes.is_empty() {
+        return Err(AppError::BadRequest(format!(
+            "a token needs at least one scope ({})",
+            known()
+        )));
+    }
+    Ok(scopes)
+}
+
 /// Refuses an `expires_days` outside 1 to [`API_TOKEN_MAX_DAYS`]: zero or
 /// less would create a token that's already expired, and too many days
 /// overflow the expiry date, which panics.
@@ -307,10 +338,10 @@ fn check_expires_days(expires_days: Option<i64>) -> ApiResult<()> {
 
 pub fn _create_api_token_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Create an API token")
-        .description("Generates a new long-lived API token for programmatic access (e.g. scrobbling from a music player). The raw token is only shown once — store it securely. `expires_days`, 1 to 3650 (ten years), sets when it expires; without it, it never does.")
+        .description("Generates a new long-lived API token for programmatic access (e.g. scrobbling from a music player). The raw token is only shown once — store it securely. `scopes` (default `[\"scrobble\"]`) says what it may do, and scopes don't imply one another: `scrobble` submits scrobbles and now playing, `read` reads the account's own data (profile, imports, connected accounts), and `write` changes the account and posts as it (profile, follows, comments, votes, uploads, imports, catalog refreshes). `expires_days`, 1 to 3650 (ten years), sets when it expires; without it, it never does. Only a session can create, list all or revoke tokens, log out, manage scrobbler credentials and connect accounts.")
         .tag("Auth")
         .response::<201, Json<CreateTokenResponse>>()
-        .response_with::<400, (), _>(|r| r.description("`expires_days` outside 1 to 3650"))
+        .response_with::<400, (), _>(|r| r.description("Unknown scope or none, or `expires_days` outside 1 to 3650"))
         .response_with::<401, (), _>(|r| r.description("Not authenticated"))
 }
 
@@ -319,13 +350,18 @@ pub async fn list_api_tokens(
     State(state): State<AppState>,
     Extension(auth_user): Extension<AuthUser>,
 ) -> ApiResult<impl IntoApiResponse> {
-    let tokens = auth_db::list_api_tokens(&state.db, auth_user.id).await?;
+    let mut tokens = auth_db::list_api_tokens(&state.db, auth_user.id).await?;
+    // An API token sees only itself: enough for a client to check the token
+    // it was given, without learning of the account's others.
+    if let Credential::ApiToken { id, .. } = auth_user.credential {
+        tokens.retain(|token| token.id == id);
+    }
     Ok(Json(tokens))
 }
 
 pub fn _list_api_tokens_doc(op: TransformOperation) -> TransformOperation {
     op.summary("List API tokens")
-        .description("Returns all active API tokens belonging to the authenticated user. The raw token value is never returned here — only metadata.")
+        .description("With a session, returns every API token of the authenticated user; with an API token, only that token, so a client can check the token it was given (its scopes and expiry). The raw token value is never returned here — only metadata.")
         .tag("Auth")
         .response_with::<401, (), _>(|r| r.description("Not authenticated"))
 }
@@ -356,6 +392,29 @@ pub fn _delete_api_token_doc(op: TransformOperation) -> TransformOperation {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn parse(names: &[&str]) -> ApiResult<Vec<Scope>> {
+        parse_scopes(&names.iter().map(|n| n.to_string()).collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn requested_scopes_are_deduplicated_in_order() {
+        assert_eq!(parse(&["scrobble"]).unwrap(), [Scope::Scrobble]);
+        assert_eq!(
+            parse(&["write", "read", "write"]).unwrap(),
+            [Scope::Read, Scope::Write]
+        );
+    }
+
+    #[test]
+    fn unknown_or_missing_scopes_are_refused() {
+        assert!(matches!(
+            parse(&["scrobble", "admin"]),
+            Err(AppError::BadRequest(m)) if m.contains("`admin`")
+        ));
+        assert!(matches!(parse(&["Write"]), Err(AppError::BadRequest(_))));
+        assert!(matches!(parse(&[]), Err(AppError::BadRequest(_))));
+    }
 
     #[test]
     fn tokens_expire_in_a_day_to_ten_years_or_never() {

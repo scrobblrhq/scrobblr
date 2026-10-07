@@ -7,6 +7,8 @@ use axum::{
 use serde_json::json;
 use thiserror::Error;
 
+use crate::middleware::auth::Scope;
+
 #[derive(Debug, Error)]
 pub enum AppError {
     #[error("missing or invalid Authorization header")]
@@ -17,6 +19,12 @@ pub enum AppError {
 
     #[error("you do not have permission to do this")]
     Forbidden,
+
+    #[error("this API token lacks the `{0}` scope")]
+    MissingScope(Scope),
+
+    #[error("only a login session can do this, not an API token")]
+    SessionRequired,
 
     #[error("bad request: {0}")]
     BadRequest(String),
@@ -78,6 +86,8 @@ impl IntoResponse for AppError {
             AppError::Unauthorized => (StatusCode::UNAUTHORIZED, self.to_string()),
             AppError::InvalidCredentials => (StatusCode::UNAUTHORIZED, self.to_string()),
             AppError::Forbidden => (StatusCode::FORBIDDEN, self.to_string()),
+            AppError::MissingScope(_) => (StatusCode::FORBIDDEN, self.to_string()),
+            AppError::SessionRequired => (StatusCode::FORBIDDEN, self.to_string()),
             AppError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             AppError::ScrobbleInvalid(_) => (StatusCode::UNPROCESSABLE_ENTITY, self.to_string()),
             AppError::NotFound => (StatusCode::NOT_FOUND, self.to_string()),
