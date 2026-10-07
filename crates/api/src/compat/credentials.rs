@@ -1,7 +1,7 @@
 //! What the web app needs for scrobblers: the user's scrobbler tokens and
 //! Last.fm sessions (list, create, revoke), and the browser authorization
 //! a Last.fm-API client sends the user to (`/api/auth/`). Managing them
-//! takes the `write` scope, so a session, not a scrobble token.
+//! takes a session (`Access::Session` in `router.rs`), never an API token.
 
 use aide::transform::TransformOperation;
 use axum::{
@@ -29,14 +29,6 @@ use shared::models::{
 const NAME_MAX_CHARS: usize = 100;
 const CALLBACK_MAX_LEN: usize = 2048;
 const WEB_FLOW_TOKEN_TTL: TimeDelta = TimeDelta::minutes(10);
-
-fn require_write(user: &AuthUser) -> ApiResult<()> {
-    if user.scopes.iter().any(|s| s == "write") {
-        Ok(())
-    } else {
-        Err(AppError::Forbidden)
-    }
-}
 
 /// GET /api/auth/?api_key=…&token=… (desktop flow) or ?api_key=…&cb=… (web
 /// flow), where Last.fm-API clients send the user's browser. The approval
@@ -69,7 +61,6 @@ pub async fn list_credentials(
     State(state): State<AppState>,
     Extension(auth_user): Extension<AuthUser>,
 ) -> ApiResult<Json<Vec<ScrobblerCredential>>> {
-    require_write(&auth_user)?;
     Ok(Json(
         scrobblers_db::list_credentials(&state.db, auth_user.id).await?,
     ))
@@ -81,7 +72,6 @@ pub fn _list_credentials_doc(op: TransformOperation) -> TransformOperation {
         .tag("Scrobblers")
         .response::<200, Json<Vec<ScrobblerCredential>>>()
         .response_with::<401, (), _>(|r| r.description("Not authenticated"))
-        .response_with::<403, (), _>(|r| r.description("Needs a session (the `write` scope)"))
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -96,7 +86,6 @@ pub async fn create_token(
     Extension(auth_user): Extension<AuthUser>,
     Json(body): Json<CreateScrobblerTokenRequest>,
 ) -> ApiResult<(StatusCode, Json<CreatedScrobblerToken>)> {
-    require_write(&auth_user)?;
     let name = body.name.trim();
     if name.is_empty() || name.chars().count() > NAME_MAX_CHARS {
         return Err(AppError::BadRequest(format!(
@@ -118,7 +107,6 @@ pub fn _create_token_doc(op: TransformOperation) -> TransformOperation {
         .response::<201, Json<CreatedScrobblerToken>>()
         .response_with::<400, (), _>(|r| r.description("Missing or overlong name"))
         .response_with::<401, (), _>(|r| r.description("Not authenticated"))
-        .response_with::<403, (), _>(|r| r.description("Needs a session (the `write` scope)"))
 }
 
 /// DELETE /v1/scrobbler/credentials/{id}
@@ -127,7 +115,6 @@ pub async fn delete_credential(
     Extension(auth_user): Extension<AuthUser>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<StatusCode> {
-    require_write(&auth_user)?;
     if scrobblers_db::delete_credential(&state.db, id, auth_user.id).await? {
         Ok(StatusCode::NO_CONTENT)
     } else {
@@ -141,17 +128,14 @@ pub fn _delete_credential_doc(op: TransformOperation) -> TransformOperation {
         .tag("Scrobblers")
         .response_with::<204, (), _>(|r| r.description("Revoked"))
         .response_with::<401, (), _>(|r| r.description("Not authenticated"))
-        .response_with::<403, (), _>(|r| r.description("Needs a session (the `write` scope)"))
         .response_with::<404, (), _>(|r| r.description("No such credential of this user"))
 }
 
 /// GET /v1/scrobbler/authorizations/{token}
 pub async fn get_authorization(
     State(state): State<AppState>,
-    Extension(auth_user): Extension<AuthUser>,
     Path(token): Path<String>,
 ) -> ApiResult<Json<ScrobblerAuthorization>> {
-    require_write(&auth_user)?;
     let a = scrobblers_db::get_authorization(&state.db, &token)
         .await?
         .ok_or(AppError::NotFound)?;
@@ -175,7 +159,6 @@ pub fn _get_authorization_doc(op: TransformOperation) -> TransformOperation {
         .tag("Scrobblers")
         .response::<200, Json<ScrobblerAuthorization>>()
         .response_with::<401, (), _>(|r| r.description("Not authenticated"))
-        .response_with::<403, (), _>(|r| r.description("Needs a session (the `write` scope)"))
         .response_with::<404, (), _>(|r| r.description("Unknown token"))
 }
 
@@ -185,7 +168,6 @@ pub async fn approve_authorization(
     Extension(auth_user): Extension<AuthUser>,
     Path(token): Path<String>,
 ) -> ApiResult<StatusCode> {
-    require_write(&auth_user)?;
     if scrobblers_db::approve_authorization(&state.db, &token, auth_user.id).await? {
         return Ok(StatusCode::NO_CONTENT);
     }
@@ -208,7 +190,6 @@ pub fn _approve_authorization_doc(op: TransformOperation) -> TransformOperation 
         .response_with::<204, (), _>(|r| r.description("Approved"))
         .response_with::<400, (), _>(|r| r.description("The request expired (they last an hour)"))
         .response_with::<401, (), _>(|r| r.description("Not authenticated"))
-        .response_with::<403, (), _>(|r| r.description("Needs a session (the `write` scope)"))
         .response_with::<404, (), _>(|r| r.description("Unknown token"))
         .response_with::<409, (), _>(|r| r.description("Approved by another user already"))
 }
@@ -226,7 +207,6 @@ pub async fn authorize_callback(
     Extension(auth_user): Extension<AuthUser>,
     Json(body): Json<AuthorizeCallbackRequest>,
 ) -> ApiResult<Json<ScrobblerAuthorizationRedirect>> {
-    require_write(&auth_user)?;
     let api_key = body.api_key.trim();
     if api_key.is_empty() || api_key.len() > 64 {
         return Err(AppError::BadRequest("invalid api_key".into()));
@@ -262,5 +242,4 @@ pub fn _authorize_callback_doc(op: TransformOperation) -> TransformOperation {
         .response::<200, Json<ScrobblerAuthorizationRedirect>>()
         .response_with::<400, (), _>(|r| r.description("Invalid api_key or callback"))
         .response_with::<401, (), _>(|r| r.description("Not authenticated"))
-        .response_with::<403, (), _>(|r| r.description("Needs a session (the `write` scope)"))
 }
