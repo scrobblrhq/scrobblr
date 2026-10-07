@@ -74,7 +74,9 @@ pub async fn delete_expired_sessions(pool: &PgPool) -> Result<u64, sqlx::Error> 
 /// Creates an API token with an optional expiry.
 ///
 /// `token_hash` must be a pre-hashed value — the raw token is never stored.
-/// Pass `expires_days: None` for a non-expiring token.
+/// Pass `expires_days: None` for a non-expiring token. Too many days overflow
+/// the expiry and panic, so callers bound them (`POST /v1/auth/tokens` to
+/// 1..=3650).
 pub async fn create_api_token(
     pool: &PgPool,
     user_id: i64,

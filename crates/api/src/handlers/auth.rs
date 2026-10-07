@@ -26,6 +26,10 @@ use shared::validation::{
 // Reserved usernames that cannot be registered (e.g. "me" for /user/me)
 const RESERVED_USERNAMES: &[&str] = &["me", "settings", "admin", "api"];
 
+/// The longest an API token can be set to last: ten years. One that should
+/// never expire is created without `expires_days`.
+const API_TOKEN_MAX_DAYS: i64 = 3650;
+
 /// Hash of a value nobody can supply, verified against when no user
 /// matches so a missing account costs the same Argon2 work as a real one.
 /// Without it, response latency turns login into a username oracle.
@@ -232,6 +236,7 @@ pub fn _logout_doc(op: TransformOperation) -> TransformOperation {
 pub struct CreateTokenRequest {
     pub name: String,
     pub scopes: Option<Vec<String>>,
+    /// Days until the token expires, 1 to 3650; it never does when omitted.
     pub expires_days: Option<i64>,
 }
 
@@ -251,6 +256,8 @@ pub async fn create_api_token(
     Extension(auth_user): Extension<AuthUser>,
     Json(body): Json<CreateTokenRequest>,
 ) -> ApiResult<impl IntoApiResponse> {
+    check_expires_days(body.expires_days)?;
+
     // Generate a cryptographically random 32-byte token
     let raw_bytes: [u8; 32] = rand::random();
     let raw_token = hex::encode(raw_bytes);
@@ -284,11 +291,26 @@ pub async fn create_api_token(
     ))
 }
 
+/// Refuses an `expires_days` outside 1 to [`API_TOKEN_MAX_DAYS`]: zero or
+/// less would create a token that's already expired, and too many days
+/// overflow the expiry date, which panics.
+fn check_expires_days(expires_days: Option<i64>) -> ApiResult<()> {
+    if let Some(days) = expires_days
+        && !(1..=API_TOKEN_MAX_DAYS).contains(&days)
+    {
+        return Err(AppError::BadRequest(format!(
+            "expires_days must be 1 to {API_TOKEN_MAX_DAYS}, or left out for a token that never expires"
+        )));
+    }
+    Ok(())
+}
+
 pub fn _create_api_token_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Create an API token")
-        .description("Generates a new long-lived API token for programmatic access (e.g. scrobbling from a music player). The raw token is only shown once — store it securely.")
+        .description("Generates a new long-lived API token for programmatic access (e.g. scrobbling from a music player). The raw token is only shown once — store it securely. `expires_days`, 1 to 3650 (ten years), sets when it expires; without it, it never does.")
         .tag("Auth")
         .response::<201, Json<CreateTokenResponse>>()
+        .response_with::<400, (), _>(|r| r.description("`expires_days` outside 1 to 3650"))
         .response_with::<401, (), _>(|r| r.description("Not authenticated"))
 }
 
@@ -329,4 +351,30 @@ pub fn _delete_api_token_doc(op: TransformOperation) -> TransformOperation {
         .response_with::<204, (), _>(|r| r.description("Token successfully revoked"))
         .response_with::<401, (), _>(|r| r.description("Not authenticated"))
         .response_with::<404, (), _>(|r| r.description("Token not found or not owned by the authenticated user"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tokens_expire_in_a_day_to_ten_years_or_never() {
+        for days in [None, Some(1), Some(365), Some(API_TOKEN_MAX_DAYS)] {
+            assert!(check_expires_days(days).is_ok(), "{days:?}");
+        }
+        // Already expired, or past the expiry chrono can compute (it panics).
+        for days in [
+            0,
+            -1,
+            API_TOKEN_MAX_DAYS + 1,
+            100_000_000_000,
+            i64::MAX,
+            i64::MIN,
+        ] {
+            assert!(
+                matches!(check_expires_days(Some(days)), Err(AppError::BadRequest(m)) if m.contains("expires_days")),
+                "{days}"
+            );
+        }
+    }
 }
