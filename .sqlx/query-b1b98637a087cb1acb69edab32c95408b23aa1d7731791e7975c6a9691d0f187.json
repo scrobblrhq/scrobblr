@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT d.user_id, u.username, count(*) AS \"days!\",\n               sum(d.counted)::bigint AS \"counted!\", sum(d.suspect)::bigint AS \"suspect!\",\n               sum(d.duplicate)::bigint AS \"duplicate!\", sum(d.no_data)::bigint AS \"no_data!\",\n               (SELECT max(f.load_ms) FROM scrobble_flags f\n                WHERE f.user_id = d.user_id AND f.day BETWEEN $2 AND $3\n                  AND f.status = 'suspect') AS peak_load_ms\n        FROM scrobble_classification_days d\n        JOIN users u ON u.id = d.user_id\n        WHERE d.ruleset_id = $1 AND d.day BETWEEN $2 AND $3\n        GROUP BY d.user_id, u.username\n        HAVING sum(d.suspect) > 0\n        ORDER BY sum(d.suspect) DESC, d.user_id\n        LIMIT $4\n        ",
+  "query": "\n        SELECT d.user_id, u.username, count(*) AS \"days!\",\n               sum(d.counted)::bigint AS \"counted!\", sum(d.suspect)::bigint AS \"suspect!\",\n               sum(d.duplicate)::bigint AS \"duplicate!\", sum(d.no_data)::bigint AS \"no_data!\",\n               (SELECT max(f.load_ms) FROM scrobble_flags f\n                WHERE f.user_id = d.user_id AND f.day BETWEEN $2 AND $3\n                  AND f.status = 'suspect') AS peak_load_ms\n        FROM scrobble_classification_days d\n        JOIN users u ON u.id = d.user_id\n        WHERE d.ruleset_id = $1 AND d.day BETWEEN $2 AND $3\n        GROUP BY d.user_id, u.username\n        HAVING sum(CASE WHEN $5 THEN d.duplicate ELSE d.suspect END) > 0\n        ORDER BY sum(CASE WHEN $5 THEN d.duplicate ELSE d.suspect END) DESC, d.user_id\n        LIMIT $4\n        ",
   "describe": {
     "columns": [
       {
@@ -49,7 +49,8 @@
         "Int4",
         "Date",
         "Date",
-        "Int8"
+        "Int8",
+        "Bool"
       ]
     },
     "nullable": [
@@ -63,5 +64,5 @@
       null
     ]
   },
-  "hash": "5724de6aa88840ae77f916fc4b6e778676486cc97d7275a5d2ba9e845cf84e4d"
+  "hash": "b1b98637a087cb1acb69edab32c95408b23aa1d7731791e7975c6a9691d0f187"
 }

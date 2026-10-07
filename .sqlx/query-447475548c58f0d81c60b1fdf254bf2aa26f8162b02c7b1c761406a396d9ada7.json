@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT (min(day) AT TIME ZONE 'UTC')::date AS \"day\" FROM user_activity_daily",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "day",
+        "type_info": "Date"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "447475548c58f0d81c60b1fdf254bf2aa26f8162b02c7b1c761406a396d9ada7"
+}

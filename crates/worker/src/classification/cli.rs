@@ -8,12 +8,12 @@ use anyhow::{Context, bail};
 use chrono::{NaiveDate, TimeDelta, Utc};
 use sqlx::PgPool;
 
-use db::queries::classification::{self as cdb, Ruleset, StatusCounts};
+use db::queries::classification::{self as cdb, Ruleset, StatusCounts, TopBy};
 use db::queries::users as users_db;
 use shared::classification::{BudgetParams, Status};
 
 pub const USAGE: &str =
-    "       worker classify report     [--from DATE] [--to DATE] [--user NAME] [--limit N]
+    "       worker classify report     [--from DATE | --all] [--to DATE] [--user NAME] [--limit N]
        worker classify reclassify [--from DATE] [--to DATE] [--user NAME] [--dry-run]
        worker classify backfill   [--from DATE] [--to DATE] [--dry-run]
                                   DATE is YYYY-MM-DD (UTC); report defaults to the last
@@ -25,6 +25,7 @@ struct Options {
     to: Option<NaiveDate>,
     user: Option<String>,
     limit: Option<i64>,
+    all: bool,
     dry_run: bool,
 }
 
@@ -42,6 +43,7 @@ fn parse(args: &[String]) -> anyhow::Result<Options> {
             "--limit" => {
                 options.limit = Some(value()?.parse().context("--limit: expected a number")?)
             }
+            "--all" => options.all = true,
             "--dry-run" => options.dry_run = true,
             other => bail!("unknown option `{other}` (see `worker --help`)"),
         }
@@ -81,7 +83,11 @@ async fn ruleset(db: &PgPool, params: BudgetParams, write: bool) -> anyhow::Resu
 
 async fn report(db: &PgPool, params: BudgetParams, o: Options) -> anyhow::Result<()> {
     let to = o.to.unwrap_or_else(|| Utc::now().date_naive());
-    let from = o.from.unwrap_or(to - TimeDelta::days(30));
+    let from = match o.from {
+        Some(from) => from,
+        None if o.all => cdb::first_day(db).await?.unwrap_or(to),
+        None => to - TimeDelta::days(30),
+    };
     let limit = o.limit.unwrap_or(20);
     let rules = ruleset(db, params, false).await?;
 
@@ -97,24 +103,7 @@ async fn report(db: &PgPool, params: BudgetParams, o: Options) -> anyhow::Result
     println!("range       {from} .. {to}\n");
 
     if let Some(username) = &o.user {
-        let user_id = user_id(db, username).await?;
-        println!("{username}, by day:");
-        println!("  day         ruleset  counted  suspect  no_data  peak load  classified");
-        for d in cdb::user_days(db, user_id, from, to).await? {
-            let marker = if d.ruleset_id == rules.id { ' ' } else { '*' };
-            println!(
-                "  {}  {:>6}{marker}  {:>7}  {:>7}  {:>7}  {:>9}  {}",
-                d.day,
-                d.ruleset_id,
-                d.counts.counted,
-                d.counts.suspect,
-                d.counts.no_data,
-                load(d.peak_load_ms, &params),
-                d.classified_at.format("%Y-%m-%d %H:%M")
-            );
-        }
-        println!("  (* = classified with other thresholds)");
-        return Ok(());
+        return user_report(db, &rules, username, from, to, limit).await;
     }
 
     let c = cdb::coverage(db, rules.id, from, to).await?;
@@ -134,23 +123,32 @@ async fn report(db: &PgPool, params: BudgetParams, o: Options) -> anyhow::Result
         println!("      {} days  {}", r.days, counts(&r.counts));
     }
 
-    println!("\nusers with most suspect scrobbles (current thresholds):");
-    println!("  user                  days  counted  suspect  no_data  suspect%  peak load");
-    for u in cdb::top_suspect_users(db, rules.id, from, to, limit).await? {
-        let total = u.counts.total();
+    for (by, title) in [
+        (TopBy::Suspect, "users with most suspect scrobbles"),
+        (TopBy::Duplicate, "users with most duplicate scrobbles"),
+    ] {
+        println!("\n{title} (current thresholds):");
         println!(
-            "  {:<20} {:>5}  {:>7}  {:>7}  {:>7}  {:>7.1}%  {:>9}",
-            u.username,
-            u.days,
-            u.counts.counted,
-            u.counts.suspect,
-            u.counts.no_data,
-            percent(u.counts.suspect, total),
-            load(u.peak_load_ms, &params)
+            "  user                  days  counted  suspect  duplicate  no_data  suspect%  duplicate%  peak load"
         );
+        for u in cdb::top_users(db, rules.id, from, to, by, limit).await? {
+            let total = u.counts.total();
+            println!(
+                "  {:<20} {:>5}  {:>7}  {:>7}  {:>9}  {:>7}  {:>7.1}%  {:>9.1}%  {:>9}",
+                u.username,
+                u.days,
+                u.counts.counted,
+                u.counts.suspect,
+                u.counts.duplicate,
+                u.counts.no_data,
+                percent(u.counts.suspect, total),
+                percent(u.counts.duplicate, total),
+                load(u.peak_load_ms, &params)
+            );
+        }
     }
 
-    println!("\nusers reporting track lengths under half of MusicBrainz's:");
+    println!("\nusers reporting track lengths under half of the catalog's or MusicBrainz's:");
     println!("  user                  plays  short  short%");
     for s in cdb::short_duration_reports(db, from, to, limit).await? {
         println!(
@@ -162,7 +160,10 @@ async fn report(db: &PgPool, params: BudgetParams, o: Options) -> anyhow::Result
         );
     }
 
-    println!("\ntracks whose catalog length is off from MusicBrainz's by over 2x:");
+    println!(
+        "\ntracks whose catalog and MusicBrainz lengths differ by over 2x (either can be wrong;\n\
+         the rule charges the longer and spots repeats with the shorter):"
+    );
     for t in cdb::duration_disagreements(db, limit).await? {
         println!(
             "  #{:<8} {} — {}: catalog {}, musicbrainz {} ({} scrobbles)",
@@ -173,6 +174,62 @@ async fn report(db: &PgPool, params: BudgetParams, o: Options) -> anyhow::Result
             duration(t.musicbrainz_ms.into()),
             t.scrobble_count
         );
+    }
+    Ok(())
+}
+
+/// One user's totals and the days with the most suspect, then duplicate,
+/// scrobbles.
+async fn user_report(
+    db: &PgPool,
+    rules: &Ruleset,
+    username: &str,
+    from: NaiveDate,
+    to: NaiveDate,
+    limit: i64,
+) -> anyhow::Result<()> {
+    let user_id = user_id(db, username).await?;
+    let mut days = cdb::user_days(db, user_id, from, to).await?;
+    let mut totals = StatusCounts::default();
+    for d in &days {
+        totals.counted += d.counts.counted;
+        totals.suspect += d.counts.suspect;
+        totals.duplicate += d.counts.duplicate;
+        totals.no_data += d.counts.no_data;
+    }
+    let stale = days.iter().filter(|d| d.ruleset_id != rules.id).count();
+    println!(
+        "{username}: {} days classified  {}",
+        days.len(),
+        counts(&totals)
+    );
+    if stale > 0 {
+        println!("  {stale} of them with other thresholds (marked *)");
+    }
+
+    days.retain(|d| d.counts.suspect > 0 || d.counts.duplicate > 0);
+    days.sort_by_key(|d| std::cmp::Reverse((d.counts.suspect, d.counts.duplicate)));
+    println!(
+        "\n{} days with suspect or duplicate scrobbles, most suspect first:",
+        days.len()
+    );
+    println!("  day         ruleset  counted  suspect  duplicate  no_data  peak load  classified");
+    for d in days.iter().take(limit as usize) {
+        let marker = if d.ruleset_id == rules.id { ' ' } else { '*' };
+        println!(
+            "  {}  {:>6}{marker}  {:>7}  {:>7}  {:>9}  {:>7}  {:>9}  {}",
+            d.day,
+            d.ruleset_id,
+            d.counts.counted,
+            d.counts.suspect,
+            d.counts.duplicate,
+            d.counts.no_data,
+            load(d.peak_load_ms, &rules.params),
+            d.classified_at.format("%Y-%m-%d %H:%M")
+        );
+    }
+    if days.len() > limit as usize {
+        println!("  … {} more (--limit)", days.len() - limit as usize);
     }
     Ok(())
 }

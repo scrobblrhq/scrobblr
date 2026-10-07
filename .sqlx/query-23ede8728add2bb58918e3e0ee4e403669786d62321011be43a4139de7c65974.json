@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT u.username, count(*) AS \"plays!\",\n               count(*) FILTER (WHERE s.duration_ms * 2\n                                      < GREATEST(t.mb_duration_ms, t.duration_ms)) AS \"short!\"\n        FROM scrobbles s\n        JOIN tracks t ON t.id = s.track_id\n        JOIN users u ON u.id = s.user_id\n        WHERE s.played_at >= $1 AND s.played_at < $2\n          AND s.duration_ms > 0 AND GREATEST(t.mb_duration_ms, t.duration_ms) > 0\n        GROUP BY u.username\n        HAVING count(*) FILTER (WHERE s.duration_ms * 2\n                                      < GREATEST(t.mb_duration_ms, t.duration_ms)) > 0\n        ORDER BY 3 DESC\n        LIMIT $3\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "username",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "plays!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "short!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Timestamptz",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "23ede8728add2bb58918e3e0ee4e403669786d62321011be43a4139de7c65974"
+}

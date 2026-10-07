@@ -602,6 +602,15 @@ pub async fn list_days(
 //  Reporting (worker CLI)
 // ---------------------------------------------------------------------------
 
+/// The first UTC day with scrobbles, for reports over all history.
+pub async fn first_day(pool: &PgPool) -> Result<Option<NaiveDate>, sqlx::Error> {
+    sqlx::query_scalar!(
+        r#"SELECT (min(day) AT TIME ZONE 'UTC')::date AS "day" FROM user_activity_daily"#
+    )
+    .fetch_one(pool)
+    .await
+}
+
 #[derive(Debug)]
 pub struct RulesetTotals {
     pub ruleset_id: i32,
@@ -712,12 +721,19 @@ pub struct UserTotals {
     pub peak_load_ms: Option<i64>,
 }
 
-/// Users with the most suspect scrobbles under `ruleset_id`.
-pub async fn top_suspect_users(
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TopBy {
+    Suspect,
+    Duplicate,
+}
+
+/// Users with the most suspect (or duplicate) scrobbles under `ruleset_id`.
+pub async fn top_users(
     pool: &PgPool,
     ruleset_id: i32,
     from: NaiveDate,
     to: NaiveDate,
+    by: TopBy,
     limit: i64,
 ) -> Result<Vec<UserTotals>, sqlx::Error> {
     let rows = sqlx::query!(
@@ -732,14 +748,15 @@ pub async fn top_suspect_users(
         JOIN users u ON u.id = d.user_id
         WHERE d.ruleset_id = $1 AND d.day BETWEEN $2 AND $3
         GROUP BY d.user_id, u.username
-        HAVING sum(d.suspect) > 0
-        ORDER BY sum(d.suspect) DESC, d.user_id
+        HAVING sum(CASE WHEN $5 THEN d.duplicate ELSE d.suspect END) > 0
+        ORDER BY sum(CASE WHEN $5 THEN d.duplicate ELSE d.suspect END) DESC, d.user_id
         LIMIT $4
         "#,
         ruleset_id,
         from,
         to,
         limit,
+        by == TopBy::Duplicate,
     )
     .fetch_all(pool)
     .await?;
@@ -780,7 +797,8 @@ pub async fn user_days(
         SELECT d.day, d.ruleset_id, d.counted, d.suspect, d.duplicate, d.no_data,
                d.classified_at,
                (SELECT max(f.load_ms) FROM scrobble_flags f
-                WHERE f.user_id = d.user_id AND f.day = d.day) AS peak_load_ms
+                WHERE f.user_id = d.user_id AND f.day = d.day
+                  AND f.status = 'suspect') AS peak_load_ms
         FROM scrobble_classification_days d
         WHERE d.user_id = $1 AND d.day BETWEEN $2 AND $3
         ORDER BY d.day
@@ -812,12 +830,13 @@ pub async fn user_days(
 pub struct ShortReports {
     pub username: String,
     pub plays: i64,
-    /// Plays whose reported length is under half the MusicBrainz length.
+    /// Plays whose reported length is under half the longest other one.
     pub short: i64,
 }
 
-/// Users whose clients report track lengths far below MusicBrainz's, the
-/// signature of a bot claiming short tracks. Scans the range's scrobbles.
+/// Users whose clients report track lengths far below the catalog's or
+/// MusicBrainz's, the signature of a bot claiming short tracks (which the
+/// rule ignores, as it charges the longest). Scans the range's scrobbles.
 pub async fn short_duration_reports(
     pool: &PgPool,
     from: NaiveDate,
@@ -830,14 +849,16 @@ pub async fn short_duration_reports(
         ShortReports,
         r#"
         SELECT u.username, count(*) AS "plays!",
-               count(*) FILTER (WHERE s.duration_ms * 2 < t.mb_duration_ms) AS "short!"
+               count(*) FILTER (WHERE s.duration_ms * 2
+                                      < GREATEST(t.mb_duration_ms, t.duration_ms)) AS "short!"
         FROM scrobbles s
         JOIN tracks t ON t.id = s.track_id
         JOIN users u ON u.id = s.user_id
         WHERE s.played_at >= $1 AND s.played_at < $2
-          AND s.duration_ms > 0 AND t.mb_duration_ms > 0
+          AND s.duration_ms > 0 AND GREATEST(t.mb_duration_ms, t.duration_ms) > 0
         GROUP BY u.username
-        HAVING count(*) FILTER (WHERE s.duration_ms * 2 < t.mb_duration_ms) > 0
+        HAVING count(*) FILTER (WHERE s.duration_ms * 2
+                                      < GREATEST(t.mb_duration_ms, t.duration_ms)) > 0
         ORDER BY 3 DESC
         LIMIT $3
         "#,
@@ -859,8 +880,10 @@ pub struct DurationDisagreement {
     pub scrobble_count: i64,
 }
 
-/// Tracks whose catalog length (first client to report it) is off from the
-/// MusicBrainz length by more than 2x either way.
+/// Tracks whose catalog length (the first client to report it, or Last.fm)
+/// and MusicBrainz length differ by more than 2x. Either can be the wrong
+/// one: a snippet, live take or medley matched on MusicBrainz, a bad
+/// crowd-sourced value in the catalog.
 pub async fn duration_disagreements(
     pool: &PgPool,
     limit: i64,
