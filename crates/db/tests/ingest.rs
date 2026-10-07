@@ -169,3 +169,40 @@ async fn concurrent_copies_of_one_submission_insert_once() {
     })
     .await;
 }
+
+#[tokio::test]
+#[ignore = "needs Postgres: just test-db"]
+async fn now_playing_without_an_album_reads_back() {
+    with_db(true, |pool| async move {
+        let user_id = user(&pool, "nia").await;
+        let artist = db::queries::tracks::find_or_create_artist(&pool, "Artist")
+            .await
+            .unwrap();
+        let track =
+            db::queries::tracks::find_or_create_track(&pool, artist.id, None, "Single", None)
+                .await
+                .unwrap();
+        scrobbles_db::upsert_now_playing(
+            &pool,
+            &scrobbles_db::UpsertNowPlaying {
+                user_id,
+                track_id: track.id,
+                artist_id: artist.id,
+                album_id: None,
+                source: "test".into(),
+                expires_at: Utc::now() + TimeDelta::minutes(3),
+            },
+        )
+        .await
+        .unwrap();
+        let playing = scrobbles_db::get_now_playing(&pool, user_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (playing.track_title.as_str(), playing.album_title),
+            ("Single", None)
+        );
+    })
+    .await;
+}

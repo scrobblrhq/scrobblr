@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            t.title      AS track_title,\n            a.name       AS artist_name,\n            al.title     AS album_title,\n            al.image_url AS album_image,\n            a.image_url  AS artist_image,\n            np.started_at,\n            np.expires_at,\n            np.source\n        FROM now_playing np\n        JOIN tracks  t  ON t.id = np.track_id\n        JOIN artists a  ON a.id = np.artist_id\n        LEFT JOIN albums al ON al.id = np.album_id\n        WHERE np.user_id   = $1\n          AND np.expires_at > NOW()\n        ",
+  "query": "\n        SELECT\n            t.title      AS track_title,\n            a.name       AS artist_name,\n            al.title     AS \"album_title?\",\n            al.image_url AS album_image,\n            a.image_url  AS artist_image,\n            np.started_at,\n            np.expires_at,\n            np.source\n        FROM now_playing np\n        JOIN tracks  t  ON t.id = np.track_id\n        JOIN artists a  ON a.id = np.artist_id\n        LEFT JOIN albums al ON al.id = np.album_id\n        WHERE np.user_id   = $1\n          AND np.expires_at > NOW()\n        ",
   "describe": {
     "columns": [
       {
@@ -15,7 +15,7 @@
       },
       {
         "ordinal": 2,
-        "name": "album_title",
+        "name": "album_title?",
         "type_info": "Text"
       },
       {
@@ -60,5 +60,5 @@
       false
     ]
   },
-  "hash": "c9742bd84a780665d06d881d0e89c950727312182437cf13a8162a2b015af0bd"
+  "hash": "1533d4ab3207e57b8547dc74a05bc7376d078085be90fd774303cf33f482556a"
 }

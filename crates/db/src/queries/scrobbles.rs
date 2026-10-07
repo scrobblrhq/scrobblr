@@ -456,7 +456,7 @@ pub async fn get_now_playing(
         SELECT
             t.title      AS track_title,
             a.name       AS artist_name,
-            al.title     AS album_title,
+            al.title     AS "album_title?",
             al.image_url AS album_image,
             a.image_url  AS artist_image,
             np.started_at,
