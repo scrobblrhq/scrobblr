@@ -734,6 +734,111 @@ async fn password_logins_are_limited_and_tokens_work_without_passwords() {
     .await;
 }
 
+/// mpdscribe and other Audioscrobbler 1.2 clients.
+#[tokio::test]
+#[ignore = "needs Postgres and Redis: just test-db"]
+async fn audioscrobbler_handshake_now_playing_and_submissions() {
+    with_app(CompatConfig::default(), |app| async move {
+        let token = app.new_token("mpdscribe").await;
+        let handshake = |t: i64, password: &str| {
+            format!(
+                "/?hs=true&p=1.2.1&c=mpd&v=0.24&u={}&t={t}&a={}",
+                app.username,
+                md5_hex(&format!("{}{t}", md5_hex(password)))
+            )
+        };
+        let now = Utc::now().timestamp();
+
+        let (_, _, body) = app.get(&handshake(now - 3600, &token)).await;
+        assert_eq!(body, "BADTIME\n");
+        let (_, _, body) = app.get(&handshake(now, "wrong")).await;
+        assert_eq!(body, "BADAUTH\n");
+        let (status, headers, body) = app.get(&handshake(now, &token)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            headers[header::CONTENT_TYPE]
+                .to_str()
+                .unwrap()
+                .starts_with("text/plain")
+        );
+        let lines: Vec<&str> = body.lines().collect();
+        assert_eq!(lines.len(), 4, "{body}");
+        assert_eq!(lines[0], "OK");
+        assert_eq!(lines[2], format!("{BASE_URL}/1.2/nowplaying"));
+        assert_eq!(lines[3], format!("{BASE_URL}/1.2/submissions"));
+        let sid = lines[1].to_string();
+        // A captured handshake can't be replayed.
+        let (_, _, body) = app.get(&handshake(now, &token)).await;
+        assert_eq!(body, "BADAUTH\n");
+
+        let (_, body) = app
+            .post_form(
+                "/1.2/nowplaying",
+                &[
+                    ("s", &sid),
+                    ("a", "Low"),
+                    ("t", "Lullaby"),
+                    ("b", "I Could Live in Hope"),
+                    ("l", "586"),
+                    ("n", "2"),
+                    ("m", ""),
+                ],
+            )
+            .await;
+        assert_eq!(body, "OK\n");
+
+        let (i0, i1) = (ago(30), ago(20));
+        let submission = [
+            ("s", sid.as_str()),
+            ("a[0]", "Low"),
+            ("t[0]", "Words"),
+            ("i[0]", i0.as_str()),
+            ("o[0]", "P"),
+            ("r[0]", ""),
+            ("l[0]", "362"),
+            ("b[0]", "I Could Live in Hope"),
+            ("n[0]", "1"),
+            ("m[0]", ""),
+            ("a[1]", "Low"),
+            ("t[1]", "Lullaby"),
+            ("i[1]", i1.as_str()),
+            ("o[1]", "P"),
+            ("r[1]", "L"),
+            ("l[1]", "586"),
+            ("b[1]", "I Could Live in Hope"),
+            ("n[1]", "2"),
+            ("m[1]", ""),
+        ];
+        for _ in 0..2 {
+            let (_, body) = app.post_form("/1.2/submissions", &submission).await;
+            assert_eq!(body, "OK\n");
+        }
+        let stored = app.scrobbles().await;
+        assert_eq!(stored.len(), 2);
+        assert!(stored.iter().all(|(_, source, client, verified)| {
+            source == "audioscrobbler"
+                && client.as_deref() == Some("mpd 0.24")
+                && *verified == Some(false)
+        }));
+
+        let (_, body) = app.post_form("/1.2/submissions", &[("s", "nope")]).await;
+        assert_eq!(body, "BADSESSION\n");
+        let (_, listed) = app
+            .api(Method::GET, "/v1/scrobbler/credentials", None)
+            .await;
+        let id = listed[0]["id"].as_str().unwrap().to_string();
+        app.api(
+            Method::DELETE,
+            &format!("/v1/scrobbler/credentials/{id}"),
+            None,
+        )
+        .await;
+        let (_, body) = app.post_form("/1.2/submissions", &submission).await;
+        assert_eq!(body, "BADSESSION\n");
+    })
+    .await;
+}
+
 /// Web Scrobbler's and Pano Scrobbler's ListenBrainz scrobblers, pointed
 /// at this server.
 #[tokio::test]

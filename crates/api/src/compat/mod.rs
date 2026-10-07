@@ -1,5 +1,6 @@
 //! Scrobbler-compatible APIs, so existing scrobblers work by changing only
-//! the server URL: Last.fm 2.0 (`/2.0/`) and ListenBrainz (`/1/…`). What they submit goes through
+//! the server URL: Last.fm 2.0 (`/2.0/`), Audioscrobbler 1.2 (`/?hs=true`
+//! and `/1.2/…`) and ListenBrainz (`/1/…`). What they submit goes through
 //! `ingest_scrobble` like native scrobbles, recorded with the protocol and
 //! client it came from.
 //!
@@ -11,6 +12,7 @@
 //! clients), so authentication rests on those credentials; signatures are
 //! checked when the server knows the secret (see [`lastfm`]).
 
+pub mod audioscrobbler;
 pub mod credentials;
 pub mod lastfm;
 pub mod listenbrainz;
@@ -124,6 +126,11 @@ pub fn router() -> Router<AppState> {
         .route("/2.0/", get(lastfm::api).post(lastfm::api))
         .route("/api/auth", get(credentials::browser_authorization))
         .route("/api/auth/", get(credentials::browser_authorization))
+        .route("/", get(audioscrobbler::handshake))
+        .route("/1.2", get(audioscrobbler::handshake))
+        .route("/1.2/", get(audioscrobbler::handshake))
+        .route("/1.2/nowplaying", post(audioscrobbler::now_playing))
+        .route("/1.2/submissions", post(audioscrobbler::submissions))
         .route("/1/validate-token", get(listenbrainz::validate_token))
         .route("/1/submit-listens", post(listenbrainz::submit_listens))
 }
