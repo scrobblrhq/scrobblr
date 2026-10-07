@@ -18,6 +18,7 @@ use tower_http::{
 };
 
 use crate::{
+    compat,
     handlers::{auth, community, connected_accounts, imports, scrobbles, tracks, uploads, users},
     middleware::{
         app_signature::require_app_signature, auth::optional_auth, auth::require_auth,
@@ -162,6 +163,28 @@ pub fn build(state: AppState) -> Router {
         .api_route(
             "/v1/auth/logout",
             post_with(auth::logout, auth::_logout_doc),
+        )
+        // Third-party scrobblers' credentials and browser authorization
+        .api_route(
+            "/v1/scrobbler/credentials",
+            get_with(
+                compat::credentials::list_credentials,
+                compat::credentials::_list_credentials_doc,
+            ),
+        )
+        .api_route(
+            "/v1/scrobbler/credentials/{id}",
+            delete_with(
+                compat::credentials::delete_credential,
+                compat::credentials::_delete_credential_doc,
+            ),
+        )
+        .api_route(
+            "/v1/scrobbler/tokens",
+            post_with(
+                compat::credentials::create_token,
+                compat::credentials::_create_token_doc,
+            ),
         )
         .layer(middleware::from_fn_with_state(state.clone(), require_auth));
 
@@ -333,6 +356,7 @@ pub fn build(state: AppState) -> Router {
         .merge(auth_public)
         .merge(public)
         .merge(optional_authed_users)
+        .merge(ApiRouter::from(compat::router()))
         .layer(middleware::from_fn_with_state(state.clone(), rate_limit))
         .nest_service("/uploads", uploads_service)
         .layer(TraceLayer::new_for_http())

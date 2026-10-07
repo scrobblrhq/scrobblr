@@ -1,3 +1,4 @@
+mod compat;
 mod errors;
 mod handlers;
 mod middleware;
@@ -25,6 +26,11 @@ async fn main() -> anyhow::Result<()> {
         if std::env::var(feature).is_ok_and(|v| !v.trim().is_empty()) {
             shared::crypto::check_key().map_err(|e| anyhow::anyhow!("{feature} is set but {e}"))?;
         }
+    }
+    // Optional otherwise (scrobbler tokens then can't serve Audioscrobbler
+    // 1.2), but a malformed key must not surface on the first token made.
+    if std::env::var("TOKEN_ENCRYPTION_KEY").is_ok_and(|v| !v.trim().is_empty()) {
+        shared::crypto::check_key()?;
     }
 
     let app_keys = middleware::app_signature::AppKeys::from_env()?.map(std::sync::Arc::new);
@@ -73,6 +79,8 @@ async fn main() -> anyhow::Result<()> {
         public_base_url: public_base_url.trim_end_matches('/').to_string(),
     });
 
+    let compat = std::sync::Arc::new(compat::CompatConfig::from_env()?);
+
     let trusted_proxy_hops = match std::env::var("TRUSTED_PROXY_HOPS") {
         Ok(v) if !v.trim().is_empty() => v
             .trim()
@@ -89,6 +97,7 @@ async fn main() -> anyhow::Result<()> {
         app_keys,
         trusted_proxy_hops,
         clients: Default::default(),
+        compat,
     };
     let app = router::build(state);
 

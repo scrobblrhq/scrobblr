@@ -57,6 +57,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "gzi
 
 # Utilities
 dotenvy = "0.15"
+form_urlencoded = "1"
 chrono = { version = "0.4", features = ["serde"] }
 rand = "0.8"
 hex = "0.4"

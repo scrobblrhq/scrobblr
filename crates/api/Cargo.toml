@@ -56,4 +56,5 @@ dotenvy = { workspace = true }
 chrono = { workspace = true }
 rand = { workspace = true }
 hex = { workspace = true }
+form_urlencoded = { workspace = true }
 image = { workspace = true }

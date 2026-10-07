@@ -120,6 +120,7 @@ dependencies = [
  "chrono",
  "db",
  "dotenvy",
+ "form_urlencoded",
  "fred",
  "futures-util",
  "hex",

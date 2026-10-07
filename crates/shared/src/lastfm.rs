@@ -185,11 +185,16 @@ pub fn signature(params: &[(&str, &str)], secret: &str) -> String {
         hasher.update(value.as_bytes());
     }
     hasher.update(secret.as_bytes());
-    hasher
-        .finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    hex(&hasher.finalize())
+}
+
+/// Lowercase hex MD5, as Audioscrobbler's auth tokens use it.
+pub fn md5_hex(value: &str) -> String {
+    hex(&Md5::digest(value.as_bytes()))
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 pub struct RecentTracksQuery<'a> {

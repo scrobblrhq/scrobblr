@@ -6,6 +6,7 @@ use axum::extract::FromRef;
 use fred::clients::Client as RedisClient;
 use sqlx::PgPool;
 
+use crate::compat::CompatConfig;
 use crate::middleware::app_signature::AppKeys;
 use db::queries::scrobble_clients::{self as clients_db, ClientIdentity};
 
@@ -32,6 +33,8 @@ pub struct AppState {
     /// `X-Forwarded-For` entries name the client; 0 trusts none.
     pub trusted_proxy_hops: usize,
     pub clients: Arc<ClientCache>,
+    /// The scrobbler-compatible APIs' settings.
+    pub compat: Arc<CompatConfig>,
 }
 
 /// `scrobble_clients` ids already resolved, so ingest doesn't look one up
