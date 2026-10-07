@@ -81,9 +81,9 @@ async fn main() -> anyhow::Result<()> {
         loop {
             interval.tick().await;
             match cleanup_expired(&db_cleanup).await {
-                Ok((sessions, now_playing)) => {
+                Ok((sessions, now_playing, authorizations)) => {
                     tracing::info!(
-                        "cleanup: removed {sessions} expired sessions, {now_playing} stale now_playing rows"
+                        "cleanup: removed {sessions} expired sessions, {now_playing} stale now_playing rows, {authorizations} expired scrobbler authorizations"
                     );
                 }
                 Err(e) => tracing::error!("cleanup error: {e}"),
@@ -216,14 +216,16 @@ async fn connect_redis() -> Option<fred::clients::Client> {
     }
 }
 
-/// Purges expired `user_sessions` and stale `now_playing` rows.
-/// Returns `(sessions_deleted, now_playing_deleted)`.
-async fn cleanup_expired(db: &sqlx::PgPool) -> Result<(u64, u64), sqlx::Error> {
+/// Purges expired `user_sessions`, stale `now_playing` rows and expired
+/// scrobbler authorizations, returning how many of each.
+async fn cleanup_expired(db: &sqlx::PgPool) -> Result<(u64, u64, u64), sqlx::Error> {
     let sessions = db::queries::auth::delete_expired_sessions(db).await?;
 
     let np_result = sqlx::query!("DELETE FROM now_playing WHERE expires_at <= NOW()")
         .execute(db)
         .await?;
 
-    Ok((sessions, np_result.rows_affected()))
+    let authorizations = db::queries::scrobblers::delete_expired_authorizations(db).await?;
+
+    Ok((sessions, np_result.rows_affected(), authorizations))
 }

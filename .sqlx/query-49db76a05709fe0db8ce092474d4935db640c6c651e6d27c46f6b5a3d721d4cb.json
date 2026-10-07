@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM scrobbler_authorizations WHERE expires_at <= NOW()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "49db76a05709fe0db8ce092474d4935db640c6c651e6d27c46f6b5a3d721d4cb"
+}

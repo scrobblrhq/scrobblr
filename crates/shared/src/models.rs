@@ -428,3 +428,52 @@ pub struct ScrobbleImport {
     pub started_at: Option<DateTime<Utc>>,
     pub finished_at: Option<DateTime<Utc>>,
 }
+
+/// A credential a third-party scrobbler holds (Last.fm-, Audioscrobbler-
+/// or ListenBrainz-compatible). It authenticates those endpoints only,
+/// never the native API. The secret is shown once, when created.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct ScrobblerCredential {
+    pub id: Uuid,
+    /// `token`: made by the user to paste into a client. `session`: a
+    /// Last.fm session key a client obtained by logging in or through the
+    /// browser authorization.
+    pub kind: String,
+    pub name: String,
+    /// The Last.fm API key a session is bound to.
+    pub api_key: Option<String>,
+    /// Usable as an Audioscrobbler 1.2 password (possible only when the
+    /// server could store it encrypted).
+    pub legacy_auth: bool,
+    pub created_at: DateTime<Utc>,
+    pub last_used_at: Option<DateTime<Utc>>,
+}
+
+/// A new scrobbler token and its secret, which is never shown again.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct CreatedScrobblerToken {
+    pub credential: ScrobblerCredential,
+    pub token: String,
+}
+
+/// A Last.fm-API client asking to scrobble for the user, as the browser
+/// authorization page shows it.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct ScrobblerAuthorization {
+    pub api_key: String,
+    /// `pending`, `approved` or `expired`.
+    pub status: String,
+    pub expires_at: DateTime<Utc>,
+}
+
+/// Where the browser goes after approving a web-flow client: the client's
+/// callback, carrying the authorized token.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct ScrobblerAuthorizationRedirect {
+    pub token: String,
+    pub redirect_url: String,
+}

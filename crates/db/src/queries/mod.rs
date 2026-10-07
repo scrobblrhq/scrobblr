@@ -5,6 +5,7 @@ pub mod connected_accounts;
 pub mod enrichment;
 pub mod imports;
 pub mod scrobble_clients;
+pub mod scrobblers;
 pub mod scrobbles;
 pub mod tracks;
 pub mod users;
