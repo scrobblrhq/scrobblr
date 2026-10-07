@@ -5,8 +5,10 @@ use thiserror::Error;
 use crate::queries::{
     classification as classification_db, enrichment as enrichment_db, tracks as tracks_db,
 };
-use shared::models::{ActivityDay, NowPlayingRich, Scrobble, ScrobbleRich, TopArtist, TopTrack};
-use shared::scrobble::{self as scrobble_logic, ScrobbleInput, ScrobbleValidationError};
+use shared::models::{ActivityDay, NowPlayingRich, ScrobbleRich, TopArtist, TopTrack};
+use shared::scrobble::{
+    self as scrobble_logic, DUPLICATE_WINDOW, ScrobbleInput, ScrobbleValidationError,
+};
 
 #[derive(Debug, Error)]
 pub enum IngestError {
@@ -18,37 +20,21 @@ pub enum IngestError {
     Db(#[from] sqlx::Error),
 }
 
-/// Validates, resolves catalog entries, dedups against the user's last
-/// scrobble, and inserts a new scrobble row. This is the single ingestion
-/// path shared by the `/v1/scrobble` HTTP handler (extension, mobile app)
-/// and the worker's connected-accounts poller (Spotify), so both sources
-/// get identical validation/dedup/catalog-resolution behavior for free.
+/// Validates, resolves catalog entries, dedups, and inserts a new scrobble
+/// row. This is the single ingestion path shared by the `/v1/scrobble` HTTP
+/// handler (extension, mobile app), the scrobbler-compatible APIs and the
+/// worker's connected-accounts poller (Spotify), so every source gets
+/// identical validation/dedup/catalog-resolution behavior for free.
+///
+/// A duplicate is the same track within [`DUPLICATE_WINDOW`] of any of the
+/// user's scrobbles, not only the latest: clients retry batches of older
+/// plays, in any order.
 pub async fn ingest_scrobble(
     pool: &PgPool,
     user_id: i64,
     input: &ScrobbleInput,
 ) -> Result<i64, IngestError> {
     scrobble_logic::validate(input)?;
-
-    if let Some(last) = get_last_scrobble(pool, user_id).await? {
-        let track_normalized = scrobble_logic::normalize_name(&input.track_title);
-        let last_artist = tracks_db::find_artist_by_id(pool, last.artist_id)
-            .await?
-            .map(|a| scrobble_logic::normalize_name(&a.name))
-            .unwrap_or_default();
-        let last_track = tracks_db::find_track_by_id(pool, last.track_id)
-            .await?
-            .map(|t| scrobble_logic::normalize_name(&t.title))
-            .unwrap_or_default();
-
-        let same_track = last_track == track_normalized
-            && last_artist == scrobble_logic::normalize_name(&input.artist_name);
-        let delta_secs = (input.played_at - last.played_at).num_seconds().abs();
-
-        if same_track && delta_secs < 30 {
-            return Err(IngestError::Duplicate);
-        }
-    }
 
     let artist = tracks_db::find_or_create_artist(pool, &input.artist_name).await?;
 
@@ -80,8 +66,33 @@ pub async fn ingest_scrobble(
         tracing::warn!("failed to enqueue enrichment for scrobble: {e}");
     }
 
+    let mut tx = pool.begin().await?;
+    // Two copies of one submission in flight at once (a client retrying a
+    // slow request) must not both pass the check below.
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('ingest:' || $1, 0))")
+        .bind(user_id.to_string())
+        .execute(&mut *tx)
+        .await?;
+    let duplicate = sqlx::query_scalar!(
+        r#"
+        SELECT EXISTS (
+            SELECT 1 FROM scrobbles
+            WHERE user_id = $1 AND track_id = $2 AND played_at > $3 AND played_at < $4
+        ) AS "exists!"
+        "#,
+        user_id,
+        track.id,
+        input.played_at - DUPLICATE_WINDOW,
+        input.played_at + DUPLICATE_WINDOW,
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    if duplicate {
+        return Err(IngestError::Duplicate);
+    }
+
     let scrobble_id = insert_scrobble(
-        pool,
+        &mut *tx,
         &InsertScrobble {
             user_id,
             track_id: track.id,
@@ -95,6 +106,7 @@ pub async fn ingest_scrobble(
         },
     )
     .await?;
+    tx.commit().await?;
 
     // After the insert, so a classification already under way for this day
     // can't miss it. Best-effort, like the enrichment enqueue.
@@ -124,7 +136,10 @@ pub struct InsertScrobble {
 ///
 /// Scrobble counters on `tracks`, `artists`, `albums`, and `users` are
 /// incremented automatically by the `trg_scrobble_counts` database trigger.
-pub async fn insert_scrobble(pool: &PgPool, s: &InsertScrobble) -> Result<i64, sqlx::Error> {
+pub async fn insert_scrobble(
+    executor: impl sqlx::PgExecutor<'_>,
+    s: &InsertScrobble,
+) -> Result<i64, sqlx::Error> {
     let row = sqlx::query!(
         r#"
         INSERT INTO scrobbles (user_id, track_id, artist_id, album_id, played_at, source, duration_ms, listened_ms, client_id)
@@ -141,8 +156,8 @@ pub async fn insert_scrobble(pool: &PgPool, s: &InsertScrobble) -> Result<i64, s
         s.listened_ms,
         s.client_id,
     )
-        .fetch_one(pool)
-        .await?;
+    .fetch_one(executor)
+    .await?;
 
     Ok(row.id)
 }
@@ -423,30 +438,6 @@ pub async fn refresh_scrobble_aggregates(
     }
 
     Ok(())
-}
-
-/// Returns the most recent scrobble for a user, or `None` if the user has no
-/// history.
-///
-/// Used for deduplication checks before inserting a new scrobble — callers
-/// should compare the returned track and timestamp against the incoming data.
-pub async fn get_last_scrobble(
-    pool: &PgPool,
-    user_id: i64,
-) -> Result<Option<Scrobble>, sqlx::Error> {
-    sqlx::query_as!(
-        Scrobble,
-        r#"
-        SELECT id, user_id, track_id, artist_id, album_id, played_at, source, duration_ms
-        FROM scrobbles
-        WHERE user_id = $1
-        ORDER BY played_at DESC
-        LIMIT 1
-        "#,
-        user_id,
-    )
-    .fetch_optional(pool)
-    .await
 }
 
 /// Returns the currently playing track for a user, enriched with track, artist,

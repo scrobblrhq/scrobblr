@@ -80,3 +80,92 @@ async fn clients_are_registered_once_and_recorded_on_scrobbles() {
     })
     .await;
 }
+
+async fn count(pool: &PgPool) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM scrobbles")
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+#[ignore = "needs Postgres: just test-db"]
+async fn retried_batches_never_duplicate_in_any_order() {
+    with_db(true, |pool| async move {
+        let user_id = user(&pool, "lee").await;
+        let start = Utc::now() - TimeDelta::days(3);
+        let batch: Vec<ScrobbleInput> = (0..5)
+            .map(|n| {
+                input(
+                    &format!("Song {n}"),
+                    start + TimeDelta::minutes(4 * n),
+                    None,
+                )
+            })
+            .collect();
+        for play in &batch {
+            scrobbles_db::ingest_scrobble(&pool, user_id, play)
+                .await
+                .unwrap();
+        }
+        // A newer scrobble lands, then the whole batch is retried, reversed.
+        scrobbles_db::ingest_scrobble(&pool, user_id, &input("Later", Utc::now(), None))
+            .await
+            .unwrap();
+        for play in batch.iter().rev() {
+            assert!(matches!(
+                scrobbles_db::ingest_scrobble(&pool, user_id, play).await,
+                Err(scrobbles_db::IngestError::Duplicate)
+            ));
+        }
+        // A client clock a few seconds off still matches.
+        let shifted = ScrobbleInput {
+            played_at: batch[2].played_at + TimeDelta::seconds(7),
+            ..batch[2].clone()
+        };
+        assert!(matches!(
+            scrobbles_db::ingest_scrobble(&pool, user_id, &shifted).await,
+            Err(scrobbles_db::IngestError::Duplicate)
+        ));
+        assert_eq!(count(&pool).await, 6);
+
+        // Another track at the same moment, or the same one later, is new.
+        let other = input("Other", batch[2].played_at, None);
+        scrobbles_db::ingest_scrobble(&pool, user_id, &other)
+            .await
+            .unwrap();
+        let replay = ScrobbleInput {
+            played_at: batch[2].played_at + TimeDelta::minutes(4),
+            ..batch[2].clone()
+        };
+        scrobbles_db::ingest_scrobble(&pool, user_id, &replay)
+            .await
+            .unwrap();
+        assert_eq!(count(&pool).await, 8);
+    })
+    .await;
+}
+
+#[tokio::test]
+#[ignore = "needs Postgres: just test-db"]
+async fn concurrent_copies_of_one_submission_insert_once() {
+    with_db(true, |pool| async move {
+        let user_id = user(&pool, "max").await;
+        let play = input("Song", Utc::now() - TimeDelta::hours(2), None);
+        // Resolve the catalog first so both copies race on the insert.
+        scrobbles_db::ingest_scrobble(
+            &pool,
+            user_id,
+            &input("Song", Utc::now() - TimeDelta::days(1), None),
+        )
+        .await
+        .unwrap();
+        let results = futures_util::future::join_all(
+            (0..8).map(|_| scrobbles_db::ingest_scrobble(&pool, user_id, &play)),
+        )
+        .await;
+        assert_eq!(results.iter().filter(|r| r.is_ok()).count(), 1);
+        assert_eq!(count(&pool).await, 2);
+    })
+    .await;
+}

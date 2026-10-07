@@ -1,10 +1,15 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeDelta, Utc};
 use thiserror::Error;
-
-use crate::models::Scrobble;
 
 /// Minimum listened duration to count as a valid scrobble (ms)
 pub const MIN_LISTEN_MS: i32 = 30_000; // 30 seconds
+
+/// How far ahead of the server's clock a client's may run.
+pub const MAX_CLOCK_SKEW: TimeDelta = TimeDelta::minutes(5);
+
+/// The same track this close to one of the user's scrobbles is the same
+/// submission again.
+pub const DUPLICATE_WINDOW: TimeDelta = TimeDelta::seconds(30);
 
 pub const MAX_FEATURED_ARTISTS: usize = 16;
 pub const MAX_NAME_LEN: usize = 300;
@@ -66,7 +71,7 @@ pub fn normalize_featured_artists(primary: &str, featured: &[String]) -> Vec<Str
 /// Validates raw scrobble input from the client.
 /// Returns `Ok(())` when the scrobble meets last.fm-style rules:
 ///   - Track & artist must be non-empty
-///   - `played_at` must not be in the future
+///   - `played_at` must not be in the future (by more than [`MAX_CLOCK_SKEW`])
 ///   - Listened at least 30 s **or** ≥ 50 % of the track duration
 pub fn validate(input: &ScrobbleInput) -> Result<(), ScrobbleValidationError> {
     if input.track_title.trim().is_empty() {
@@ -75,7 +80,7 @@ pub fn validate(input: &ScrobbleInput) -> Result<(), ScrobbleValidationError> {
     if input.artist_name.trim().is_empty() {
         return Err(ScrobbleValidationError::MissingArtist);
     }
-    if input.played_at > Utc::now() {
+    if input.played_at > Utc::now() + MAX_CLOCK_SKEW {
         return Err(ScrobbleValidationError::FutureTimestamp);
     }
 
@@ -107,18 +112,36 @@ pub fn validate(input: &ScrobbleInput) -> Result<(), ScrobbleValidationError> {
     Ok(())
 }
 
-/// Returns `true` if the new scrobble is a duplicate of `previous`.
-/// Duplicate = same track within 30 seconds of the previous one.
-pub fn is_duplicate(previous: &Scrobble, new_track_id: i64, new_played_at: DateTime<Utc>) -> bool {
-    if previous.track_id != new_track_id {
-        return false;
-    }
-    let delta = (new_played_at - previous.played_at).num_seconds().abs();
-    delta < 30
-}
-
 /// Normalize a name for deduplication: lowercase + remove diacritics placeholder.
 /// Real unaccent happens in Postgres; this mirrors the logic for in-process checks.
 pub fn normalize_name(name: &str) -> String {
     name.trim().to_lowercase()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn input(played_at: DateTime<Utc>) -> ScrobbleInput {
+        ScrobbleInput {
+            track_title: "Song".into(),
+            artist_name: "Artist".into(),
+            featured_artists: vec![],
+            album_title: None,
+            played_at,
+            duration_ms: Some(200_000),
+            listened_ms: None,
+            source: "test".into(),
+            client_id: None,
+        }
+    }
+
+    #[test]
+    fn clocks_running_a_little_fast_are_tolerated() {
+        assert!(validate(&input(Utc::now() + TimeDelta::minutes(2))).is_ok());
+        assert!(matches!(
+            validate(&input(Utc::now() + MAX_CLOCK_SKEW + TimeDelta::minutes(1))),
+            Err(ScrobbleValidationError::FutureTimestamp)
+        ));
+    }
 }
