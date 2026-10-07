@@ -26,6 +26,9 @@ pub struct AppState {
     /// `None` when `AUTH_APP_KEYS` is unset, which leaves the auth
     /// endpoints open to any client.
     pub app_keys: Option<Arc<AppKeys>>,
+    /// Reverse proxies in front of the API (`TRUSTED_PROXY_HOPS`), whose
+    /// `X-Forwarded-For` entries name the client; 0 trusts none.
+    pub trusted_proxy_hops: usize,
 }
 
 impl FromRef<AppState> for PgPool {

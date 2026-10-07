@@ -73,18 +73,31 @@ async fn main() -> anyhow::Result<()> {
         public_base_url: public_base_url.trim_end_matches('/').to_string(),
     });
 
+    let trusted_proxy_hops = match std::env::var("TRUSTED_PROXY_HOPS") {
+        Ok(v) if !v.trim().is_empty() => v
+            .trim()
+            .parse()
+            .map_err(|e| anyhow::anyhow!("TRUSTED_PROXY_HOPS={v}: {e}"))?,
+        _ => 0,
+    };
+
     // Axum
     let state = state::AppState {
         db,
         redis,
         uploads,
         app_keys,
+        trusted_proxy_hops,
     };
     let app = router::build(state);
 
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
     tracing::info!("scrobblr api listening on {bind_addr}");
 
-    axum::serve(listener, app).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }
