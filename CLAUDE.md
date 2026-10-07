@@ -66,7 +66,9 @@ Rust workspace crates and their dependency direction: `api` → `db` → `shared
 
 Two credential types, both resolved by the auth middleware:
 - **Sessions**: UUID tokens in `user_sessions`, cached in Redis under `session:{id}` (logout must invalidate both).
-- **API tokens**: long-lived, scoped (e.g. `scrobble`), stored hashed via `auth_db::hash_api_token`; the raw token is shown only once at creation.
+- **API tokens**: long-lived, scoped (e.g. `scrobble`), stored hashed via `auth_db::hash_api_token`; the raw token is shown only once at creation. Scopes are stored but not yet enforced by the native routes.
+
+Third-party scrobblers have their own, `scrobbler_credentials`, which the auth middleware never accepts (see below).
 
 ### Metadata enrichment
 
@@ -133,7 +135,18 @@ Credits are written by `tracks_db::record_track_credits` from ingest (`/v1/scrob
 
 ### Scrobble clients
 
-`scrobbles.source` is whatever the client claims. `scrobbles.client_id` (migration `0013`) points at `scrobble_clients`: the protocol the scrobble arrived by, the client as that protocol identifies it, and `verified` when the server checked that identity. Native `/v1/scrobble` records `scrobblr` with its claimed source (unverified), the Spotify poller `spotify` (verified). Ingest callers pass `ScrobbleInput.client_id`; the API resolves ids through `AppState.clients`, a bounded cache, since names are client-chosen. Imports leave it NULL (`import_id` already says where they came from).
+`scrobbles.source` is whatever the client claims. `scrobbles.client_id` (migration `0013`) points at `scrobble_clients`: the protocol the scrobble arrived by, the client as that protocol identifies it, and `verified` when the server checked that identity. Native `/v1/scrobble` records `scrobblr` with its claimed source (unverified), the Spotify poller `spotify` (verified), the compatibility APIs `lastfm` (the api_key), `audioscrobbler` (client id and version) and `listenbrainz` (`submission_client` or `media_player`). Ingest callers pass `ScrobbleInput.client_id`; the API resolves ids through `AppState.clients`, a bounded cache, since names are client-chosen. Imports leave it NULL (`import_id` already says where they came from).
+
+### Scrobbler-compatible APIs (Last.fm, Audioscrobbler 1.2, ListenBrainz)
+
+Existing scrobblers work by changing only the server URL (user guide: `docs/scrobbler-clients.md`). Code in `crates/api/src/compat/`: `mod.rs` (config from `SCROBBLER_*`/`WEB_APP_URL`, the router, and the shared submit path and limits), `lastfm.rs` (`/2.0/`), `audioscrobbler.rs` (`/` and `/1.2/` with `hs=true`, `/1.2/nowplaying`, `/1.2/submissions`), `listenbrainz.rs` (`/1/submit-listens`, `/1/validate-token`), `credentials.rs` (`/api/auth/` and the web app's `/v1/scrobbler/*`); storage in `db::queries::scrobblers` (migration `0014`). The protocol routes are a plain axum `Router` merged before the rate-limit layer, outside the OpenAPI spec.
+
+- **Credentials** (`scrobbler_credentials`, sha256-hashed): `token`s users create (`POST /v1/scrobbler/tokens`) and paste into clients as a ListenBrainz token, an Audioscrobbler password or a Last.fm password; `session`s, Last.fm session keys from `auth.getMobileSession` with the account password or `auth.getSession` after browser approval, bound to the api_key they were issued to. A token given as the Last.fm password comes back as the session key itself, so revoking it signs the client out. They reach only these endpoints, never the native API; managing them takes the `write` scope (a session).
+- **Signatures:** clients sign with secrets of Last.fm's or of their developer, public in practice, so a signature authenticates nothing; the credential does. A signature is checked when the server knows the secret (`SCROBBLER_API_KEYS`, or the api_key itself, which GNU FM clients such as Pano Scrobbler sign with): a wrong one is error 13. Unknown keys pass as unverified unless `SCROBBLER_STRICT_API_KEYS`. `scrobble_clients.verified` records which.
+- **Password logins** (`auth.getMobileSession`, the 1.2 handshake): attempts are counted before checking, 20 per IP and 10 per username per 15 min (Redis, fails closed), and `handlers::auth::verify_password_login`, shared with `/v1/auth/login`, keeps a missing account as slow as a wrong password. Account passwords only with `SCROBBLER_PASSWORD_LOGIN`, which defaults to off when `AUTH_APP_KEYS` gates the native login (an unsigned login here would get around it). 1.2's handshake proves knowledge of md5(password), so it takes tokens holding a legacy secret (their md5, encrypted with `TOKEN_ENCRYPTION_KEY`); its auth tokens are burned on use and must be within 5 min of the server clock; its sessions live in Redis (24 h, sliding) and are checked against the credential on every request.
+- **Same pipeline:** `compat::submit` sends every play through `ingest_scrobble` (validation, dedup, catalog, credits, enrichment, classification) with `source` = the protocol and the client's `client_id`. Before that: plays older than 14 days or more than 5 min ahead are ignored, a per-user daily quota (`SCROBBLER_DAILY_LIMIT`, default 3000, Redis, fails open) and 120 requests a minute per user apply, and batches are capped (50 for Last.fm and 1.2, 1000 for a ListenBrainz import). A duplicate counts as accepted, so retries are idempotent.
+- **Browser flow:** `/api/auth/?api_key=…&token=…` (desktop) or `?api_key=…&cb=…` (web) redirects to `{WEB_APP_URL}/scrobbler/authorize` with the same query. The page uses `GET /v1/scrobbler/authorizations/{token}` and `POST …/{token}/approve`, or `POST /v1/scrobbler/authorizations {api_key, callback}` for the web flow, then sends the browser to the returned callback.
+- **Tests:** `compat/tests.rs` (`#[ignore]`d, Postgres and Redis) replays the requests of Pano Scrobbler, Web Scrobbler, mpris-scrobbler and Audioscrobbler 1.2 clients, signatures included.
 
 ### Auth input rules and client attestation
 

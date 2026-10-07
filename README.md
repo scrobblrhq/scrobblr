@@ -107,6 +107,12 @@ the API once they connect it (`GET /v1/connect/lastfm`, which needs
 
 Interactive API docs are served at [`/docs`](http://localhost:8080/docs) (OpenAPI spec at `/api.json`).
 
+### Scrobbling from other apps
+
+Existing scrobblers (Web Scrobbler, Pano Scrobbler, Audioscrobbler 1.2 players,
+ListenBrainz clients) can scrobble to Scrobblr by changing only the server
+URL: see [docs/scrobbler-clients.md](docs/scrobbler-clients.md).
+
 ---
 
 ## Development
