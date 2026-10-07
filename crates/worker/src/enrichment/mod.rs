@@ -440,7 +440,7 @@ impl Enricher {
     }
 
     /// Looks up the hinted recording when there is one and it checks out,
-    /// otherwise searches.
+    /// otherwise searches, again without the title's decorations if needed.
     async fn find_recording(&self, ctx: &edb::TrackCtx) -> ProviderResult<mb::Recording> {
         if let Some(hint) = ctx.mbid_hint {
             match mb::lookup_recording(&self.http, &self.musicbrainz, hint).await? {
@@ -452,7 +452,15 @@ impl Enricher {
                 }
             }
         }
-        mb::search_recording(&self.http, &self.musicbrainz, &ctx.title, &ctx.artist_name).await
+        let found =
+            mb::search_recording(&self.http, &self.musicbrainz, &ctx.title, &ctx.artist_name)
+                .await?;
+        match (found, mb::undecorated_title(&ctx.title)) {
+            (None, Some(base)) => {
+                mb::search_recording(&self.http, &self.musicbrainz, &base, &ctx.artist_name).await
+            }
+            (found, _) => Ok(found),
+        }
     }
 
     async fn enrich_album(&self, job: &edb::Job) -> Result<Processed, sqlx::Error> {

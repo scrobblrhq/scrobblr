@@ -172,6 +172,58 @@ pub fn matches_track(recording: &Recording, title: &str, artist: &str) -> bool {
     same_title && same_artist
 }
 
+/// The title without trailing notes that leave the recording unchanged, as
+/// streaming services add them ("Song - Remastered 2011", "Song (feat. X)",
+/// "Song (From \"Film\")"), or `None` if it has none. MusicBrainz titles
+/// carry no such notes. Versions ("Acoustic", "Sped Up", "Live") are kept:
+/// they are other recordings.
+pub fn undecorated_title(title: &str) -> Option<String> {
+    fn same_recording(note: &str) -> bool {
+        let note = note.trim().to_ascii_lowercase();
+        note.contains("remaster")
+            || [
+                "feat.",
+                "feat ",
+                "ft.",
+                "ft ",
+                "featuring ",
+                "with ",
+                "con ",
+                "from ",
+            ]
+            .iter()
+            .any(|prefix| note.starts_with(prefix))
+    }
+
+    let mut base = title.trim();
+    loop {
+        // A trailing "(…)" or "[…]" group, else a trailing " - …" note.
+        let note = match base.chars().last() {
+            Some(close @ (')' | ']')) => {
+                let open = if close == ')' { '(' } else { '[' };
+                base.rfind(open).map(|i| (i, &base[i + 1..base.len() - 1]))
+            }
+            _ => base.rfind(" - ").map(|i| (i, &base[i + 3..])),
+        };
+        match note {
+            Some((i, note)) if same_recording(note) && !base[..i].trim().is_empty() => {
+                base = base[..i].trim_end();
+            }
+            _ => break,
+        }
+    }
+    // An inline credit: "Song Ft. X".
+    let lower = base.to_ascii_lowercase();
+    if let Some(i) = [" feat. ", " ft. ", " featuring "]
+        .iter()
+        .filter_map(|credit| lower.find(credit))
+        .min()
+    {
+        base = base[..i].trim_end();
+    }
+    (base != title.trim()).then(|| base.to_string())
+}
+
 /// Searches for an artist by name. Higher score bar than the two-field
 /// searches — single-term artist queries are the easiest to mismatch.
 pub async fn search_artist(
@@ -293,6 +345,40 @@ mod tests {
                 })
                 .collect(),
             releases: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn decorations_that_keep_the_recording_are_dropped() {
+        for (title, base) in [
+            ("Going Under - Remastered 2023", "Going Under"),
+            ("Mil Horas - 1994 Remastered Version", "Mil Horas"),
+            (
+                "Una Nube Cuelga Sobre Mí - Remasterizado",
+                "Una Nube Cuelga Sobre Mí",
+            ),
+            ("Roundabout - 2024 Remaster", "Roundabout"),
+            ("BAND4BAND (feat. Lil Baby)", "BAND4BAND"),
+            ("Everybody Ft. Ty Dolla $ign", "Everybody"),
+            ("Baila Conmigo (with Rauw Alejandro)", "Baila Conmigo"),
+            ("Feel It (From “Invincible”)", "Feel It"),
+            (
+                "Black Sheep (Brie Larson Vocal Version) (con Brie Larson)",
+                "Black Sheep (Brie Larson Vocal Version)",
+            ),
+            ("Song [Remastered] (feat. X)", "Song"),
+        ] {
+            assert_eq!(undecorated_title(title).as_deref(), Some(base), "{title}");
+        }
+        for title in [
+            "Tek It - Acoustic",
+            "Cats - Sped Up",
+            "Last Friday Night (T.G.I.F.)",
+            "D>E>A>T>H>M>E>T>A>L",
+            "(feat. Nobody)",
+            "Song",
+        ] {
+            assert_eq!(undecorated_title(title), None, "{title}");
         }
     }
 
