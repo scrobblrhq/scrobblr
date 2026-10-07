@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT d.day, d.ruleset_id, d.counted, d.suspect, d.no_data, d.classified_at,\n               (SELECT max(f.load_ms) FROM scrobble_flags f\n                WHERE f.user_id = d.user_id AND f.day = d.day) AS peak_load_ms\n        FROM scrobble_classification_days d\n        WHERE d.user_id = $1 AND d.day BETWEEN $2 AND $3\n        ORDER BY d.day\n        ",
+  "query": "\n        SELECT d.day, d.ruleset_id, d.counted, d.suspect, d.duplicate, d.no_data,\n               d.classified_at,\n               (SELECT max(f.load_ms) FROM scrobble_flags f\n                WHERE f.user_id = d.user_id AND f.day = d.day) AS peak_load_ms\n        FROM scrobble_classification_days d\n        WHERE d.user_id = $1 AND d.day BETWEEN $2 AND $3\n        ORDER BY d.day\n        ",
   "describe": {
     "columns": [
       {
@@ -25,16 +25,21 @@
       },
       {
         "ordinal": 4,
-        "name": "no_data",
+        "name": "duplicate",
         "type_info": "Int4"
       },
       {
         "ordinal": 5,
+        "name": "no_data",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
         "name": "classified_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "peak_load_ms",
         "type_info": "Int8"
       }
@@ -53,8 +58,9 @@
       false,
       false,
       false,
+      false,
       null
     ]
   },
-  "hash": "18ae2656da5827e99b9233b2ed8ea9492d2d2b6cfb127c17ac935ba8a3518557"
+  "hash": "5ed3582baae925644298392976a81e4f3f6d67fbfcebcc77028c616ce24df587"
 }

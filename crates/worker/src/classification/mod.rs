@@ -1,5 +1,5 @@
 //! Scrobble classification, shadow mode: labels every scrobble counted /
-//! suspect / no_data; nothing reads the labels yet. The rule lives in
+//! suspect / duplicate / no_data; nothing reads the labels yet. The rule lives in
 //! `shared::classification`, storage and queue in `db::queries::classification`.
 //!
 //! Two loops: one drains `classification_queue` (fed by ingest, imports and

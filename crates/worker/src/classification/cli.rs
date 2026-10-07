@@ -137,7 +137,7 @@ async fn report(db: &PgPool, params: BudgetParams, o: Options) -> anyhow::Result
     println!("\nusers with most suspect scrobbles (current thresholds):");
     println!("  user                  days  counted  suspect  no_data  suspect%  peak load");
     for u in cdb::top_suspect_users(db, rules.id, from, to, limit).await? {
-        let total = u.counts.counted + u.counts.suspect + u.counts.no_data;
+        let total = u.counts.total();
         println!(
             "  {:<20} {:>5}  {:>7}  {:>7}  {:>7}  {:>7.1}%  {:>9}",
             u.username,
@@ -201,6 +201,7 @@ async fn reclassify(db: &PgPool, params: BudgetParams, o: Options) -> anyhow::Re
         let outcome = cdb::classify_user_day(db, &rules, day.user_id, day.day, o.dry_run).await?;
         totals.counted += outcome.counts.counted;
         totals.suspect += outcome.counts.suspect;
+        totals.duplicate += outcome.counts.duplicate;
         totals.no_data += outcome.counts.no_data;
         for (key, count) in outcome.changes {
             *changes.entry(key).or_default() += count;
@@ -216,7 +217,7 @@ async fn reclassify(db: &PgPool, params: BudgetParams, o: Options) -> anyhow::Re
     }
     for ((before, after), count) in changes {
         let before = before.map_or("unclassified", Status::as_str);
-        println!("  {before:>12} -> {:<8} {count}", after.as_str());
+        println!("  {before:>12} -> {:<9} {count}", after.as_str());
     }
     if o.dry_run {
         println!("(dry run: nothing written)");
@@ -243,12 +244,14 @@ async fn backfill(db: &PgPool, params: BudgetParams, o: Options) -> anyhow::Resu
 }
 
 fn counts(c: &StatusCounts) -> String {
-    let total = c.counted + c.suspect + c.no_data;
+    let total = c.total();
     format!(
-        "counted {} · suspect {} ({:.2}%) · no_data {} ({:.2}%)",
+        "counted {} · suspect {} ({:.2}%) · duplicate {} ({:.2}%) · no_data {} ({:.2}%)",
         c.counted,
         c.suspect,
         percent(c.suspect, total),
+        c.duplicate,
+        percent(c.duplicate, total),
         c.no_data,
         percent(c.no_data, total)
     )

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO scrobble_flags\n            (scrobble_id, played_at, user_id, day, track_id, status, reason,\n             duration_source, occupancy_ms, load_ms)\n        SELECT f.id, f.played_at, $1, $2, f.track_id, f.status::scrobble_status, f.reason,\n               NULLIF(f.source, ''),\n               CASE WHEN f.status IN ('no_data', 'duplicate') THEN NULL ELSE f.occupancy END,\n               f.load\n        FROM UNNEST($3::bigint[], $4::timestamptz[], $5::bigint[], $6::text[], $7::text[],\n                    $8::text[], $9::int[], $10::bigint[])\n             AS f(id, played_at, track_id, status, reason, source, occupancy, load)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Date",
+        "Int8Array",
+        "TimestamptzArray",
+        "Int8Array",
+        "TextArray",
+        "TextArray",
+        "TextArray",
+        "Int4Array",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9c832b584026cfb9a91603be2e5a4f28a9654a336d480764948f2e0d6b783e92"
+}

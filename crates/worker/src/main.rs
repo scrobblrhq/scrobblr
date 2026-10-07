@@ -136,7 +136,7 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    // Labels scrobbles counted / suspect / no_data (shadow mode).
+    // Labels scrobbles counted / suspect / duplicate / no_data (shadow mode).
     let classifier = Arc::new(classification::Classifier::from_env(db.clone()).await?);
     let classification_handle = tokio::spawn(classifier.clone().run());
     let classification_sweep_handle = tokio::spawn(classifier.run_sweeps());

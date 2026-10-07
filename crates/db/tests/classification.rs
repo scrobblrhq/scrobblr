@@ -98,9 +98,26 @@ async fn queued(pool: &PgPool) -> Vec<(i64, NaiveDate, i32)> {
 /// Refreshes the daily aggregates first, as an import would: the sweep reads
 /// `user_activity_daily`, which only sees backfilled rows after a refresh.
 async fn sweep(pool: &PgPool, ruleset_id: i32) -> u64 {
-    scrobbles_db::refresh_scrobble_aggregates(pool, Utc::now() - TimeDelta::days(365), Utc::now())
+    // A fresh database's refresh policy may be holding the lock.
+    let mut attempt = 0;
+    loop {
+        attempt += 1;
+        match scrobbles_db::refresh_scrobble_aggregates(
+            pool,
+            Utc::now() - TimeDelta::days(365),
+            Utc::now(),
+        )
         .await
-        .unwrap();
+        {
+            Err(e)
+                if attempt < 10
+                    && e.as_database_error().and_then(|e| e.code()).as_deref() == Some("55P03") =>
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            }
+            result => break result.unwrap(),
+        }
+    }
     let mut conn = pool.acquire().await.unwrap();
     cdb::enqueue_stale(&mut conn, ruleset_id, None, None, None, cdb::PRIORITY_SWEEP)
         .await
@@ -158,9 +175,9 @@ async fn ingest_queues_the_day_and_classification_labels_it() {
 async fn bot_hour_is_flagged_identically_on_rerun_and_charts_are_unchanged() {
     with_db(true, |pool| async move {
         let bot = user(&pool, "bot").await;
-        let song = track(&pool, "Song", Some(180_000)).await;
         let day = days_ago(5);
         for n in 0..600 {
+            let song = track(&pool, &format!("Song {n}"), Some(180_000)).await;
             scrobble(&pool, bot, song, at(day, 7200 + n * 6), None).await;
         }
         let rules = ruleset(&pool).await;
@@ -168,7 +185,9 @@ async fn bot_hour_is_flagged_identically_on_rerun_and_charts_are_unchanged() {
         let first = cdb::classify_user_day(&pool, &rules, bot, day, false)
             .await
             .unwrap();
-        let allowed = rules.params.budget_ms() / 180_000;
+        // Each play is cut to its 90 s scrobble point by the next; the
+        // newest counts in full.
+        let allowed = (rules.params.budget_ms() - 180_000) / 90_000 + 1;
         assert_eq!(first.counts.counted, allowed);
         assert_eq!(first.counts.suspect, 600 - allowed);
         let stored = flags(&pool, bot).await;
@@ -197,10 +216,76 @@ async fn bot_hour_is_flagged_identically_on_rerun_and_charts_are_unchanged() {
         scrobbles_db::refresh_scrobble_aggregates(&pool, at(day, 0), at(day, 0))
             .await
             .unwrap();
-        let top = scrobbles_db::get_top_tracks(&pool, bot, at(day, 0), 10)
+        let top = scrobbles_db::get_top_artists(&pool, bot, at(day, 0), 10)
             .await
             .unwrap();
         assert_eq!(top[0].play_count, 600);
+    })
+    .await;
+}
+
+#[tokio::test]
+#[ignore = "needs Postgres: just test-db"]
+async fn repeated_reports_of_one_listen_are_duplicates() {
+    with_db(true, |pool| async move {
+        let user_id = user(&pool, "ivy").await;
+        let day = days_ago(4);
+        // Twenty songs back to back, each reported again 6 s and 9 s later.
+        for n in 0..20 {
+            let song = track(&pool, &format!("Song {n}"), Some(240_000)).await;
+            for offset in [0, 6, 9] {
+                scrobble(&pool, user_id, song, at(day, 3600 + n * 240 + offset), None).await;
+            }
+        }
+        let outcome = cdb::classify_user_day(&pool, &ruleset(&pool).await, user_id, day, false)
+            .await
+            .unwrap();
+        assert_eq!((outcome.counts.counted, outcome.counts.duplicate), (20, 40));
+        assert_eq!(outcome.counts.suspect, 0);
+
+        let stored: (i32, i32) = sqlx::query_as(
+            "SELECT counted, duplicate FROM scrobble_classification_days WHERE user_id = $1",
+        )
+        .bind(user_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(stored, (20, 40));
+        let flags = flags(&pool, user_id).await;
+        assert_eq!(flags.len(), 40);
+        assert!(
+            flags
+                .iter()
+                .all(|(_, s, r)| s == "duplicate" && r == "repeat")
+        );
+        let charged: Option<i64> =
+            sqlx::query_scalar("SELECT count(occupancy_ms) FROM scrobble_flags WHERE user_id = $1")
+                .bind(user_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(charged, Some(0));
+        assert_eq!(
+            label_counts(&pool, user_id).await,
+            [(Some("counted".into()), 20), (Some("duplicate".into()), 40)]
+        );
+    })
+    .await;
+}
+
+#[tokio::test]
+#[ignore = "needs Postgres: just test-db"]
+async fn an_echo_after_midnight_is_a_duplicate_of_the_play_before() {
+    with_db(true, |pool| async move {
+        let user_id = user(&pool, "jack").await;
+        let song = track(&pool, "Song", Some(300_000)).await;
+        let (day, next) = (days_ago(3), days_ago(2));
+        scrobble(&pool, user_id, song, at(day, 86_400 - 100), None).await;
+        scrobble(&pool, user_id, song, at(next, 120), None).await;
+        let outcome = cdb::classify_user_day(&pool, &ruleset(&pool).await, user_id, next, false)
+            .await
+            .unwrap();
+        assert_eq!(outcome.counts.duplicate, 1);
     })
     .await;
 }
@@ -394,9 +479,9 @@ async fn import_hook_queues_every_touched_day() {
 async fn reclassifying_compressed_history_leaves_chunks_compressed() {
     with_db(true, |pool| async move {
         let user_id = user(&pool, "hank").await;
-        let song = track(&pool, "Old", Some(180_000)).await;
         let day = days_ago(90);
         for n in 0..100 {
+            let song = track(&pool, &format!("Old {n}"), Some(180_000)).await;
             scrobble(&pool, user_id, song, at(day, n * 20), None).await;
         }
         let compressed: Vec<String> = sqlx::query_scalar(

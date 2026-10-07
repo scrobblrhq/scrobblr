@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO scrobble_classification_days\n            (user_id, day, ruleset_id, scrobble_count, lookback_count, max_scrobble_id,\n             counted, suspect, duplicate, no_data)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)\n        ON CONFLICT (user_id, day) DO UPDATE\n            SET ruleset_id      = EXCLUDED.ruleset_id,\n                scrobble_count  = EXCLUDED.scrobble_count,\n                lookback_count  = EXCLUDED.lookback_count,\n                max_scrobble_id = EXCLUDED.max_scrobble_id,\n                counted         = EXCLUDED.counted,\n                suspect         = EXCLUDED.suspect,\n                duplicate       = EXCLUDED.duplicate,\n                no_data         = EXCLUDED.no_data,\n                classified_at   = NOW()\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Date",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int8",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "125439b9ddb0b87708c2a87205df8553729affe463bbae81de223df5b8afacc3"
+}

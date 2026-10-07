@@ -2,7 +2,7 @@
 //! rule and `migrations/0010_scrobble_classification.sql` for the schema).
 //!
 //! Work is per (user, UTC day): `classify_user_day` reads that day plus the
-//! window before it from `scrobbles` and rewrites the day's row and flags.
+//! lookback before it from `scrobbles` and rewrites the day's row and flags.
 //! Days reach `classification_queue` from ingest, imports, enrichment and a
 //! periodic sweep that compares stored days with `user_activity_daily`, so a
 //! lost queue entry (crashed worker), a deleted day or a changed ruleset is
@@ -39,6 +39,7 @@ pub struct QueuedDay {
 pub struct StatusCounts {
     pub counted: i64,
     pub suspect: i64,
+    pub duplicate: i64,
     pub no_data: i64,
 }
 
@@ -47,8 +48,13 @@ impl StatusCounts {
         match status {
             Status::Counted => self.counted += 1,
             Status::Suspect => self.suspect += 1,
+            Status::Duplicate => self.duplicate += 1,
             Status::NoData => self.no_data += 1,
         }
+    }
+
+    pub fn total(&self) -> i64 {
+        self.counted + self.suspect + self.duplicate + self.no_data
     }
 }
 
@@ -63,6 +69,7 @@ pub struct DayOutcome {
 fn parse_status(s: &str) -> Status {
     match s {
         "suspect" => Status::Suspect,
+        "duplicate" => Status::Duplicate,
         "no_data" => Status::NoData,
         _ => Status::Counted,
     }
@@ -244,7 +251,7 @@ pub async fn classify_user_day(
 ) -> Result<DayOutcome, sqlx::Error> {
     let start = day_start(day);
     let end = start + TimeDelta::days(1);
-    let window = ruleset.params.window();
+    let lookback = ruleset.params.lookback();
 
     let mut tx = pool.begin().await?;
     // Serializes concurrent classifications of the same day (worker + CLI).
@@ -284,7 +291,7 @@ pub async fn classify_user_day(
         ORDER BY s.played_at, s.id
         "#,
         user_id,
-        start - window,
+        start - lookback,
         end,
     )
     .fetch_all(&mut *tx)
@@ -294,6 +301,7 @@ pub async fn classify_user_day(
         .iter()
         .map(|r| Play {
             id: r.id,
+            track_id: r.track_id,
             played_at: r.played_at,
             mb_duration_ms: r.mb_duration_ms,
             catalog_duration_ms: r.catalog_duration_ms,
@@ -330,7 +338,7 @@ pub async fn classify_user_day(
         .execute(&mut *tx)
         .await?;
     } else {
-        let lookback = rows.iter().filter(|r| r.played_at < start).count();
+        let lookback_count = rows.iter().filter(|r| r.played_at < start).count();
         let track_ids: HashMap<i64, i64> = rows.iter().map(|r| (r.id, r.track_id)).collect();
         let played_at: HashMap<i64, DateTime<Utc>> =
             rows.iter().map(|r| (r.id, r.played_at)).collect();
@@ -341,15 +349,15 @@ pub async fn classify_user_day(
             day,
             &labels,
             &outcome.counts,
-            lookback as i32,
+            lookback_count as i32,
             &track_ids,
             &played_at,
         )
         .await?;
     }
 
-    // This day's last window is the next day's lookback.
-    let tail = rows.iter().filter(|r| r.played_at > end - window).count() as i32;
+    // This day's tail is the next day's lookback.
+    let tail = rows.iter().filter(|r| r.played_at > end - lookback).count() as i32;
     let next = day.succ_opt().unwrap_or(day);
     let next_lookback = sqlx::query_scalar!(
         "SELECT lookback_count FROM scrobble_classification_days WHERE user_id = $1 AND day = $2 AND ruleset_id = $3",
@@ -395,8 +403,8 @@ async fn write_day(
         r#"
         INSERT INTO scrobble_classification_days
             (user_id, day, ruleset_id, scrobble_count, lookback_count, max_scrobble_id,
-             counted, suspect, no_data)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+             counted, suspect, duplicate, no_data)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         ON CONFLICT (user_id, day) DO UPDATE
             SET ruleset_id      = EXCLUDED.ruleset_id,
                 scrobble_count  = EXCLUDED.scrobble_count,
@@ -404,6 +412,7 @@ async fn write_day(
                 max_scrobble_id = EXCLUDED.max_scrobble_id,
                 counted         = EXCLUDED.counted,
                 suspect         = EXCLUDED.suspect,
+                duplicate       = EXCLUDED.duplicate,
                 no_data         = EXCLUDED.no_data,
                 classified_at   = NOW()
         "#,
@@ -415,6 +424,7 @@ async fn write_day(
         max_id,
         counts.counted as i32,
         counts.suspect as i32,
+        counts.duplicate as i32,
         counts.no_data as i32,
     )
     .execute(&mut *tx)
@@ -457,7 +467,7 @@ async fn write_day(
              duration_source, occupancy_ms, load_ms)
         SELECT f.id, f.played_at, $1, $2, f.track_id, f.status::scrobble_status, f.reason,
                NULLIF(f.source, ''),
-               CASE WHEN f.status = 'no_data' THEN NULL ELSE f.occupancy END,
+               CASE WHEN f.status IN ('no_data', 'duplicate') THEN NULL ELSE f.occupancy END,
                f.load
         FROM UNNEST($3::bigint[], $4::timestamptz[], $5::bigint[], $6::text[], $7::text[],
                     $8::text[], $9::int[], $10::bigint[])
@@ -481,9 +491,10 @@ async fn write_day(
 
 /// Queues days whose stored classification is missing, made with another
 /// ruleset, out of date (scrobble count differs from `user_activity_daily`,
-/// or the day no longer has scrobbles), or flagged with durations that
-/// enrichment has since improved. Newest days first, at most `limit` per
-/// query (`None` = all). Returns the days queued.
+/// or the day no longer has scrobbles), or holding `no_data` scrobbles whose
+/// track has a length now. (A new length only ever adds to the listening
+/// time charged, so it can't clear a suspect.) Newest days first, at most
+/// `limit` per query (`None` = all). Returns the days queued.
 pub async fn enqueue_stale(
     conn: &mut PgConnection,
     ruleset_id: i32,
@@ -538,8 +549,7 @@ pub async fn enqueue_stale(
         SELECT DISTINCT f.user_id, f.day, $1::int
         FROM scrobble_flags f
         JOIN tracks t ON t.id = f.track_id
-        WHERE ((f.status = 'no_data' AND (t.mb_duration_ms > 0 OR t.duration_ms > 0))
-            OR (f.status = 'suspect' AND f.duration_source <> 'musicbrainz' AND t.mb_duration_ms > 0))
+        WHERE f.status = 'no_data' AND (t.mb_duration_ms > 0 OR t.duration_ms > 0)
           AND ($2::date IS NULL OR f.day >= $2) AND ($3::date IS NULL OR f.day <= $3)
           AND NOT EXISTS (
               SELECT 1 FROM classification_queue q WHERE q.user_id = f.user_id AND q.day = f.day
@@ -609,7 +619,7 @@ pub async fn totals_by_ruleset(
         r#"
         SELECT r.id, r.fingerprint, count(*) AS "days!",
                sum(d.counted)::bigint AS "counted!", sum(d.suspect)::bigint AS "suspect!",
-               sum(d.no_data)::bigint AS "no_data!"
+               sum(d.duplicate)::bigint AS "duplicate!", sum(d.no_data)::bigint AS "no_data!"
         FROM scrobble_classification_days d
         JOIN classifier_rulesets r ON r.id = d.ruleset_id
         WHERE d.day BETWEEN $1 AND $2
@@ -630,6 +640,7 @@ pub async fn totals_by_ruleset(
             counts: StatusCounts {
                 counted: r.counted,
                 suspect: r.suspect,
+                duplicate: r.duplicate,
                 no_data: r.no_data,
             },
         })
@@ -713,7 +724,7 @@ pub async fn top_suspect_users(
         r#"
         SELECT d.user_id, u.username, count(*) AS "days!",
                sum(d.counted)::bigint AS "counted!", sum(d.suspect)::bigint AS "suspect!",
-               sum(d.no_data)::bigint AS "no_data!",
+               sum(d.duplicate)::bigint AS "duplicate!", sum(d.no_data)::bigint AS "no_data!",
                (SELECT max(f.load_ms) FROM scrobble_flags f
                 WHERE f.user_id = d.user_id AND f.day BETWEEN $2 AND $3
                   AND f.status = 'suspect') AS peak_load_ms
@@ -741,6 +752,7 @@ pub async fn top_suspect_users(
             counts: StatusCounts {
                 counted: r.counted,
                 suspect: r.suspect,
+                duplicate: r.duplicate,
                 no_data: r.no_data,
             },
             peak_load_ms: r.peak_load_ms,
@@ -765,7 +777,8 @@ pub async fn user_days(
 ) -> Result<Vec<DayTotals>, sqlx::Error> {
     let rows = sqlx::query!(
         r#"
-        SELECT d.day, d.ruleset_id, d.counted, d.suspect, d.no_data, d.classified_at,
+        SELECT d.day, d.ruleset_id, d.counted, d.suspect, d.duplicate, d.no_data,
+               d.classified_at,
                (SELECT max(f.load_ms) FROM scrobble_flags f
                 WHERE f.user_id = d.user_id AND f.day = d.day) AS peak_load_ms
         FROM scrobble_classification_days d
@@ -786,6 +799,7 @@ pub async fn user_days(
             counts: StatusCounts {
                 counted: r.counted.into(),
                 suspect: r.suspect.into(),
+                duplicate: r.duplicate.into(),
                 no_data: r.no_data.into(),
             },
             peak_load_ms: r.peak_load_ms,

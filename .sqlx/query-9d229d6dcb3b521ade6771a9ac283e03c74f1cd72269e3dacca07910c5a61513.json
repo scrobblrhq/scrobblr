@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO classification_queue (user_id, day, priority)\n        SELECT DISTINCT f.user_id, f.day, $1::int\n        FROM scrobble_flags f\n        JOIN tracks t ON t.id = f.track_id\n        WHERE f.status = 'no_data' AND (t.mb_duration_ms > 0 OR t.duration_ms > 0)\n          AND ($2::date IS NULL OR f.day >= $2) AND ($3::date IS NULL OR f.day <= $3)\n          AND NOT EXISTS (\n              SELECT 1 FROM classification_queue q WHERE q.user_id = f.user_id AND q.day = f.day\n          )\n        LIMIT $4\n        ON CONFLICT (user_id, day) DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Date",
+        "Date",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9d229d6dcb3b521ade6771a9ac283e03c74f1cd72269e3dacca07910c5a61513"
+}
