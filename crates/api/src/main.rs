@@ -4,6 +4,8 @@ mod handlers;
 mod middleware;
 mod router;
 mod state;
+#[cfg(test)]
+mod test_app;
 
 use fred::{interfaces::ClientLike, types::Builder as RedisBuilder};
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
