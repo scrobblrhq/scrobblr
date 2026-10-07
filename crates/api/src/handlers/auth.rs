@@ -367,3 +367,31 @@ pub fn _delete_api_token_doc(op: TransformOperation) -> TransformOperation {
         .response_with::<401, (), _>(|r| r.description("Not authenticated"))
         .response_with::<404, (), _>(|r| r.description("Token not found or not owned by the authenticated user"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(names: &[&str]) -> ApiResult<Vec<Scope>> {
+        parse_scopes(&names.iter().map(|n| n.to_string()).collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn requested_scopes_are_deduplicated_in_order() {
+        assert_eq!(parse(&["scrobble"]).unwrap(), [Scope::Scrobble]);
+        assert_eq!(
+            parse(&["write", "read", "write"]).unwrap(),
+            [Scope::Read, Scope::Write]
+        );
+    }
+
+    #[test]
+    fn unknown_or_missing_scopes_are_refused() {
+        assert!(matches!(
+            parse(&["scrobble", "admin"]),
+            Err(AppError::BadRequest(m)) if m.contains("`admin`")
+        ));
+        assert!(matches!(parse(&["Write"]), Err(AppError::BadRequest(_))));
+        assert!(matches!(parse(&[]), Err(AppError::BadRequest(_))));
+    }
+}

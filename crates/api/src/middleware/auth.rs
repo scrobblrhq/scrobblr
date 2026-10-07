@@ -250,3 +250,71 @@ fn extract_bearer_token(req: &Request) -> Result<String, AppError> {
         .map(|s| s.to_string())
         .ok_or(AppError::Unauthorized)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn token(scopes: &[Scope]) -> Credential {
+        Credential::ApiToken {
+            id: Uuid::nil(),
+            scopes: scopes.to_vec(),
+        }
+    }
+
+    #[test]
+    fn a_session_may_do_anything() {
+        for access in [
+            Access::Any,
+            Access::Scope(Scope::Scrobble),
+            Access::Scope(Scope::Read),
+            Access::Scope(Scope::Write),
+            Access::Session,
+        ] {
+            assert!(Credential::Session.check(access).is_ok(), "{access:?}");
+        }
+    }
+
+    #[test]
+    fn a_token_may_do_what_its_scopes_cover_and_nothing_more() {
+        let scrobbler = token(&[Scope::Scrobble]);
+        assert!(scrobbler.check(Access::Any).is_ok());
+        assert!(scrobbler.check(Access::Scope(Scope::Scrobble)).is_ok());
+        assert!(matches!(
+            scrobbler.check(Access::Scope(Scope::Read)),
+            Err(AppError::MissingScope(Scope::Read))
+        ));
+        assert!(matches!(
+            scrobbler.check(Access::Scope(Scope::Write)),
+            Err(AppError::MissingScope(Scope::Write))
+        ));
+
+        // Scopes don't imply one another.
+        let writer = token(&[Scope::Write]);
+        assert!(writer.check(Access::Scope(Scope::Write)).is_ok());
+        assert!(writer.check(Access::Scope(Scope::Read)).is_err());
+        assert!(writer.check(Access::Scope(Scope::Scrobble)).is_err());
+
+        assert!(token(&[]).check(Access::Any).is_ok());
+        assert!(token(&[]).check(Access::Scope(Scope::Scrobble)).is_err());
+    }
+
+    #[test]
+    fn no_token_passes_for_a_session() {
+        assert!(matches!(
+            token(&Scope::ALL).check(Access::Session),
+            Err(AppError::SessionRequired)
+        ));
+    }
+
+    #[test]
+    fn scope_names_round_trip() {
+        for scope in Scope::ALL {
+            assert_eq!(Scope::parse(scope.as_str()), Some(scope));
+            assert_eq!(scope.to_string(), scope.as_str());
+        }
+        assert_eq!(Scope::parse("admin"), None);
+        assert_eq!(Scope::parse("Write"), None);
+        assert_eq!(Scope::parse(""), None);
+    }
+}

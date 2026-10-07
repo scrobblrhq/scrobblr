@@ -31,6 +31,7 @@ pub struct TestApp {
     pub pool: PgPool,
     /// The client address requests come from, unless they name their own.
     pub ip: SocketAddr,
+    pub user_id: i64,
     pub username: String,
     pub session: Uuid,
 }
@@ -112,6 +113,7 @@ where
         router: crate::router::build(state),
         pool: pool.clone(),
         ip: SocketAddr::from(([10, octets[0], octets[1], octets[2]], 40_000)),
+        user_id,
         username,
         session,
     };

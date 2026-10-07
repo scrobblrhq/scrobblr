@@ -29,6 +29,9 @@ use crate::{
     state::AppState,
 };
 
+#[cfg(test)]
+mod tests;
+
 async fn serve_api(Extension(api): Extension<Arc<OpenApi>>) -> impl IntoApiResponse {
     Json(api)
 }
@@ -36,7 +39,8 @@ pub fn build(state: AppState) -> Router {
     // Authenticated routes, grouped by what they need of the credential
     // (`Access`, checked by `require_auth`): a session may do anything, an
     // API token only what its scopes cover, and only a session may manage
-    // credentials. A new route goes in the group that fits it.
+    // credentials. A new route goes in the group that fits it, and in the
+    // list in `router/tests.rs`, which fails until it's there.
 
     // Scrobbling: all a player's `scrobble` token needs.
     let scrobble_routes = ApiRouter::new()
