@@ -40,6 +40,10 @@ types-check:
 test-db:
     cargo test --workspace -- --ignored
 
+# rewrite openapi.json, the spec's snapshot, after an intended API change
+openapi:
+    UPDATE_OPENAPI=1 cargo test -q -p api openapi_tests
+
 # refresh .sqlx/ after adding or changing a query (needs a migrated DATABASE_URL)
 sqlx-prepare:
     SQLX_OFFLINE=false cargo sqlx prepare --workspace

@@ -59,6 +59,7 @@
       excludes = [
         "^\\.sqlx/"
         "^packages/types/src/generated/"
+        "^openapi\\.json$"
       ];
     };
   };

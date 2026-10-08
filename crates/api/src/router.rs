@@ -31,6 +31,8 @@ use crate::{
 };
 
 #[cfg(test)]
+mod openapi_tests;
+#[cfg(test)]
 mod tests;
 
 async fn serve_api(Extension(api): Extension<Arc<OpenApi>>) -> impl IntoApiResponse {
