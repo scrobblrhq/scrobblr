@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT t.id            AS \"track_id!\",\n               t.title         AS \"track_title!\",\n               t.artist_id     AS \"artist_id!\",\n               a.name          AS \"artist_name!\",\n               al.image_url    AS \"album_image?\",\n               s.play_count    AS \"play_count!\"\n        FROM (\n            SELECT track_id, SUM(play_count)::BIGINT AS play_count\n            FROM scrobbles_daily_by_track\n            WHERE artist_id = $1\n            GROUP BY track_id\n            ORDER BY play_count DESC, track_id\n            LIMIT $2\n        ) s\n        JOIN tracks t       ON t.id = s.track_id\n        JOIN artists a      ON a.id = t.artist_id\n        LEFT JOIN albums al ON al.id = t.album_id\n        ORDER BY s.play_count DESC, t.id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "track_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "track_title!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "artist_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "artist_name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "album_image?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "play_count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "0fe6f4f6fb41eec1fd2cd9dc43afe8a5753134a81fd7799b998217b7b8d032ea"
+}

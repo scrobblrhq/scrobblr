@@ -279,3 +279,64 @@ pub fn _refresh_album_doc(op: TransformOperation) -> TransformOperation {
         .response_with::<401, (), _>(|r| r.description("Not authenticated"))
         .response_with::<404, (), _>(|r| r.description("Album not found"))
 }
+
+#[cfg(test)]
+mod tests {
+    use axum::http::Method;
+    use chrono::{TimeDelta, Utc};
+    use serde_json::json;
+
+    use crate::test_app::with_app;
+
+    #[tokio::test]
+    #[ignore = "needs Postgres and Redis: just test-db"]
+    async fn sections_count_fresh_scrobbles_of_public_listeners() {
+        with_app(Default::default(), |app| async move {
+            for (i, track) in ["Hit", "Hit", "Other"].iter().enumerate() {
+                let play = json!({
+                    "track": track,
+                    "artist": "Band",
+                    "played_at": (Utc::now() - TimeDelta::minutes(10 * i as i64)).to_rfc3339(),
+                });
+                app.api(Method::POST, "/v1/scrobble", Some(play)).await;
+            }
+            let (track_id, artist_id): (i64, i64) =
+                sqlx::query_as("SELECT id, artist_id FROM tracks WHERE title = 'Hit'")
+                    .fetch_one(&app.pool)
+                    .await
+                    .unwrap();
+
+            let (_, top) = app
+                .api(
+                    Method::GET,
+                    &format!("/v1/artist/{artist_id}/top-tracks"),
+                    None,
+                )
+                .await;
+            assert_eq!(top[0]["track_title"], "Hit");
+            assert_eq!(top[0]["play_count"], 2);
+            assert_eq!(top[1]["play_count"], 1);
+            let (_, listeners) = app
+                .api(
+                    Method::GET,
+                    &format!("/v1/track/{track_id}/listeners"),
+                    None,
+                )
+                .await;
+            assert_eq!(listeners[0]["username"], app.username.as_str());
+            assert_eq!(listeners[0]["play_count"], 2);
+
+            let private = json!({ "is_private": true });
+            app.api(Method::PATCH, "/v1/user/me", Some(private)).await;
+            let (_, listeners) = app
+                .api(
+                    Method::GET,
+                    &format!("/v1/artist/{artist_id}/listeners"),
+                    None,
+                )
+                .await;
+            assert_eq!(listeners, json!([]));
+        })
+        .await;
+    }
+}

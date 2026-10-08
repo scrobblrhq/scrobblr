@@ -347,7 +347,8 @@ pub async fn search_tracks(
     .await
 }
 
-/// The artist's most-scrobbled tracks across all users.
+/// The artist's most-scrobbled tracks across all users, from the daily
+/// aggregate (migration 0015 indexes it by artist).
 pub async fn artist_top_tracks(
     pool: &PgPool,
     artist_id: i64,
@@ -361,15 +362,19 @@ pub async fn artist_top_tracks(
                t.artist_id     AS "artist_id!",
                a.name          AS "artist_name!",
                al.image_url    AS "album_image?",
-               COUNT(*)        AS "play_count!"
-        FROM scrobbles s
+               s.play_count    AS "play_count!"
+        FROM (
+            SELECT track_id, SUM(play_count)::BIGINT AS play_count
+            FROM scrobbles_daily_by_track
+            WHERE artist_id = $1
+            GROUP BY track_id
+            ORDER BY play_count DESC, track_id
+            LIMIT $2
+        ) s
         JOIN tracks t       ON t.id = s.track_id
         JOIN artists a      ON a.id = t.artist_id
         LEFT JOIN albums al ON al.id = t.album_id
-        WHERE s.artist_id = $1
-        GROUP BY t.id, t.title, t.artist_id, a.name, al.image_url
-        ORDER BY COUNT(*) DESC
-        LIMIT $2
+        ORDER BY s.play_count DESC, t.id
         "#,
         artist_id,
         limit,
@@ -378,7 +383,8 @@ pub async fn artist_top_tracks(
     .await
 }
 
-/// Users who listen to this artist most, private profiles excluded.
+/// Users who listen to this artist most, private profiles excluded, from
+/// the daily aggregate.
 pub async fn artist_listeners(
     pool: &PgPool,
     artist_id: i64,
@@ -391,12 +397,16 @@ pub async fn artist_listeners(
                u.username     AS "username!",
                u.display_name AS "display_name?",
                u.image_url    AS "image_url?",
-               COUNT(*)       AS "play_count!"
-        FROM scrobbles s
-        JOIN users u ON u.id = s.user_id
-        WHERE s.artist_id = $1 AND NOT u.is_private
-        GROUP BY u.id, u.username, u.display_name, u.image_url
-        ORDER BY COUNT(*) DESC
+               l.play_count   AS "play_count!"
+        FROM (
+            SELECT user_id, SUM(play_count)::BIGINT AS play_count
+            FROM scrobbles_daily_by_artist
+            WHERE artist_id = $1
+            GROUP BY user_id
+        ) l
+        JOIN users u ON u.id = l.user_id
+        WHERE NOT u.is_private
+        ORDER BY l.play_count DESC, u.id
         LIMIT $2
         "#,
         artist_id,
@@ -419,12 +429,16 @@ pub async fn track_listeners(
                u.username     AS "username!",
                u.display_name AS "display_name?",
                u.image_url    AS "image_url?",
-               COUNT(*)       AS "play_count!"
-        FROM scrobbles s
-        JOIN users u ON u.id = s.user_id
-        WHERE s.track_id = $1 AND NOT u.is_private
-        GROUP BY u.id, u.username, u.display_name, u.image_url
-        ORDER BY COUNT(*) DESC
+               l.play_count   AS "play_count!"
+        FROM (
+            SELECT user_id, SUM(play_count)::BIGINT AS play_count
+            FROM scrobbles_daily_by_track
+            WHERE track_id = $1
+            GROUP BY user_id
+        ) l
+        JOIN users u ON u.id = l.user_id
+        WHERE NOT u.is_private
+        ORDER BY l.play_count DESC, u.id
         LIMIT $2
         "#,
         track_id,

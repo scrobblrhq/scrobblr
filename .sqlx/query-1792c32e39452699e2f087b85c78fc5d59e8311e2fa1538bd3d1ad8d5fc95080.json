@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT u.id           AS \"user_id!\",\n               u.username     AS \"username!\",\n               u.display_name AS \"display_name?\",\n               u.image_url    AS \"image_url?\",\n               COUNT(*)       AS \"play_count!\"\n        FROM scrobbles s\n        JOIN users u ON u.id = s.user_id\n        WHERE s.track_id = $1 AND NOT u.is_private\n        GROUP BY u.id, u.username, u.display_name, u.image_url\n        ORDER BY COUNT(*) DESC\n        LIMIT $2\n        ",
+  "query": "\n        SELECT u.id           AS \"user_id!\",\n               u.username     AS \"username!\",\n               u.display_name AS \"display_name?\",\n               u.image_url    AS \"image_url?\",\n               l.play_count   AS \"play_count!\"\n        FROM (\n            SELECT user_id, SUM(play_count)::BIGINT AS play_count\n            FROM scrobbles_daily_by_artist\n            WHERE artist_id = $1\n            GROUP BY user_id\n        ) l\n        JOIN users u ON u.id = l.user_id\n        WHERE NOT u.is_private\n        ORDER BY l.play_count DESC, u.id\n        LIMIT $2\n        ",
   "describe": {
     "columns": [
       {
@@ -43,5 +43,5 @@
       null
     ]
   },
-  "hash": "6b90b682883954ffd782e740d8bc34f5943c5c2e87ed7833e6e6a8783ee19a3e"
+  "hash": "1792c32e39452699e2f087b85c78fc5d59e8311e2fa1538bd3d1ad8d5fc95080"
 }
