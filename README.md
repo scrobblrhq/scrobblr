@@ -91,19 +91,14 @@ database migrated by hand before the runner existed can be adopted with
 
 ### Importing a Last.fm history
 
-With `LASTFM_API_KEY` set, import a Last.fm account into an existing Scrobblr
-user from the command line (it runs in the foreground; Ctrl-C pauses and
-running it again resumes):
-
-```bash
-just import-lastfm <scrobblr-username> <lastfm-username>
-just import-status
-```
-
-Keep the worker running (`cargo run -p worker`) to fill in track lengths and
-classify the imported scrobbles. Users can import their own account through
-the API once they connect it (`GET /v1/connect/lastfm`, which needs
-`LASTFM_SHARED_SECRET` and `TOKEN_ENCRYPTION_KEY`), then `POST /v1/import/lastfm`.
+Users import their own Last.fm account through the API: they connect it
+(`GET /v1/connect/lastfm`, which needs `LASTFM_API_KEY`,
+`LASTFM_SHARED_SECRET` and `TOKEN_ENCRYPTION_KEY`), then
+`POST /v1/import/lastfm`, and follow its progress at `GET /v1/imports/{id}`.
+The worker runs the import, fills in track lengths and classifies the
+imported scrobbles. Operators can also import any account for an existing
+user from the command line (`worker import`; `cargo run -p worker -- --help`
+lists its commands).
 
 Interactive API docs are served at [`/docs`](http://localhost:8080/docs) (OpenAPI spec at `/api.json`).
 
