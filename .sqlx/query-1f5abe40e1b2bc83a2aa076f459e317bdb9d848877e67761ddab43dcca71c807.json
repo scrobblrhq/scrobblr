@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO track_artists (track_id, artist_id, role, position)\n        SELECT $1::BIGINT, $2::BIGINT, 'primary'::track_artist_role, 0\n        UNION ALL\n        SELECT $1, credit.artist_id, 'featured'::track_artist_role, credit.ord::INT\n        FROM UNNEST($3::BIGINT[]) WITH ORDINALITY AS credit(artist_id, ord)\n        WHERE credit.artist_id <> $2\n        ON CONFLICT (track_id, artist_id) DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1f5abe40e1b2bc83a2aa076f459e317bdb9d848877e67761ddab43dcca71c807"
+}

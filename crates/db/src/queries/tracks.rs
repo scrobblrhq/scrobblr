@@ -47,28 +47,50 @@ pub async fn resolve(pool: &PgPool, input: &CatalogInput<'_>) -> Result<CatalogE
     })
 }
 
-/// Looks up an artist by their normalized name, creating one if none exists.
+/// Looks up an artist by their normalized name, creating one if none
+/// exists; the first-inserted casing wins.
 ///
-/// On conflict the original casing is preserved — the `DO UPDATE SET name`
-/// clause is intentionally a no-op so the first-inserted casing wins.
+/// Reads before inserting, so the usual case (the artist exists) writes
+/// nothing. A concurrent insert of the same artist makes the first pass
+/// come back empty; the second one sees it.
 pub async fn find_or_create_artist(pool: &PgPool, name: &str) -> Result<Artist, sqlx::Error> {
     let normalized = name.trim().to_lowercase();
-
-    sqlx::query_as!(
-        Artist,
-        r#"
-        INSERT INTO artists (name, name_normalized)
-        VALUES ($1, $2)
-        ON CONFLICT (name_normalized) DO UPDATE
-            SET name = artists.name
-        RETURNING id, name, name_normalized, mbid, image_url, bio,
-                  scrobble_count, listener_count, created_at
-        "#,
-        name.trim(),
-        normalized,
-    )
-    .fetch_one(pool)
-    .await
+    for _ in 0..2 {
+        let artist = sqlx::query_as!(
+            Artist,
+            r#"
+            WITH found AS (
+                SELECT id, name, name_normalized, mbid, image_url, bio,
+                       scrobble_count, listener_count, created_at
+                FROM artists
+                WHERE name_normalized = $2
+            ), inserted AS (
+                INSERT INTO artists (name, name_normalized)
+                SELECT $1, $2
+                WHERE NOT EXISTS (SELECT 1 FROM found)
+                ON CONFLICT (name_normalized) DO NOTHING
+                RETURNING id, name, name_normalized, mbid, image_url, bio,
+                          scrobble_count, listener_count, created_at
+            )
+            SELECT id AS "id!", name AS "name!", name_normalized AS "name_normalized!",
+                   mbid, image_url, bio, scrobble_count AS "scrobble_count!",
+                   listener_count AS "listener_count!", created_at AS "created_at!"
+            FROM found
+            UNION ALL
+            SELECT id, name, name_normalized, mbid, image_url, bio,
+                   scrobble_count, listener_count, created_at
+            FROM inserted
+            "#,
+            name.trim(),
+            normalized,
+        )
+        .fetch_optional(pool)
+        .await?;
+        if let Some(artist) = artist {
+            return Ok(artist);
+        }
+    }
+    Err(sqlx::Error::RowNotFound)
 }
 
 pub async fn find_artist_by_id(pool: &PgPool, id: i64) -> Result<Option<Artist>, sqlx::Error> {
@@ -113,36 +135,45 @@ pub async fn search_artists(
     .await
 }
 
+/// Like [`find_or_create_artist`], for an artist's album.
 pub async fn find_or_create_album(
     pool: &PgPool,
     artist_id: i64,
     title: &str,
 ) -> Result<i64, sqlx::Error> {
     let normalized = title.trim().to_lowercase();
-
-    let row = sqlx::query!(
-        r#"
-        INSERT INTO albums (artist_id, title, title_normalized)
-        VALUES ($1, $2, $3)
-        ON CONFLICT (artist_id, title_normalized) DO UPDATE
-            SET title = albums.title
-        RETURNING id
-        "#,
-        artist_id,
-        title.trim(),
-        normalized,
-    )
-    .fetch_one(pool)
-    .await?;
-
-    Ok(row.id)
+    for _ in 0..2 {
+        let id = sqlx::query_scalar!(
+            r#"
+            WITH found AS (
+                SELECT id FROM albums WHERE artist_id = $1 AND title_normalized = $3
+            ), inserted AS (
+                INSERT INTO albums (artist_id, title, title_normalized)
+                SELECT $1, $2, $3
+                WHERE NOT EXISTS (SELECT 1 FROM found)
+                ON CONFLICT (artist_id, title_normalized) DO NOTHING
+                RETURNING id
+            )
+            SELECT id AS "id!" FROM found
+            UNION ALL
+            SELECT id FROM inserted
+            "#,
+            artist_id,
+            title.trim(),
+            normalized,
+        )
+        .fetch_optional(pool)
+        .await?;
+        if let Some(id) = id {
+            return Ok(id);
+        }
+    }
+    Err(sqlx::Error::RowNotFound)
 }
 
-/// Looks up a track by `(artist_id, title_normalized)`, creating one if none exists.
-///
-/// On conflict, `album_id` and `duration_ms` are filled in only if the existing
-/// row has `NULL` in those columns (`COALESCE` keeps the stored value otherwise).
-/// This lets callers enrich incomplete records without overwriting good data.
+/// Looks up a track by `(artist_id, title_normalized)`, creating one if
+/// none exists, like [`find_or_create_artist`]. An existing track only gains
+/// the `album_id` and `duration_ms` it lacks; good data is never overwritten.
 pub async fn find_or_create_track(
     pool: &PgPool,
     artist_id: i64,
@@ -151,22 +182,64 @@ pub async fn find_or_create_track(
     duration_ms: Option<i32>,
 ) -> Result<Track, sqlx::Error> {
     let normalized = title.trim().to_lowercase();
+    let mut track = None;
+    for _ in 0..2 {
+        track = sqlx::query_as!(
+            Track,
+            r#"
+            WITH found AS (
+                SELECT id, artist_id, album_id, title, title_normalized, mbid,
+                       duration_ms, scrobble_count, created_at
+                FROM tracks
+                WHERE artist_id = $1 AND title_normalized = $4
+            ), inserted AS (
+                INSERT INTO tracks (artist_id, album_id, title, title_normalized, duration_ms)
+                SELECT $1, $2, $3, $4, $5
+                WHERE NOT EXISTS (SELECT 1 FROM found)
+                ON CONFLICT (artist_id, title_normalized) DO NOTHING
+                RETURNING id, artist_id, album_id, title, title_normalized, mbid,
+                          duration_ms, scrobble_count, created_at
+            )
+            SELECT id AS "id!", artist_id AS "artist_id!", album_id, title AS "title!",
+                   title_normalized AS "title_normalized!", mbid, duration_ms,
+                   scrobble_count AS "scrobble_count!", created_at AS "created_at!"
+            FROM found
+            UNION ALL
+            SELECT id, artist_id, album_id, title, title_normalized, mbid,
+                   duration_ms, scrobble_count, created_at
+            FROM inserted
+            "#,
+            artist_id,
+            album_id,
+            title.trim(),
+            normalized,
+            duration_ms,
+        )
+        .fetch_optional(pool)
+        .await?;
+        if track.is_some() {
+            break;
+        }
+    }
+    let track = track.ok_or(sqlx::Error::RowNotFound)?;
 
+    let gains = (track.album_id.is_none() && album_id.is_some())
+        || (track.duration_ms.is_none() && duration_ms.is_some());
+    if !gains {
+        return Ok(track);
+    }
     sqlx::query_as!(
         Track,
         r#"
-        INSERT INTO tracks (artist_id, album_id, title, title_normalized, duration_ms)
-        VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT (artist_id, title_normalized) DO UPDATE
-            SET album_id    = COALESCE(tracks.album_id,    EXCLUDED.album_id),
-                duration_ms = COALESCE(tracks.duration_ms, EXCLUDED.duration_ms)
+        UPDATE tracks
+        SET album_id    = COALESCE(album_id, $2),
+            duration_ms = COALESCE(duration_ms, $3)
+        WHERE id = $1
         RETURNING id, artist_id, album_id, title, title_normalized, mbid,
                   duration_ms, scrobble_count, created_at
         "#,
-        artist_id,
+        track.id,
         album_id,
-        title.trim(),
-        normalized,
         duration_ms,
     )
     .fetch_one(pool)
@@ -182,38 +255,23 @@ pub async fn record_track_credits(
     primary_artist_id: i64,
     featured_artist_ids: &[i64],
 ) -> Result<(), sqlx::Error> {
-    let mut tx = pool.begin().await?;
-
     sqlx::query!(
         r#"
         INSERT INTO track_artists (track_id, artist_id, role, position)
-        VALUES ($1, $2, 'primary', 0)
+        SELECT $1::BIGINT, $2::BIGINT, 'primary'::track_artist_role, 0
+        UNION ALL
+        SELECT $1, credit.artist_id, 'featured'::track_artist_role, credit.ord::INT
+        FROM UNNEST($3::BIGINT[]) WITH ORDINALITY AS credit(artist_id, ord)
+        WHERE credit.artist_id <> $2
         ON CONFLICT (track_id, artist_id) DO NOTHING
         "#,
         track_id,
         primary_artist_id,
+        featured_artist_ids,
     )
-    .execute(&mut *tx)
+    .execute(pool)
     .await?;
-
-    if !featured_artist_ids.is_empty() {
-        sqlx::query!(
-            r#"
-            INSERT INTO track_artists (track_id, artist_id, role, position)
-            SELECT $1, credit.artist_id, 'featured', credit.ord::INT
-            FROM UNNEST($2::BIGINT[]) WITH ORDINALITY AS credit(artist_id, ord)
-            WHERE credit.artist_id <> $3
-            ON CONFLICT (track_id, artist_id) DO NOTHING
-            "#,
-            track_id,
-            featured_artist_ids,
-            primary_artist_id,
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
-
-    tx.commit().await
+    Ok(())
 }
 
 pub async fn track_credits(pool: &PgPool, track_id: i64) -> Result<Vec<TrackCredit>, sqlx::Error> {

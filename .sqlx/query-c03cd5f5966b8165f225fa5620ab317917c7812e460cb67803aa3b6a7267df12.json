@@ -1,0 +1,71 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH found AS (\n                SELECT id, name, name_normalized, mbid, image_url, bio,\n                       scrobble_count, listener_count, created_at\n                FROM artists\n                WHERE name_normalized = $2\n            ), inserted AS (\n                INSERT INTO artists (name, name_normalized)\n                SELECT $1, $2\n                WHERE NOT EXISTS (SELECT 1 FROM found)\n                ON CONFLICT (name_normalized) DO NOTHING\n                RETURNING id, name, name_normalized, mbid, image_url, bio,\n                          scrobble_count, listener_count, created_at\n            )\n            SELECT id AS \"id!\", name AS \"name!\", name_normalized AS \"name_normalized!\",\n                   mbid, image_url, bio, scrobble_count AS \"scrobble_count!\",\n                   listener_count AS \"listener_count!\", created_at AS \"created_at!\"\n            FROM found\n            UNION ALL\n            SELECT id, name, name_normalized, mbid, image_url, bio,\n                   scrobble_count, listener_count, created_at\n            FROM inserted\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "name_normalized!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "mbid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "image_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "bio",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "scrobble_count!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "listener_count!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_at!",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "c03cd5f5966b8165f225fa5620ab317917c7812e460cb67803aa3b6a7267df12"
+}

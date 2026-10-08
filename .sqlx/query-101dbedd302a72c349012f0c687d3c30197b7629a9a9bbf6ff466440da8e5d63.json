@@ -1,0 +1,74 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH found AS (\n                SELECT id, artist_id, album_id, title, title_normalized, mbid,\n                       duration_ms, scrobble_count, created_at\n                FROM tracks\n                WHERE artist_id = $1 AND title_normalized = $4\n            ), inserted AS (\n                INSERT INTO tracks (artist_id, album_id, title, title_normalized, duration_ms)\n                SELECT $1, $2, $3, $4, $5\n                WHERE NOT EXISTS (SELECT 1 FROM found)\n                ON CONFLICT (artist_id, title_normalized) DO NOTHING\n                RETURNING id, artist_id, album_id, title, title_normalized, mbid,\n                          duration_ms, scrobble_count, created_at\n            )\n            SELECT id AS \"id!\", artist_id AS \"artist_id!\", album_id, title AS \"title!\",\n                   title_normalized AS \"title_normalized!\", mbid, duration_ms,\n                   scrobble_count AS \"scrobble_count!\", created_at AS \"created_at!\"\n            FROM found\n            UNION ALL\n            SELECT id, artist_id, album_id, title, title_normalized, mbid,\n                   duration_ms, scrobble_count, created_at\n            FROM inserted\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "artist_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "album_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "title!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "title_normalized!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "mbid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 6,
+        "name": "duration_ms",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "scrobble_count!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_at!",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text",
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "101dbedd302a72c349012f0c687d3c30197b7629a9a9bbf6ff466440da8e5d63"
+}

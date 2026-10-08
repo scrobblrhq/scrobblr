@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH found AS (\n                SELECT id FROM albums WHERE artist_id = $1 AND title_normalized = $3\n            ), inserted AS (\n                INSERT INTO albums (artist_id, title, title_normalized)\n                SELECT $1, $2, $3\n                WHERE NOT EXISTS (SELECT 1 FROM found)\n                ON CONFLICT (artist_id, title_normalized) DO NOTHING\n                RETURNING id\n            )\n            SELECT id AS \"id!\" FROM found\n            UNION ALL\n            SELECT id FROM inserted\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "3a1376d7ef2b49b99f2f619a6da755fc6e6d28347f8f53e57ed3ada4aabff762"
+}
