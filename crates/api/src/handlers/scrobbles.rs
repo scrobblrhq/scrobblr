@@ -16,9 +16,7 @@ use axum::{
 };
 use chrono::{Duration, TimeDelta, Utc};
 use db::queries::scrobble_clients::{ClientIdentity, PROTOCOL_SCROBBLR};
-use db::queries::{
-    enrichment as enrichment_db, scrobbles as scrobbles_db, tracks as tracks_db, users as users_db,
-};
+use db::queries::{scrobbles as scrobbles_db, tracks as tracks_db, users as users_db};
 use fred::interfaces::PubsubInterface;
 use futures_util::stream::{self, Stream, StreamExt};
 use schemars::JsonSchema;
@@ -163,50 +161,31 @@ pub(crate) async fn set_now_playing(
     playing: &NowPlayingRequest,
     source: &str,
 ) -> ApiResult<()> {
-    let artist = tracks_db::find_or_create_artist(&state.db, &playing.artist).await?;
-
-    let album_id = if let Some(album_title) = &playing.album {
-        Some(tracks_db::find_or_create_album(&state.db, artist.id, album_title).await?)
-    } else {
-        None
-    };
-
     let duration_ms = playing
         .duration_ms
         .and_then(|ms| plausible_duration_ms(ms.into()));
-    let track = tracks_db::find_or_create_track(
+    let catalog = tracks_db::resolve(
         &state.db,
-        artist.id,
-        album_id,
-        &playing.track,
-        duration_ms,
+        &tracks_db::CatalogInput {
+            artist: &playing.artist,
+            featured_artists: &playing.featured_artists,
+            album: playing.album.as_deref(),
+            track: &playing.track,
+            duration_ms,
+        },
     )
     .await?;
 
-    let featured =
-        shared::scrobble::normalize_featured_artists(&playing.artist, &playing.featured_artists);
-    let mut featured_ids = Vec::with_capacity(featured.len());
-    for name in &featured {
-        featured_ids.push(tracks_db::find_or_create_artist(&state.db, name).await?.id);
-    }
-    tracks_db::record_track_credits(&state.db, track.id, artist.id, &featured_ids).await?;
-
-    if let Err(e) =
-        enrichment_db::enqueue_for_ingest(&state.db, artist.id, album_id, track.id).await
-    {
-        tracing::warn!("failed to enqueue enrichment for now-playing: {e}");
-    }
-
-    let duration_ms = track.duration_ms.or(duration_ms).unwrap_or(300_000);
+    let duration_ms = catalog.track.duration_ms.or(duration_ms).unwrap_or(300_000);
     let expires_at = Utc::now() + Duration::milliseconds(duration_ms as i64);
 
     scrobbles_db::upsert_now_playing(
         &state.db,
         &scrobbles_db::UpsertNowPlaying {
             user_id,
-            track_id: track.id,
-            artist_id: artist.id,
-            album_id,
+            track_id: catalog.track.id,
+            artist_id: catalog.artist_id,
+            album_id: catalog.album_id,
             source: source.to_string(),
             expires_at,
         },

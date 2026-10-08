@@ -9,8 +9,7 @@ use std::sync::Arc;
 use chrono::Utc;
 use db::queries::scrobble_clients::{self as clients_db, ClientIdentity, PROTOCOL_SPOTIFY};
 use db::queries::{
-    connected_accounts as connected_accounts_db, enrichment as enrichment_db,
-    scrobbles as scrobbles_db, tracks as tracks_db,
+    connected_accounts as connected_accounts_db, scrobbles as scrobbles_db, tracks as tracks_db,
 };
 use fred::interfaces::PubsubInterface;
 use shared::{
@@ -242,35 +241,17 @@ impl ConnectedAccountsPoller {
             }
         }
 
-        let artist = tracks_db::find_or_create_artist(&self.db, &current.artist_name).await?;
-        let album_id = match &current.album_title {
-            Some(title) => Some(tracks_db::find_or_create_album(&self.db, artist.id, title).await?),
-            None => None,
-        };
-        let track = tracks_db::find_or_create_track(
+        let catalog = tracks_db::resolve(
             &self.db,
-            artist.id,
-            album_id,
-            &current.track_title,
-            Some(current.duration_ms),
+            &tracks_db::CatalogInput {
+                artist: &current.artist_name,
+                featured_artists: &current.featured_artists,
+                album: current.album_title.as_deref(),
+                track: &current.track_title,
+                duration_ms: Some(current.duration_ms),
+            },
         )
         .await?;
-
-        let featured = scrobble_logic::normalize_featured_artists(
-            &current.artist_name,
-            &current.featured_artists,
-        );
-        let mut featured_ids = Vec::with_capacity(featured.len());
-        for name in &featured {
-            featured_ids.push(tracks_db::find_or_create_artist(&self.db, name).await?.id);
-        }
-        tracks_db::record_track_credits(&self.db, track.id, artist.id, &featured_ids).await?;
-
-        if let Err(e) =
-            enrichment_db::enqueue_for_ingest(&self.db, artist.id, album_id, track.id).await
-        {
-            tracing::warn!("failed to enqueue enrichment for spotify now-playing: {e}");
-        }
 
         let remaining_ms = (current.duration_ms - current.progress_ms).max(0);
         let expires_at = Utc::now() + chrono::Duration::milliseconds(remaining_ms as i64);
@@ -279,9 +260,9 @@ impl ConnectedAccountsPoller {
             &self.db,
             &scrobbles_db::UpsertNowPlaying {
                 user_id: account.user_id,
-                track_id: track.id,
-                artist_id: artist.id,
-                album_id,
+                track_id: catalog.track.id,
+                artist_id: catalog.artist_id,
+                album_id: catalog.album_id,
                 source: "spotify".into(),
                 expires_at,
             },

@@ -2,9 +2,7 @@ use chrono::{DateTime, NaiveTime, TimeDelta, Utc};
 use sqlx::PgPool;
 use thiserror::Error;
 
-use crate::queries::{
-    classification as classification_db, enrichment as enrichment_db, tracks as tracks_db,
-};
+use crate::queries::{classification as classification_db, tracks as tracks_db};
 use shared::models::{ActivityDay, NowPlayingRich, ScrobbleRich, TopArtist, TopTrack};
 use shared::scrobble::{
     self as scrobble_logic, DUPLICATE_WINDOW, ScrobbleInput, ScrobbleValidationError,
@@ -36,35 +34,17 @@ pub async fn ingest_scrobble(
 ) -> Result<i64, IngestError> {
     scrobble_logic::validate(input)?;
 
-    let artist = tracks_db::find_or_create_artist(pool, &input.artist_name).await?;
-
-    let album_id = if let Some(album_title) = &input.album_title {
-        Some(tracks_db::find_or_create_album(pool, artist.id, album_title).await?)
-    } else {
-        None
-    };
-
-    let track = tracks_db::find_or_create_track(
+    let catalog = tracks_db::resolve(
         pool,
-        artist.id,
-        album_id,
-        &input.track_title,
-        input.duration_ms,
+        &tracks_db::CatalogInput {
+            artist: &input.artist_name,
+            featured_artists: &input.featured_artists,
+            album: input.album_title.as_deref(),
+            track: &input.track_title,
+            duration_ms: input.duration_ms,
+        },
     )
     .await?;
-
-    let featured =
-        scrobble_logic::normalize_featured_artists(&input.artist_name, &input.featured_artists);
-    let mut featured_ids = Vec::with_capacity(featured.len());
-    for name in &featured {
-        featured_ids.push(tracks_db::find_or_create_artist(pool, name).await?.id);
-    }
-    tracks_db::record_track_credits(pool, track.id, artist.id, &featured_ids).await?;
-
-    // Best-effort: a failure here must never reject the scrobble.
-    if let Err(e) = enrichment_db::enqueue_for_ingest(pool, artist.id, album_id, track.id).await {
-        tracing::warn!("failed to enqueue enrichment for scrobble: {e}");
-    }
 
     let mut tx = pool.begin().await?;
     // Two copies of one submission in flight at once (a client retrying a
@@ -81,7 +61,7 @@ pub async fn ingest_scrobble(
         ) AS "exists!"
         "#,
         user_id,
-        track.id,
+        catalog.track.id,
         input.played_at - DUPLICATE_WINDOW,
         input.played_at + DUPLICATE_WINDOW,
     )
@@ -95,9 +75,9 @@ pub async fn ingest_scrobble(
         &mut *tx,
         &InsertScrobble {
             user_id,
-            track_id: track.id,
-            artist_id: artist.id,
-            album_id,
+            track_id: catalog.track.id,
+            artist_id: catalog.artist_id,
+            album_id: catalog.album_id,
             played_at: input.played_at,
             source: input.source.clone(),
             duration_ms: input.duration_ms,

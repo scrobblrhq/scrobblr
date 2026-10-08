@@ -1,6 +1,51 @@
 use sqlx::PgPool;
 
+use crate::queries::enrichment as enrichment_db;
 use shared::models::{Album, Artist, TopListener, TopTrack, Track, TrackArtistRole, TrackCredit};
+use shared::scrobble::normalize_featured_artists;
+
+/// A track as a scrobble or now playing names it.
+pub struct CatalogInput<'a> {
+    pub artist: &'a str,
+    pub featured_artists: &'a [String],
+    pub album: Option<&'a str>,
+    pub track: &'a str,
+    pub duration_ms: Option<i32>,
+}
+
+pub struct CatalogEntry {
+    pub artist_id: i64,
+    pub album_id: Option<i64>,
+    pub track: Track,
+}
+
+/// Finds or creates the artist, album and track, records the credits, and
+/// queues enrichment for whatever hasn't been enriched (best-effort). The
+/// one path every live source takes into the catalog.
+pub async fn resolve(pool: &PgPool, input: &CatalogInput<'_>) -> Result<CatalogEntry, sqlx::Error> {
+    let artist = find_or_create_artist(pool, input.artist).await?;
+    let album_id = match input.album {
+        Some(title) => Some(find_or_create_album(pool, artist.id, title).await?),
+        None => None,
+    };
+    let track =
+        find_or_create_track(pool, artist.id, album_id, input.track, input.duration_ms).await?;
+
+    let mut featured_ids = Vec::new();
+    for name in normalize_featured_artists(input.artist, input.featured_artists) {
+        featured_ids.push(find_or_create_artist(pool, &name).await?.id);
+    }
+    record_track_credits(pool, track.id, artist.id, &featured_ids).await?;
+
+    if let Err(e) = enrichment_db::enqueue_for_ingest(pool, artist.id, album_id, track.id).await {
+        tracing::warn!("failed to enqueue enrichment: {e}");
+    }
+    Ok(CatalogEntry {
+        artist_id: artist.id,
+        album_id,
+        track,
+    })
+}
 
 /// Looks up an artist by their normalized name, creating one if none exists.
 ///
