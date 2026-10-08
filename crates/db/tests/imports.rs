@@ -328,6 +328,15 @@ async fn deferred_jobs_wait_and_leases_expire() {
 #[ignore = "needs Postgres: just test-db"]
 async fn old_history_goes_into_compressed_chunks_without_decompressing_them() {
     with_db(true, |pool| async move {
+        // The policy's first run waits for the database's scheduler, which
+        // can start mid-test and recompress the rows this test counts.
+        sqlx::query(
+            "SELECT alter_job(job_id, scheduled => false) FROM timescaledb_information.jobs
+             WHERE proc_name = 'policy_compression'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         let neighbour = user(&pool, "neighbour").await;
         let neighbour_job = start(&pool, neighbour).await;
         let old: Vec<ImportPlay> = (0..300)
