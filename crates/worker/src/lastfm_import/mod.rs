@@ -97,12 +97,12 @@ impl Importer {
         let Some(client) = LastfmClient::from_env(http) else {
             return Ok(None);
         };
-        let max_scrobbles = match std::env::var("LASTFM_IMPORT_MAX_SCROBBLES") {
-            Ok(v) => v
+        let max_scrobbles = match crate::non_empty_env("LASTFM_IMPORT_MAX_SCROBBLES") {
+            Some(v) => v
                 .trim()
                 .parse()
                 .map_err(|e| anyhow::anyhow!("LASTFM_IMPORT_MAX_SCROBBLES={v}: {e}"))?,
-            Err(_) => DEFAULT_MAX_SCROBBLES,
+            None => DEFAULT_MAX_SCROBBLES,
         };
         Ok(Some(Self::new(db, client, limiter, max_scrobbles)))
     }

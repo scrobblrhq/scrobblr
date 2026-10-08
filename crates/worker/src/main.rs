@@ -186,6 +186,12 @@ async fn migrate(db: &sqlx::PgPool, args: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// A setting, unless unset or blank (docker-compose passes unset ones as
+/// empty strings).
+fn non_empty_env(name: &str) -> Option<String> {
+    std::env::var(name).ok().filter(|v| !v.trim().is_empty())
+}
+
 /// Connects to Redis for now-playing republishing. Any failure (unset,
 /// malformed, or unreachable) degrades to `None` with a log line rather than
 /// taking the worker down — enrichment does not depend on Redis. Once

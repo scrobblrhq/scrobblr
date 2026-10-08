@@ -58,7 +58,10 @@ fn key() -> Result<&'static [u8; KEY_LEN], CryptoError> {
 }
 
 fn load_key() -> Result<[u8; KEY_LEN], CryptoError> {
-    let encoded = std::env::var(ENV_KEY).map_err(|_| CryptoError::MissingKey)?;
+    let encoded = std::env::var(ENV_KEY)
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .ok_or(CryptoError::MissingKey)?;
     let bytes = BASE64
         .decode(encoded.trim())
         .map_err(|_| CryptoError::InvalidKey)?;

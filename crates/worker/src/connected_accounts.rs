@@ -19,6 +19,8 @@ use shared::{
 };
 use sqlx::PgPool;
 
+use crate::non_empty_env;
+
 const BATCH_SIZE: i64 = 25;
 const POLL_INTERVAL_SECS: u64 = 45;
 
@@ -37,8 +39,8 @@ impl ConnectedAccountsPoller {
             db,
             redis,
             http: reqwest::Client::new(),
-            spotify_client_id: std::env::var("SPOTIFY_CLIENT_ID").ok(),
-            spotify_client_secret: std::env::var("SPOTIFY_CLIENT_SECRET").ok(),
+            spotify_client_id: non_empty_env("SPOTIFY_CLIENT_ID"),
+            spotify_client_secret: non_empty_env("SPOTIFY_CLIENT_SECRET"),
             scrobble_client: tokio::sync::OnceCell::new(),
         }
     }

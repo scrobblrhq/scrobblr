@@ -94,7 +94,7 @@ impl Enricher {
             .connect_timeout(Duration::from_secs(5))
             .build()?;
 
-        let lastfm = std::env::var("LASTFM_API_KEY").ok().map(|api_key| Lastfm {
+        let lastfm = crate::non_empty_env("LASTFM_API_KEY").map(|api_key| Lastfm {
             api_key,
             limiter: lastfm_limiter,
         });

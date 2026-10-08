@@ -51,19 +51,29 @@ pub fn lastfm_client() -> ApiResult<LastfmClient> {
         })
 }
 
+/// A Spotify setting; unset or blank means this server doesn't link
+/// Spotify accounts.
+fn spotify_setting(name: &str) -> ApiResult<String> {
+    std::env::var(name)
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .ok_or_else(|| {
+            AppError::ServiceUnavailable(format!(
+                "Spotify isn't configured on this server ({name})"
+            ))
+        })
+}
+
 fn spotify_client_id() -> ApiResult<String> {
-    std::env::var("SPOTIFY_CLIENT_ID")
-        .map_err(|_| AppError::Internal(anyhow::anyhow!("SPOTIFY_CLIENT_ID is not configured")))
+    spotify_setting("SPOTIFY_CLIENT_ID")
 }
 
 fn spotify_client_secret() -> ApiResult<String> {
-    std::env::var("SPOTIFY_CLIENT_SECRET")
-        .map_err(|_| AppError::Internal(anyhow::anyhow!("SPOTIFY_CLIENT_SECRET is not configured")))
+    spotify_setting("SPOTIFY_CLIENT_SECRET")
 }
 
 fn spotify_redirect_uri() -> ApiResult<String> {
-    std::env::var("SPOTIFY_REDIRECT_URI")
-        .map_err(|_| AppError::Internal(anyhow::anyhow!("SPOTIFY_REDIRECT_URI is not configured")))
+    spotify_setting("SPOTIFY_REDIRECT_URI")
 }
 
 /// Splits Spotify failures by who can act on them. A rejected code, a
@@ -130,7 +140,7 @@ pub fn _connect_provider_doc(op: TransformOperation) -> TransformOperation {
         .response::<200, Json<AuthorizeResponse>>()
         .response_with::<400, (), _>(|r| r.description("Unsupported provider"))
         .response_with::<401, (), _>(|r| r.description("Not authenticated"))
-        .response_with::<503, (), _>(|r| r.description("Last.fm isn't configured on this server"))
+        .response_with::<503, (), _>(|r| r.description("The provider isn't configured on this server"))
 }
 
 /// Resolves and burns a callback's CSRF `state`, returning the user who
