@@ -39,7 +39,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates libssl3 curl \
     && rm -rf /var/lib/apt/lists/*
 
-RUN useradd --system --uid 10001 --create-home scrobblr
+RUN groupadd --system --gid 10001 scrobblr \
+    && useradd --system --uid 10001 --gid 10001 --create-home scrobblr
 
 COPY --from=builder /usr/local/bin/api /usr/local/bin/api
 COPY --from=builder /usr/local/bin/worker /usr/local/bin/worker
