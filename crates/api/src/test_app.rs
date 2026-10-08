@@ -5,6 +5,7 @@
 use std::future::Future;
 use std::net::SocketAddr;
 use std::panic::AssertUnwindSafe;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::Router;
@@ -35,6 +36,8 @@ pub struct TestApp {
     pub user_id: i64,
     pub username: String,
     pub session: Uuid,
+    /// Where this test's uploads are stored, served under [`UPLOADS_URL`].
+    pub uploads: PathBuf,
 }
 
 pub const UPLOADS_URL: &str = "https://media.scrobblr.test";
@@ -131,6 +134,7 @@ where
         user_id,
         username,
         session,
+        uploads: uploads.clone(),
     };
 
     let result = AssertUnwindSafe(test(app)).catch_unwind().await;
@@ -156,7 +160,7 @@ impl TestApp {
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
-        (status, headers, String::from_utf8(body.to_vec()).unwrap())
+        (status, headers, String::from_utf8_lossy(&body).into_owned())
     }
 
     pub async fn get(&self, path_and_query: &str) -> (StatusCode, HeaderMap, String) {

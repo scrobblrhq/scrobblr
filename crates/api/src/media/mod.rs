@@ -7,6 +7,8 @@
 
 pub mod image;
 mod local;
+#[cfg(test)]
+mod tests;
 
 use std::path::Path;
 
