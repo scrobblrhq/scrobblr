@@ -207,6 +207,7 @@ async fn accept(state: &AppState, credential: &Credential, s: Submission) -> Res
             track: meta.track_name.clone().unwrap_or_default(),
             album: meta.release_name.clone(),
             duration_ms: meta.duration_ms(),
+            recording_mbid: super::mbid(meta.info("recording_mbid")),
         };
         return match super::now_playing(state, credential, &client, &playing).await {
             Ok(_) => ok(),
@@ -227,6 +228,7 @@ async fn accept(state: &AppState, credential: &Credential, s: Submission) -> Res
                     .and_then(|t| DateTime::from_timestamp(t, 0))
                     .unwrap_or(DateTime::UNIX_EPOCH),
                 duration_ms: meta.duration_ms(),
+                recording_mbid: super::mbid(meta.info("recording_mbid")),
             }
         })
         .collect();

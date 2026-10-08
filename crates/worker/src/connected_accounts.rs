@@ -162,6 +162,7 @@ impl ConnectedAccountsPoller {
                 listened_ms: Some(item.duration_ms),
                 source: "spotify".into(),
                 client_id: self.scrobble_client().await,
+                recording_mbid: None,
             };
 
             match scrobbles_db::ingest_scrobble(&self.db, account.user_id, &input).await {
@@ -251,6 +252,7 @@ impl ConnectedAccountsPoller {
                 album: current.album_title.as_deref(),
                 track: &current.track_title,
                 duration_ms: Some(current.duration_ms),
+                recording_mbid: None,
             },
         )
         .await?;

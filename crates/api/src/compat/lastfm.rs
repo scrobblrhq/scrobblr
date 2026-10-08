@@ -437,6 +437,7 @@ struct Entry {
     album_artist: String,
     timestamp: i64,
     duration_ms: Option<i32>,
+    mbid: Option<uuid::Uuid>,
 }
 
 /// The batch form (`artist[0]`, … up to 50) or the single one (`artist`).
@@ -487,6 +488,7 @@ fn parse_scrobbles(params: &Params) -> Result<Vec<Entry>, LfmError> {
                 album_artist: field("albumArtist", slot),
                 timestamp,
                 duration_ms: seconds_to_ms(&field("duration", slot)),
+                mbid: super::mbid(Some(&field("mbid", slot))),
             })
         })
         .collect()
@@ -541,6 +543,7 @@ async fn scrobble(state: &AppState, params: &Params) -> LfmResult {
             album: Some(e.album.clone()),
             played_at: DateTime::from_timestamp(e.timestamp, 0).unwrap_or(DateTime::UNIX_EPOCH),
             duration_ms: e.duration_ms,
+            recording_mbid: e.mbid,
         })
         .collect();
     let client = ClientIdentity::new(PROTOCOL_LASTFM, &api_key, signed == Signed::Verified);
@@ -606,6 +609,7 @@ async fn update_now_playing(state: &AppState, params: &Params) -> LfmResult {
             track: track.clone(),
             album: Some(album.clone()),
             duration_ms: seconds_to_ms(&text("duration")),
+            recording_mbid: super::mbid(params.get("mbid")),
         },
     )
     .await?;
@@ -993,6 +997,8 @@ mod tests {
             ("track[0]", "T"),
             ("timestamp[0]", "1700000000"),
             ("duration[0]", "999999999"),
+            ("mbid[0]", "8f2bc1b0-9c33-4f25-8e65-d2dbd1c9a5b1"),
+            ("mbid[1]", "not-an-mbid"),
         ]))
         .unwrap();
         assert_eq!(
@@ -1000,6 +1006,8 @@ mod tests {
             ["A", "B"]
         );
         assert_eq!(batch[0].duration_ms, None);
+        assert!(batch[0].mbid.is_some());
+        assert_eq!(batch[1].mbid, None);
 
         let missing = parse_scrobbles(&params(&[("artist[0]", "A"), ("track[0]", "T")]));
         assert_eq!(missing.unwrap_err().code, 6);

@@ -142,6 +142,7 @@ async fn ingest_queues_the_day_and_classification_labels_it() {
                 listened_ms: Some(200_000),
                 source: "test".into(),
                 client_id: None,
+                recording_mbid: None,
             };
             scrobbles_db::ingest_scrobble(&pool, user_id, &input)
                 .await

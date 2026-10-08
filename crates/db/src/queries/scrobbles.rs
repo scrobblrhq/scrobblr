@@ -42,6 +42,7 @@ pub async fn ingest_scrobble(
             album: input.album_title.as_deref(),
             track: &input.track_title,
             duration_ms: input.duration_ms,
+            recording_mbid: input.recording_mbid,
         },
     )
     .await?;

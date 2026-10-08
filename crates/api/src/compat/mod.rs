@@ -26,6 +26,7 @@ use axum::routing::{get, post};
 use axum::{Router, extract::Request};
 use chrono::{DateTime, TimeDelta, Utc};
 use fred::interfaces::KeysInterface;
+use uuid::Uuid;
 
 use crate::errors::{ApiResult, AppError};
 use crate::handlers::scrobbles::{NowPlayingRequest, set_now_playing};
@@ -231,6 +232,7 @@ pub struct Play {
     pub album: Option<String>,
     pub played_at: DateTime<Utc>,
     pub duration_ms: Option<i32>,
+    pub recording_mbid: Option<Uuid>,
 }
 
 /// Why a play wasn't recorded, in Last.fm's terms.
@@ -308,6 +310,7 @@ pub async fn submit(
             listened_ms: None,
             source: client.protocol.to_string(),
             client_id,
+            recording_mbid: play.recording_mbid,
         };
         match scrobbles_db::ingest_scrobble(&state.db, credential.user_id, &input).await {
             Ok(_) => {}
@@ -338,6 +341,12 @@ pub struct Playing {
     pub track: String,
     pub album: Option<String>,
     pub duration_ms: Option<i32>,
+    pub recording_mbid: Option<Uuid>,
+}
+
+/// A MusicBrainz id as a client sent it, if it is one.
+pub fn mbid(value: Option<&str>) -> Option<Uuid> {
+    value.and_then(|v| Uuid::parse_str(v.trim()).ok())
 }
 
 pub async fn now_playing(
@@ -352,6 +361,7 @@ pub async fn now_playing(
         album: playing.album.clone(),
         played_at: Utc::now(),
         duration_ms: playing.duration_ms,
+        recording_mbid: playing.recording_mbid,
     };
     if let Err(ignored) = precheck(&check, Utc::now()) {
         return Ok(Err(ignored));
@@ -368,6 +378,7 @@ pub async fn now_playing(
             .map(str::to_string),
         duration_ms: playing.duration_ms,
         source: None,
+        recording_mbid: playing.recording_mbid,
     };
     set_now_playing(state, credential.user_id, &request, client.protocol).await?;
     Ok(Ok(()))

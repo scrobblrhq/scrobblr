@@ -37,6 +37,9 @@ pub struct ScrobbleRequest {
     pub duration_ms: Option<i32>,
     pub listened_ms: Option<i32>,
     pub source: Option<String>,
+    /// MusicBrainz recording id, if the client knows it: a hint for
+    /// enrichment, checked against the title and artist before use.
+    pub recording_mbid: Option<uuid::Uuid>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -84,6 +87,7 @@ pub async fn scrobble(
         listened_ms: body.listened_ms,
         source: client.name.clone(),
         client_id: state.clients.id(&state.db, &client).await,
+        recording_mbid: body.recording_mbid,
     };
 
     // Validation, catalog resolution, dedup, and insertion all live in
@@ -129,6 +133,8 @@ pub struct NowPlayingRequest {
     pub album: Option<String>,
     pub duration_ms: Option<i32>,
     pub source: Option<String>,
+    /// As for scrobbles.
+    pub recording_mbid: Option<uuid::Uuid>,
 }
 
 /// POST /v1/now-playing
@@ -172,6 +178,7 @@ pub(crate) async fn set_now_playing(
             album: playing.album.as_deref(),
             track: &playing.track,
             duration_ms,
+            recording_mbid: playing.recording_mbid,
         },
     )
     .await?;

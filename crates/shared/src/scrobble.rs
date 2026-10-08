@@ -52,6 +52,9 @@ pub struct ScrobbleInput {
     pub source: String,
     /// `scrobble_clients.id`: the client as the server saw it.
     pub client_id: Option<i32>,
+    /// MusicBrainz recording id the client sent: an enrichment hint, never
+    /// taken as the track's mbid unchecked.
+    pub recording_mbid: Option<uuid::Uuid>,
 }
 
 /// Trims, drops blanks, removes the primary artist and de-duplicates
@@ -139,6 +142,7 @@ mod tests {
             listened_ms: None,
             source: "test".into(),
             client_id: None,
+            recording_mbid: None,
         }
     }
 

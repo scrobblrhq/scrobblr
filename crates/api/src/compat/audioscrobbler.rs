@@ -225,6 +225,7 @@ pub async fn now_playing(State(state): State<AppState>, req: Request) -> Respons
             track: params.get("t").unwrap_or_default().to_string(),
             album: params.get("b").map(str::to_string),
             duration_ms: seconds(params.get("l")),
+            recording_mbid: super::mbid(params.get("m")),
         };
         // Unusable names are dropped quietly, as the protocol allows.
         let _ignored = super::now_playing(&state, &credential, &client, &playing).await?;
@@ -269,6 +270,7 @@ fn plays(params: &Params) -> Result<Vec<Play>, &'static str> {
                 album: field("b").map(str::to_string),
                 played_at,
                 duration_ms: seconds(field("l")),
+                recording_mbid: super::mbid(field("m")),
             })
         })
         .collect())
@@ -324,6 +326,7 @@ mod tests {
             ("i[1]", "1700000300"),
             ("o[1]", "P"),
             ("l[1]", "200"),
+            ("m[1]", "8f2bc1b0-9c33-4f25-8e65-d2dbd1c9a5b1"),
             ("a[0]", "A"),
             ("t[0]", "One"),
             ("i[0]", "1700000000"),
@@ -343,5 +346,7 @@ mod tests {
         );
         assert_eq!(plays[1].duration_ms, Some(200_000));
         assert_eq!(plays[0].duration_ms, None);
+        assert!(plays[1].recording_mbid.is_some());
+        assert_eq!(plays[0].recording_mbid, None);
     }
 }

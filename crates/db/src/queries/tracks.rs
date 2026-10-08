@@ -1,4 +1,5 @@
 use sqlx::PgPool;
+use uuid::Uuid;
 
 use crate::queries::enrichment as enrichment_db;
 use shared::models::{Album, Artist, TopListener, TopTrack, Track, TrackArtistRole, TrackCredit};
@@ -11,6 +12,7 @@ pub struct CatalogInput<'a> {
     pub album: Option<&'a str>,
     pub track: &'a str,
     pub duration_ms: Option<i32>,
+    pub recording_mbid: Option<Uuid>,
 }
 
 pub struct CatalogEntry {
@@ -30,6 +32,11 @@ pub async fn resolve(pool: &PgPool, input: &CatalogInput<'_>) -> Result<CatalogE
     };
     let track =
         find_or_create_track(pool, artist.id, album_id, input.track, input.duration_ms).await?;
+    if let Some(hint) = input.recording_mbid
+        && track.mbid.is_none()
+    {
+        record_mbid_hint(pool, track.id, hint).await?;
+    }
 
     let mut featured_ids = Vec::new();
     for name in normalize_featured_artists(input.artist, input.featured_artists) {
@@ -45,6 +52,34 @@ pub async fn resolve(pool: &PgPool, input: &CatalogInput<'_>) -> Result<CatalogE
         album_id,
         track,
     })
+}
+
+/// Keeps the MusicBrainz recording id a client sent as the track's hint,
+/// unless it has an mbid or a hint already. A track enriched without a
+/// match goes back in the queue, once: the first hint wins, so a client
+/// can't make it look up a new id every scrobble.
+pub async fn record_mbid_hint(pool: &PgPool, track_id: i64, hint: Uuid) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        r#"
+        WITH hinted AS (
+            UPDATE tracks SET mbid_hint = $2
+            WHERE id = $1 AND mbid IS NULL AND mbid_hint IS NULL
+            RETURNING id, enriched_at
+        )
+        INSERT INTO enrichment_jobs (entity_type, entity_id, priority)
+        SELECT 'track', id, $3 FROM hinted WHERE enriched_at IS NOT NULL
+        ON CONFLICT (entity_type, entity_id) DO UPDATE
+            SET status = 'pending', attempts = 0, next_attempt_at = NOW(),
+                priority = EXCLUDED.priority, last_error = NULL
+            WHERE enrichment_jobs.status IN ('done', 'failed')
+        "#,
+        track_id,
+        hint,
+        enrichment_db::PRIORITY_INGEST,
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 /// Looks up an artist by their normalized name, creating one if none
