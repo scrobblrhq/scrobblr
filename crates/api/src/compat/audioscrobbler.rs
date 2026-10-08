@@ -201,7 +201,7 @@ async fn session(state: &AppState, params: &Params) -> ApiResult<Option<(Credent
 fn seconds(value: Option<&str>) -> Option<i32> {
     value
         .and_then(|v| v.trim().parse::<i64>().ok())
-        .and_then(|s| super::plausible_duration_ms(s.saturating_mul(1000)))
+        .and_then(|s| shared::scrobble::plausible_duration_ms(s.saturating_mul(1000)))
 }
 
 async fn form(req: Request) -> ApiResult<Params> {

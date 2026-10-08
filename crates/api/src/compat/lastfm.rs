@@ -497,7 +497,7 @@ fn seconds_to_ms(value: &str) -> Option<i32> {
         .trim()
         .parse::<i64>()
         .ok()
-        .and_then(|s| super::plausible_duration_ms(s.saturating_mul(1000)))
+        .and_then(|s| shared::scrobble::plausible_duration_ms(s.saturating_mul(1000)))
 }
 
 fn ignored_message(outcome: Result<(), Ignored>) -> (u8, &'static str) {

@@ -106,13 +106,11 @@ pub async fn update_settings(
     Extension(auth_user): Extension<AuthUser>,
     Json(body): Json<UpdateSettingsRequest>,
 ) -> ApiResult<impl IntoApiResponse> {
-    if let Some(name) = &body.display_name
-        && name.trim().chars().count() > 100
-    {
-        return Err(AppError::BadRequest(
-            "display name must be at most 100 characters".into(),
-        ));
-    }
+    let display_name = body
+        .display_name
+        .as_deref()
+        .map(|name| shared::validation::sanitize_display_name(Some(name)))
+        .transpose()?;
     if let Some(bio) = &body.bio
         && bio.trim().chars().count() > 1000
     {
@@ -146,7 +144,7 @@ pub async fn update_settings(
         &state.db,
         auth_user.id,
         &users_db::UpdateProfile {
-            display_name: patch_field(&body.display_name),
+            display_name: display_name.as_ref().map(|name| name.as_deref()),
             bio: patch_field(&body.bio),
             image_url: patch_field(&body.image_url),
             is_private: body.is_private,
@@ -158,7 +156,7 @@ pub async fn update_settings(
 
 pub fn _update_settings_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Update account settings")
-        .description("Updates the authenticated user's own profile: display name, bio, avatar URL and privacy. Omitted fields are unchanged; an empty string clears the field.")
+        .description("Updates the authenticated user's own profile: display name (at most 40 characters, the registration rules), bio (1000), avatar URL and privacy. Omitted fields are unchanged; an empty string clears the field.")
         .tag("Users")
         .response::<200, Json<UserProfile>>()
         .response_with::<400, (), _>(|r| r.description("Invalid field value"))

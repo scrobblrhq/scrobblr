@@ -28,6 +28,8 @@ use shared::validation::{
 // Reserved usernames that cannot be registered (e.g. "me" for /user/me)
 const RESERVED_USERNAMES: &[&str] = &["me", "settings", "admin", "api"];
 
+const API_TOKEN_NAME_MAX_CHARS: usize = 100;
+
 /// The longest an API token can be set to last: ten years. One that should
 /// never expire is created without `expires_days`.
 const API_TOKEN_MAX_DAYS: i64 = 3650;
@@ -242,6 +244,7 @@ pub fn _logout_doc(op: TransformOperation) -> TransformOperation {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct CreateTokenRequest {
+    /// 1 to 100 characters, e.g. the client it's for.
     pub name: String,
     /// Any of `scrobble`, `read` and `write`; `["scrobble"]` when omitted.
     pub scopes: Option<Vec<String>>,
@@ -266,6 +269,12 @@ pub async fn create_api_token(
     Json(body): Json<CreateTokenRequest>,
 ) -> ApiResult<impl IntoApiResponse> {
     check_expires_days(body.expires_days)?;
+    let name = body.name.trim();
+    if name.is_empty() || name.chars().count() > API_TOKEN_NAME_MAX_CHARS {
+        return Err(AppError::BadRequest(format!(
+            "name must be 1 to {API_TOKEN_NAME_MAX_CHARS} characters"
+        )));
+    }
 
     // Generate a cryptographically random 32-byte token
     let raw_bytes: [u8; 32] = rand::random();
@@ -286,7 +295,7 @@ pub async fn create_api_token(
     let api_token = auth_db::create_api_token(
         &state.db,
         auth_user.id,
-        &body.name,
+        name,
         &token_hash,
         &scopes,
         body.expires_days,
@@ -349,7 +358,7 @@ pub fn _create_api_token_doc(op: TransformOperation) -> TransformOperation {
         .description("Generates a new long-lived API token for programmatic access (e.g. scrobbling from a music player). The raw token is only shown once — store it securely. `scopes` (default `[\"scrobble\"]`) says what it may do, and scopes don't imply one another: `scrobble` submits scrobbles and now playing, `read` reads the account's own data (profile, imports, connected accounts), and `write` changes the account and posts as it (profile, follows, comments, votes, uploads, imports, catalog refreshes). `expires_days`, 1 to 3650 (ten years), sets when it expires; without it, it never does. Only a session can create, list all or revoke tokens, log out, manage scrobbler credentials and connect accounts.")
         .tag("Auth")
         .response::<201, Json<CreateTokenResponse>>()
-        .response_with::<400, (), _>(|r| r.description("Unknown scope or none, or `expires_days` outside 1 to 3650"))
+        .response_with::<400, (), _>(|r| r.description("A name that's empty or over 100 characters, an unknown scope or none, or `expires_days` outside 1 to 3650"))
         .response_with::<401, (), _>(|r| r.description("Not authenticated"))
 }
 

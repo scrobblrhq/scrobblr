@@ -30,6 +30,12 @@ pub enum ScrobbleValidationError {
     TooManyFeaturedArtists,
 }
 
+/// A client-reported track length, unless implausible: it ends up in the
+/// catalog and decides when now playing expires.
+pub fn plausible_duration_ms(ms: i64) -> Option<i32> {
+    (1..=24 * 3_600_000).contains(&ms).then_some(ms as i32)
+}
+
 /// Input coming from the client before any DB look-ups
 #[derive(Debug, Clone)]
 pub struct ScrobbleInput {

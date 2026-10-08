@@ -23,7 +23,7 @@ use fred::interfaces::PubsubInterface;
 use futures_util::stream::{self, Stream, StreamExt};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use shared::scrobble::ScrobbleInput;
+use shared::scrobble::{ScrobbleInput, plausible_duration_ms};
 use std::convert::Infallible;
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -69,17 +69,22 @@ pub async fn scrobble(
         return Err(AppError::DailyLimit);
     }
 
-    let source = body.source.clone().unwrap_or_else(|| "extension".into());
-    let client = ClientIdentity::new(PROTOCOL_SCROBBLR, &source, false);
+    let client = ClientIdentity::new(
+        PROTOCOL_SCROBBLR,
+        body.source.as_deref().unwrap_or("extension"),
+        false,
+    );
     let input = ScrobbleInput {
         track_title: body.track.clone(),
         artist_name: body.artist.clone(),
         featured_artists: body.featured_artists.clone(),
         album_title: body.album.clone(),
         played_at: body.played_at,
-        duration_ms: body.duration_ms,
+        duration_ms: body
+            .duration_ms
+            .and_then(|ms| plausible_duration_ms(ms.into())),
         listened_ms: body.listened_ms,
-        source,
+        source: client.name.clone(),
         client_id: state.clients.id(&state.db, &client).await,
     };
 
@@ -139,7 +144,12 @@ pub async fn update_now_playing(
             "too many featured artists for one track".into(),
         ));
     }
-    let source = body.source.clone().unwrap_or_else(|| "extension".into());
+    let source = ClientIdentity::new(
+        PROTOCOL_SCROBBLR,
+        body.source.as_deref().unwrap_or("extension"),
+        false,
+    )
+    .name;
     set_now_playing(&state, auth_user.id, &body, &source).await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -161,12 +171,15 @@ pub(crate) async fn set_now_playing(
         None
     };
 
+    let duration_ms = playing
+        .duration_ms
+        .and_then(|ms| plausible_duration_ms(ms.into()));
     let track = tracks_db::find_or_create_track(
         &state.db,
         artist.id,
         album_id,
         &playing.track,
-        playing.duration_ms,
+        duration_ms,
     )
     .await?;
 
@@ -184,7 +197,7 @@ pub(crate) async fn set_now_playing(
         tracing::warn!("failed to enqueue enrichment for now-playing: {e}");
     }
 
-    let duration_ms = track.duration_ms.or(playing.duration_ms).unwrap_or(300_000);
+    let duration_ms = track.duration_ms.or(duration_ms).unwrap_or(300_000);
     let expires_at = Utc::now() + Duration::milliseconds(duration_ms as i64);
 
     scrobbles_db::upsert_now_playing(
@@ -244,7 +257,7 @@ pub async fn recent_scrobbles(
     let viewer_id = auth_user.map(|Extension(a)| a.id);
     crate::middleware::visibility::ensure_profile_visible(&state, viewer_id, &user).await?;
 
-    let limit = q.limit.unwrap_or(50).min(200);
+    let limit = super::page_limit(q.limit, 50, 200);
     let scrobbles = scrobbles_db::get_recent_scrobbles(&state.db, user.id, limit, q.before).await?;
 
     Ok(Json(scrobbles))
@@ -293,7 +306,7 @@ pub async fn top_artists(
     crate::middleware::visibility::ensure_profile_visible(&state, viewer_id, &user).await?;
 
     let since = period_to_since(q.period.as_deref().unwrap_or("overall"));
-    let limit = q.limit.unwrap_or(10).min(50);
+    let limit = super::page_limit(q.limit, 10, 50);
 
     let artists = scrobbles_db::get_top_artists(&state.db, user.id, since, limit).await?;
     Ok(Json(artists))
@@ -323,7 +336,7 @@ pub async fn top_tracks(
     crate::middleware::visibility::ensure_profile_visible(&state, viewer_id, &user).await?;
 
     let since = period_to_since(q.period.as_deref().unwrap_or("overall"));
-    let limit = q.limit.unwrap_or(10).min(50);
+    let limit = super::page_limit(q.limit, 10, 50);
 
     let tracks = scrobbles_db::get_top_tracks(&state.db, user.id, since, limit).await?;
     Ok(Json(tracks))

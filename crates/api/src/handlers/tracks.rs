@@ -69,6 +69,8 @@ pub struct SearchResponse {
     pub users: Vec<UserProfile>,
 }
 
+const SEARCH_MAX_CHARS: usize = 200;
+
 /// GET /v1/search
 pub async fn search(
     State(state): State<AppState>,
@@ -77,8 +79,13 @@ pub async fn search(
     if q.q.trim().is_empty() {
         return Err(AppError::BadRequest("search query cannot be empty".into()));
     }
+    if q.q.chars().count() > SEARCH_MAX_CHARS {
+        return Err(AppError::BadRequest(format!(
+            "search query may be at most {SEARCH_MAX_CHARS} characters"
+        )));
+    }
 
-    let limit = q.limit.unwrap_or(10).min(30);
+    let limit = super::page_limit(q.limit, 10, 30);
     let kind = q.r#type.as_deref().unwrap_or("all");
     let wants = |k: &str| kind == "all" || kind == k;
 
@@ -116,7 +123,7 @@ pub fn _search_doc(op: TransformOperation) -> TransformOperation {
         .description("Full-text search across artists, tracks and users. Use the `type` parameter to restrict results to `track`, `artist`, `user`, or `all` (default). Returns up to 30 results per type. Query must not be empty.")
         .tag("Catalog")
         .response::<200, Json<SearchResponse>>()
-        .response_with::<400, (), _>(|r| r.description("Empty search query"))
+        .response_with::<400, (), _>(|r| r.description("Empty or overlong search query"))
 }
 
 /// Shared query params for the listener/top-track sections.
@@ -126,7 +133,7 @@ pub struct SectionQuery {
 }
 
 fn section_limit(q: &SectionQuery) -> i64 {
-    q.limit.unwrap_or(10).clamp(1, 50)
+    super::page_limit(q.limit, 10, 50)
 }
 
 /// GET /v1/artist/:id/top-tracks

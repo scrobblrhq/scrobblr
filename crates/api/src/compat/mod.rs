@@ -243,11 +243,6 @@ pub enum Ignored {
     DailyLimit,
 }
 
-/// A client-reported length, unless implausible.
-pub fn plausible_duration_ms(ms: i64) -> Option<i32> {
-    (1..=24 * 3_600_000).contains(&ms).then_some(ms as i32)
-}
-
 fn precheck(play: &Play, now: DateTime<Utc>) -> Result<(), Ignored> {
     let too_long = |s: &str| s.chars().count() > MAX_NAME_LEN;
     if play.artist.trim().is_empty() || too_long(&play.artist) {

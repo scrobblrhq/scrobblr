@@ -119,7 +119,7 @@ impl TrackMetadata {
             .or_else(|| {
                 integer(self.additional_info.get("duration")).map(|s| s.saturating_mul(1000))
             })
-            .and_then(super::plausible_duration_ms)
+            .and_then(shared::scrobble::plausible_duration_ms)
     }
 
     /// Who sent it: the submitting client, else the player.
