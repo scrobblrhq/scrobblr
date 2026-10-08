@@ -1,0 +1,27 @@
+# TLS in front of the API and the upload directory, for docker-compose's
+# `caddy` profile (docs/uploads.md). Set API_DOMAIN and UPLOADS_DOMAIN, and
+# UPLOAD_PUBLIC_URL=https://$UPLOADS_DOMAIN for the API and the worker.
+
+{$API_DOMAIN:localhost} {
+	reverse_proxy api:8080
+}
+
+{$UPLOADS_DOMAIN:uploads.localhost} {
+	root * /srv/uploads
+
+	# Uploads only: nothing else under the root (.tmp/, directories).
+	@upload {
+		path_regexp ^/([a-z0-9][a-z0-9.-]*/)*[a-z0-9][a-z0-9.-]*\.jpg$
+		file
+	}
+	handle @upload {
+		# A key is never reused, so a file never changes.
+		header Cache-Control "public, max-age=31536000, immutable"
+		header X-Content-Type-Options nosniff
+		header Access-Control-Allow-Origin "*"
+		file_server
+	}
+	handle {
+		respond 404
+	}
+}

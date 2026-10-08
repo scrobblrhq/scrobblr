@@ -140,8 +140,9 @@ request.
 | `DATABASE_URL`       | ✓        | —                        | PostgreSQL connection string        |
 | `REDIS_URL`          | —        | `redis://127.0.0.1:6379` | Redis (sessions; worker now-playing republish) |
 | `BIND_ADDR`          | —        | `0.0.0.0:8080`           | API listen address                  |
-| `PUBLIC_BASE_URL`    | —        | `http://localhost:8080`  | Base URL uploaded-image URLs are built from — set to your public origin |
-| `UPLOAD_DIR`         | —        | `uploads`                | Directory user-uploaded images are written to and served from |
+| `PUBLIC_BASE_URL`    | —        | `http://localhost:8080`  | Public origin of the API, for links it builds to itself — set to your public origin |
+| `UPLOAD_DIR`         | —        | `uploads`                | Directory user-uploaded images are written to |
+| `UPLOAD_PUBLIC_URL`  | —        | `{PUBLIC_BASE_URL}/uploads` | Base URL serving `UPLOAD_DIR`, e.g. a CDN host ([docs/uploads.md](docs/uploads.md)) |
 | `RUST_LOG`           | —        | —                        | Tracing filter (e.g. `api=debug,worker=debug,sqlx=warn`) |
 | `DB_MAX_CONNECTIONS` | —        | `20`                     | Postgres pool size                  |
 | `LASTFM_API_KEY`     | —        | —                        | Enables artist bios (worker)        |
@@ -160,4 +161,4 @@ Jobs are queued in `enrichment_jobs` when new catalog entities are first scrobbl
 - **Artist/album artwork** — last.fm-style, add-only: uploads become candidates that users vote on; the most-liked candidate becomes the displayed image once it reaches 3 likes, and is then protected from enrichment overwrites.
 - **Comments** — public reads, authenticated writes, owner-only deletes on artists and tracks.
 
-Uploaded images are re-encoded to JPEG (EXIF stripped, downscaled, source dimensions capped), stored under `UPLOAD_DIR`, and served from `/uploads`. Private profiles are excluded from search and listener lists.
+Uploaded images are re-encoded to JPEG (EXIF stripped, downscaled, source dimensions capped) and stored under `UPLOAD_DIR`; the database keeps each one's key, and clients get `{UPLOAD_PUBLIC_URL}/{key}`. The API serves them at `/uploads`, or a static server on its own host can: see [docs/uploads.md](docs/uploads.md). Private profiles are excluded from search and listener lists.
