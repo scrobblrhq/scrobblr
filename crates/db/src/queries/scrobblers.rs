@@ -158,9 +158,14 @@ pub async fn delete_credential(pool: &PgPool, id: Uuid, user_id: i64) -> Result<
     Ok(result.rows_affected() > 0)
 }
 
+/// Records a credential's use, at most every 5 minutes (see
+/// `auth::touch_session`).
 pub async fn touch_credential(pool: &PgPool, id: Uuid) -> Result<(), sqlx::Error> {
     sqlx::query!(
-        "UPDATE scrobbler_credentials SET last_used_at = NOW() WHERE id = $1",
+        r#"
+        UPDATE scrobbler_credentials SET last_used_at = NOW()
+        WHERE id = $1 AND (last_used_at IS NULL OR last_used_at < NOW() - INTERVAL '5 minutes')
+        "#,
         id,
     )
     .execute(pool)

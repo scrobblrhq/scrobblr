@@ -10,7 +10,6 @@ use uuid::Uuid;
 
 use crate::{errors::AppError, state::AppState};
 use db::queries::auth as auth_db;
-use db::queries::users as users_db;
 
 /// What an API token may be allowed to do; a session may do all of it.
 /// Scopes don't imply one another: a token that should read and write is
@@ -91,8 +90,6 @@ impl Credential {
 #[derive(Clone, Debug)]
 pub struct AuthUser {
     pub id: i64,
-    #[expect(dead_code)] // temporary
-    pub username: String,
     pub credential: Credential,
 }
 
@@ -107,7 +104,8 @@ pub struct AuthUser {
 ///   do what its scopes cover, and nothing that takes a session.
 ///
 /// In both cases `last_used_at` is updated in a background task so it does
-/// not block the request.
+/// not block the request, at most every few minutes. Both credentials go
+/// with their user (`ON DELETE CASCADE`), so the user isn't looked up.
 pub async fn require_auth(
     State((state, access)): State<(AppState, Access)>,
     mut req: Request,
@@ -117,9 +115,6 @@ pub async fn require_auth(
 
     let auth_user = if let Ok(session_id) = Uuid::parse_str(&token) {
         let user_id = resolve_session_cached(&state, session_id).await?;
-        let user = users_db::find_by_id(&state.db, user_id)
-            .await?
-            .ok_or(AppError::Unauthorized)?;
 
         let pool = state.db.clone();
         tokio::spawn(async move {
@@ -127,17 +122,12 @@ pub async fn require_auth(
         });
 
         AuthUser {
-            id: user.id,
-            username: user.username,
+            id: user_id,
             credential: Credential::Session,
         }
     } else {
         let hash = auth_db::hash_api_token(&token);
         let api_token = auth_db::find_api_token_by_hash(&state.db, &hash)
-            .await?
-            .ok_or(AppError::Unauthorized)?;
-
-        let user = users_db::find_by_id(&state.db, api_token.user_id)
             .await?
             .ok_or(AppError::Unauthorized)?;
 
@@ -148,8 +138,7 @@ pub async fn require_auth(
         });
 
         AuthUser {
-            id: user.id,
-            username: user.username,
+            id: api_token.user_id,
             credential: Credential::ApiToken {
                 id: api_token.id,
                 // Names stored before creation checked them grant nothing.
@@ -168,16 +157,14 @@ pub async fn require_auth(
 }
 
 /// Attempts to resolve a session token to an [`AuthUser`], returning `None`
-/// on any failure (invalid UUID, no matching session, user not found, or a
-/// transient DB/Redis error).
+/// on any failure (invalid UUID, no matching session, or a transient
+/// DB/Redis error).
 async fn try_authenticate_session(state: &AppState, token: &str) -> Option<AuthUser> {
     let session_id = Uuid::parse_str(token).ok()?;
     let user_id = resolve_session_cached(state, session_id).await.ok()?;
-    let user = users_db::find_by_id(&state.db, user_id).await.ok()??;
 
     Some(AuthUser {
-        id: user.id,
-        username: user.username,
+        id: user_id,
         credential: Credential::Session,
     })
 }

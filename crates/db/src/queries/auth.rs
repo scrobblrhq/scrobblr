@@ -45,20 +45,18 @@ pub async fn get_session(pool: &PgPool, id: Uuid) -> Result<Option<UserSession>,
     .await
 }
 
+/// Records a session's use, unless it was recorded in the last 5 minutes:
+/// a write (and a flushed commit) per request would buy nothing.
 pub async fn touch_session(pool: &PgPool, id: Uuid) -> Result<(), sqlx::Error> {
     sqlx::query!(
-        "UPDATE user_sessions SET last_used_at = NOW() WHERE id = $1",
+        r#"
+        UPDATE user_sessions SET last_used_at = NOW()
+        WHERE id = $1 AND last_used_at < NOW() - INTERVAL '5 minutes'
+        "#,
         id,
     )
     .execute(pool)
     .await?;
-    Ok(())
-}
-
-pub async fn delete_session(pool: &PgPool, id: Uuid) -> Result<(), sqlx::Error> {
-    sqlx::query!("DELETE FROM user_sessions WHERE id = $1", id)
-        .execute(pool)
-        .await?;
     Ok(())
 }
 
@@ -150,9 +148,13 @@ pub async fn delete_api_token(pool: &PgPool, id: Uuid, user_id: i64) -> Result<b
     Ok(result.rows_affected() > 0)
 }
 
+/// Like [`touch_session`].
 pub async fn touch_api_token(pool: &PgPool, id: Uuid) -> Result<(), sqlx::Error> {
     sqlx::query!(
-        "UPDATE api_tokens SET last_used_at = NOW() WHERE id = $1",
+        r#"
+        UPDATE api_tokens SET last_used_at = NOW()
+        WHERE id = $1 AND (last_used_at IS NULL OR last_used_at < NOW() - INTERVAL '5 minutes')
+        "#,
         id,
     )
     .execute(pool)
