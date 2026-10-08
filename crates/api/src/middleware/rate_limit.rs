@@ -1,10 +1,11 @@
 use axum::{
-    extract::{ConnectInfo, Request, State},
-    http::HeaderMap,
+    extract::{ConnectInfo, FromRequestParts, Request, State},
+    http::{Extensions, HeaderMap, request::Parts},
     middleware::Next,
     response::Response,
 };
 use fred::interfaces::KeysInterface;
+use std::convert::Infallible;
 use std::net::SocketAddr;
 
 use crate::{errors::AppError, state::AppState};
@@ -47,12 +48,36 @@ pub async fn rate_limit(
 }
 
 pub fn request_ip(req: &Request, trusted_proxy_hops: usize) -> String {
-    let peer = req
-        .extensions()
+    client_ip_of(req.extensions(), req.headers(), trusted_proxy_hops)
+}
+
+pub fn client_ip_of(
+    extensions: &Extensions,
+    headers: &HeaderMap,
+    trusted_proxy_hops: usize,
+) -> String {
+    let peer = extensions
         .get::<ConnectInfo<SocketAddr>>()
         .map(|ConnectInfo(addr)| *addr);
-    client_ip(req.headers(), peer, trusted_proxy_hops)
+    client_ip(headers, peer, trusted_proxy_hops)
 }
+
+/// The client's address, as [`client_ip`] finds it, for handlers.
+pub struct ClientIp(pub String);
+
+impl FromRequestParts<AppState> for ClientIp {
+    type Rejection = Infallible;
+
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Infallible> {
+        Ok(Self(client_ip_of(
+            &parts.extensions,
+            &parts.headers,
+            state.trusted_proxy_hops,
+        )))
+    }
+}
+
+impl aide::OperationInput for ClientIp {}
 
 /// The client's address: the peer's, or, behind `trusted_proxy_hops`
 /// proxies, the address the outermost of them appended to

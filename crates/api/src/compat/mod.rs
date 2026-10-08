@@ -29,6 +29,7 @@ use fred::interfaces::KeysInterface;
 
 use crate::errors::{ApiResult, AppError};
 use crate::handlers::scrobbles::{NowPlayingRequest, set_now_playing};
+use crate::limits;
 use crate::state::AppState;
 use db::queries::scrobble_clients::ClientIdentity;
 use db::queries::scrobblers::{self as scrobblers_db, Credential};
@@ -41,9 +42,6 @@ use shared::scrobble::{MAX_CLOCK_SKEW, MAX_NAME_LEN, ScrobbleInput, ScrobbleVali
 pub const MAX_SCROBBLE_AGE: TimeDelta = TimeDelta::days(14);
 const MAX_BODY_BYTES: usize = 2 * 1024 * 1024;
 const REQUESTS_PER_USER_MINUTE: i64 = 120;
-const LOGIN_WINDOW_SECS: i64 = 15 * 60;
-const LOGIN_ATTEMPTS_PER_USER: i64 = 10;
-const LOGIN_ATTEMPTS_PER_IP: i64 = 20;
 const DEFAULT_DAILY_LIMIT: i64 = 3_000;
 
 #[derive(Debug, Clone)]
@@ -58,7 +56,8 @@ pub struct CompatConfig {
     /// gates the native login: an unsigned password login here would
     /// bypass that gate.
     pub password_login: bool,
-    /// Scrobbles a user may submit per UTC day (`SCROBBLER_DAILY_LIMIT`).
+    /// Scrobbles a user may submit per UTC day (`SCROBBLER_DAILY_LIMIT`),
+    /// through these APIs and the native one together.
     pub daily_limit: i64,
     /// The web app's origin (`WEB_APP_URL`), where users approve Last.fm
     /// clients in the browser.
@@ -177,11 +176,11 @@ pub async fn read_request(req: Request) -> ApiResult<(axum::http::request::Parts
 }
 
 pub fn request_ip(state: &AppState, parts: &axum::http::request::Parts) -> String {
-    let peer = parts
-        .extensions
-        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
-        .map(|axum::extract::ConnectInfo(addr)| *addr);
-    crate::middleware::rate_limit::client_ip(&parts.headers, peer, state.trusted_proxy_hops)
+    crate::middleware::rate_limit::client_ip_of(
+        &parts.extensions,
+        &parts.headers,
+        state.trusted_proxy_hops,
+    )
 }
 
 /// A random secret like Last.fm's session keys: 32 hex characters.
@@ -222,42 +221,6 @@ pub async fn within_request_limit(state: &AppState, user_id: i64) -> bool {
             true
         }
     }
-}
-
-fn login_keys(ip: &str, username: &str) -> [String; 2] {
-    [
-        format!("scrobbler_login:ip:{ip}"),
-        format!("scrobbler_login:user:{}", username.trim().to_lowercase()),
-    ]
-}
-
-/// Counts a login attempt and says whether it may be checked: at most
-/// [`LOGIN_ATTEMPTS_PER_USER`] per username and [`LOGIN_ATTEMPTS_PER_IP`]
-/// per IP in [`LOGIN_WINDOW_SECS`]. Counted before checking, so parallel
-/// attempts can't slip past, and whether or not the account exists, so
-/// being blocked says nothing about it. A success resets the username's
-/// count ([`login_succeeded`]). Fails closed: without Redis, no limit.
-pub async fn login_attempt(state: &AppState, ip: &str, username: &str) -> ApiResult<bool> {
-    let mut allowed = true;
-    for (key, limit) in login_keys(ip, username)
-        .into_iter()
-        .zip([LOGIN_ATTEMPTS_PER_IP, LOGIN_ATTEMPTS_PER_USER])
-    {
-        let count: i64 = state.redis.incr(&key).await?;
-        if count == 1 {
-            let _ = state
-                .redis
-                .expire::<i64, _>(&key, LOGIN_WINDOW_SECS, None)
-                .await;
-        }
-        allowed &= count <= limit;
-    }
-    Ok(allowed)
-}
-
-pub async fn login_succeeded(state: &AppState, username: &str) {
-    let [_, user_key] = login_keys("", username);
-    let _ = state.redis.del::<i64, _>(&user_key).await;
 }
 
 /// One play as a compatibility protocol submitted it.
@@ -305,34 +268,6 @@ fn precheck(play: &Play, now: DateTime<Utc>) -> Result<(), Ignored> {
     Ok(())
 }
 
-/// Takes up to `wanted` scrobbles from the user's daily allowance and
-/// returns how many it got. A Redis failure grants them all.
-async fn reserve_quota(state: &AppState, user_id: i64, wanted: i64) -> (String, i64) {
-    let key = format!("scrobbler_quota:{user_id}:{}", Utc::now().format("%Y%m%d"));
-    if wanted == 0 {
-        return (key, 0);
-    }
-    match state.redis.incr_by::<i64, _>(&key, wanted).await {
-        Ok(count) => {
-            if count == wanted {
-                let _ = state.redis.expire::<i64, _>(&key, 2 * 86_400, None).await;
-            }
-            let over = (count - state.compat.daily_limit).clamp(0, wanted);
-            (key, wanted - over)
-        }
-        Err(e) => {
-            tracing::warn!("scrobbler daily limit unavailable: {e}");
-            (key, wanted)
-        }
-    }
-}
-
-async fn release_quota(state: &AppState, key: &str, unused: i64) {
-    if unused > 0 {
-        let _ = state.redis.decr_by::<i64, _>(key, unused).await;
-    }
-}
-
 /// Validates and ingests `plays`, in order, for the credential's user. A
 /// retried play counts as recorded. `Err` only for a failure worth
 /// retrying the request for; plays recorded before it stay recorded, and a
@@ -346,9 +281,9 @@ pub async fn submit(
     let now = Utc::now();
     let mut outcomes: Vec<Result<(), Ignored>> = plays.iter().map(|p| precheck(p, now)).collect();
     let wanted = outcomes.iter().filter(|o| o.is_ok()).count() as i64;
-    let (quota_key, granted) = reserve_quota(state, credential.user_id, wanted).await;
+    let quota = limits::reserve_scrobbles(state, credential.user_id, wanted).await;
 
-    let mut remaining = granted;
+    let mut remaining = quota.granted;
     for outcome in outcomes.iter_mut().filter(|o| o.is_ok()) {
         if remaining == 0 {
             *outcome = Err(Ignored::DailyLimit);
@@ -392,12 +327,12 @@ pub async fn submit(
             }
             Err(scrobbles_db::IngestError::Db(e)) => {
                 let unstored = outcomes[i..].iter().filter(|o| o.is_ok()).count() as i64;
-                release_quota(state, &quota_key, unused + unstored).await;
+                quota.release(state, unused + unstored).await;
                 return Err(AppError::Database(e));
             }
         }
     }
-    release_quota(state, &quota_key, unused).await;
+    quota.release(state, unused).await;
     Ok(outcomes)
 }
 

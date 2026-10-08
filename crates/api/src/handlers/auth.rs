@@ -13,7 +13,9 @@ use uuid::Uuid;
 
 use crate::{
     errors::{ApiResult, AppError},
+    limits,
     middleware::auth::{AuthUser, Credential, Scope},
+    middleware::rate_limit::ClientIp,
     state::AppState,
 };
 use db::queries::{auth as auth_db, users as users_db};
@@ -179,11 +181,16 @@ pub(crate) async fn verify_password_login(
 /// POST /v1/login
 pub async fn login(
     State(state): State<AppState>,
+    ClientIp(ip): ClientIp,
     Json(body): Json<LoginRequest>,
 ) -> ApiResult<Json<AuthResponse>> {
+    if !limits::login_attempt(&state, &ip, &body.username).await? {
+        return Err(AppError::RateLimited);
+    }
     let user = verify_password_login(&state.db, &body.username, &body.password, false)
         .await?
         .ok_or(AppError::InvalidCredentials)?;
+    limits::login_succeeded(&state, &body.username).await;
 
     let session = auth_db::create_session(&state.db, user.id, None, None).await?;
 
@@ -196,10 +203,11 @@ pub async fn login(
 
 pub fn _login_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Log in")
-        .description("Authenticates a user with username and password. Returns a session token to be used as `Bearer` in the `Authorization` header.")
+        .description("Authenticates a user with username and password. Returns a session token to be used as `Bearer` in the `Authorization` header. Attempts are limited per address and per username, together with the scrobbler APIs' password logins; a success resets the username's count.")
         .tag("Auth")
         .response::<200, Json<AuthResponse>>()
         .response_with::<401, (), _>(|r| r.description("Invalid credentials, or missing/invalid first-party app signature"))
+        .response_with::<429, (), _>(|r| r.description("More than 20 attempts from this address or 10 for this username in 15 minutes"))
 }
 
 /// POST /v1/logout
@@ -435,5 +443,32 @@ mod tests {
                 "{days}"
             );
         }
+    }
+
+    #[tokio::test]
+    #[ignore = "needs Postgres and Redis: just test-db"]
+    async fn password_logins_are_limited_per_username() {
+        use crate::test_app::{PASSWORD, with_app};
+        use axum::http::Method;
+        use serde_json::json;
+
+        with_app(Default::default(), |app| async move {
+            let login = |password: &str| json!({ "username": app.username, "password": password });
+            let (status, _) = app
+                .api(Method::POST, "/v1/auth/login", Some(login(PASSWORD)))
+                .await;
+            assert_eq!(status, StatusCode::OK);
+            for _ in 0..limits::LOGIN_ATTEMPTS_PER_USER {
+                let (status, _) = app
+                    .api(Method::POST, "/v1/auth/login", Some(login("wrong")))
+                    .await;
+                assert_eq!(status, StatusCode::UNAUTHORIZED);
+            }
+            let (status, _) = app
+                .api(Method::POST, "/v1/auth/login", Some(login(PASSWORD)))
+                .await;
+            assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+        })
+        .await;
     }
 }

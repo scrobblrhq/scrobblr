@@ -542,7 +542,7 @@ async fn password_logins_are_limited_and_tokens_work_without_passwords() {
             .post_form("/2.0/", &pairs(&login("nobody-here", PASSWORD)))
             .await;
         assert_eq!(error(&body), 4);
-        for _ in 0..super::LOGIN_ATTEMPTS_PER_USER {
+        for _ in 0..crate::limits::LOGIN_ATTEMPTS_PER_USER {
             let (_, body) = app
                 .post_form("/2.0/", &pairs(&login(&app.username, "wrong")))
                 .await;

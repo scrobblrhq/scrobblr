@@ -97,7 +97,7 @@ async fn handshake_reply(state: &AppState, params: &Params, ip: &str) -> ApiResu
             .await?
             .filter(|c| c.username.eq_ignore_ascii_case(username)),
         _ => {
-            if !super::login_attempt(state, ip, username).await? {
+            if !crate::limits::login_attempt(state, ip, username).await? {
                 return Ok("FAILED Too many login attempts, try again later".into());
             }
             let found = token_for(state, username, t, auth).await?;
@@ -107,7 +107,7 @@ async fn handshake_reply(state: &AppState, params: &Params, ip: &str) -> ApiResu
             if !first_use(state, auth).await? {
                 return Ok("BADAUTH".into());
             }
-            super::login_succeeded(state, username).await;
+            crate::limits::login_succeeded(state, username).await;
             found
         }
     };

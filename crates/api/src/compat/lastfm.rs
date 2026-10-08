@@ -378,7 +378,7 @@ async fn get_mobile_session(state: &AppState, params: &Params, ip: &str) -> LfmR
         .filter(|p| !p.is_empty())
         .ok_or_else(|| LfmError::invalid_parameters("password is required"))?;
 
-    if !super::login_attempt(state, ip, username).await? {
+    if !crate::limits::login_attempt(state, ip, username).await? {
         return Err(LfmError::new(
             29,
             "Rate Limit Exceeded - Too many login attempts, try again later",
@@ -386,7 +386,7 @@ async fn get_mobile_session(state: &AppState, params: &Params, ip: &str) -> LfmR
     }
     match password_login(state, username, password, &api_key).await? {
         Some((name, key)) => {
-            super::login_succeeded(state, username).await;
+            crate::limits::login_succeeded(state, username).await;
             Ok(session_body(&name, &key))
         }
         None => Err(LfmError::new(
