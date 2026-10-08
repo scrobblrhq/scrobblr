@@ -49,5 +49,6 @@ devenv.local.yaml
 .turbo
 
 # user-uploaded images (avatars, community art)
-uploads/.claude/settings.json
+uploads/
+.claude/settings.json
 .mcp.json
