@@ -63,15 +63,11 @@ async fn main() -> anyhow::Result<()> {
 
     // Redis
     tracing::info!("connecting to redis...");
-    let redis_config = fred::types::config::Config::from_url(&redis_url)?;
-    let redis = RedisBuilder::from_config(redis_config.clone()).build()?;
+    let redis_builder = redis_builder(fred::types::config::Config::from_url(&redis_url)?);
+    let redis = redis_builder.build()?;
     redis.init().await?;
     let live = std::sync::Arc::new(live::LiveHub::default());
-    live::subscribe(
-        live.clone(),
-        RedisBuilder::from_config(redis_config).build_subscriber_client()?,
-    )
-    .await?;
+    live::subscribe(live.clone(), redis_builder.build_subscriber_client()?).await?;
 
     // Uploaded images (avatars, artist/album art)
     let upload_dir =
@@ -125,4 +121,18 @@ async fn main() -> anyhow::Result<()> {
     )
     .await?;
     Ok(())
+}
+
+/// Reconnects for as long as Redis is away, and fails a command after a
+/// few seconds rather than holding the request until it's back.
+fn redis_builder(config: fred::types::config::Config) -> RedisBuilder {
+    let mut builder = RedisBuilder::from_config(config);
+    builder
+        .set_policy(fred::types::config::ReconnectPolicy::new_exponential(
+            0, 100, 10_000, 2,
+        ))
+        .with_performance_config(|c| {
+            c.default_command_timeout = std::time::Duration::from_secs(3);
+        });
+    builder
 }

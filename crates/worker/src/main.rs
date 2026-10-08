@@ -188,7 +188,8 @@ async fn migrate(db: &sqlx::PgPool, args: &[String]) -> anyhow::Result<()> {
 
 /// Connects to Redis for now-playing republishing. Any failure (unset,
 /// malformed, or unreachable) degrades to `None` with a log line rather than
-/// taking the worker down — enrichment does not depend on Redis.
+/// taking the worker down — enrichment does not depend on Redis. Once
+/// connected, it reconnects whenever Redis comes back.
 async fn connect_redis() -> Option<fred::clients::Client> {
     let Ok(url) = std::env::var("REDIS_URL") else {
         tracing::info!("worker: REDIS_URL not set — now-playing won't refresh after enrichment");
@@ -201,7 +202,15 @@ async fn connect_redis() -> Option<fred::clients::Client> {
             return None;
         }
     };
-    match RedisBuilder::from_config(config).build() {
+    let mut builder = RedisBuilder::from_config(config);
+    builder
+        .set_policy(fred::types::config::ReconnectPolicy::new_exponential(
+            0, 100, 10_000, 2,
+        ))
+        .with_performance_config(|c| {
+            c.default_command_timeout = std::time::Duration::from_secs(3);
+        });
+    match builder.build() {
         Ok(client) => match client.init().await {
             Ok(_) => Some(client),
             Err(e) => {
