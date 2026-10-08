@@ -170,11 +170,18 @@ docker run --rm -v scrobblr_uploads:/uploads:ro -v "$PWD":/backup alpine \
   tar czf /backup/uploads.tar.gz -C /uploads .
 ```
 
-To restore, unpack into the volume and give the files back to the API's user:
+To restore onto empty volumes, start only the database, load the dump the
+way TimescaleDB requires, unpack the uploads and give them back to the API's
+user, then start the rest:
 
 ```bash
+docker compose up -d --wait db
+docker compose exec -T db psql -U scrobblr -d scrobblr -c "SELECT timescaledb_pre_restore();"
+docker compose exec -T db pg_restore -U scrobblr -d scrobblr < scrobblr.dump
+docker compose exec -T db psql -U scrobblr -d scrobblr -c "SELECT timescaledb_post_restore();"
 docker run --rm -v scrobblr_uploads:/uploads -v "$PWD":/backup alpine \
   sh -c 'tar xzf /backup/uploads.tar.gz -C /uploads && chown -R 10001:10001 /uploads'
+docker compose up -d
 ```
 
 ## Moving to an S3-compatible bucket
