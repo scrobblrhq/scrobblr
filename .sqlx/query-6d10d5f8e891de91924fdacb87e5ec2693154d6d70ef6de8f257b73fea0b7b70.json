@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT image_url AS \"key!\" FROM users\n        WHERE image_url IS NOT NULL AND image_url !~ '^https?://'\n        UNION\n        SELECT image_url FROM artists\n        WHERE image_url IS NOT NULL AND image_url !~ '^https?://'\n        UNION\n        SELECT image_url FROM albums\n        WHERE image_url IS NOT NULL AND image_url !~ '^https?://'\n        UNION\n        SELECT url FROM image_candidates WHERE url !~ '^https?://'\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "key!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "6d10d5f8e891de91924fdacb87e5ec2693154d6d70ef6de8f257b73fea0b7b70"
+}

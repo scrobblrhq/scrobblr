@@ -6,6 +6,7 @@ mod fake_lastfm;
 mod lastfm_import;
 #[cfg(test)]
 mod test_support;
+mod uploads;
 
 use std::sync::Arc;
 
@@ -28,9 +29,10 @@ async fn main() -> anyhow::Result<()> {
         Some("help" | "--help" | "-h")
     ) {
         println!(
-            "{USAGE}\n{}\n{}",
+            "{USAGE}\n{}\n{}\n{}",
             classification::cli::USAGE,
-            lastfm_import::cli::USAGE
+            lastfm_import::cli::USAGE,
+            uploads::USAGE
         );
         return Ok(());
     }
@@ -60,6 +62,10 @@ async fn main() -> anyhow::Result<()> {
         Some("import") => {
             db::migrate::ensure_current(&db).await?;
             return lastfm_import::cli::run(&db, lastfm_http, &args[1..]).await;
+        }
+        Some("uploads") => {
+            db::migrate::ensure_current(&db).await?;
+            return uploads::run(&db, &args[1..]).await;
         }
         Some(other) => anyhow::bail!("unknown command `{other}` (see `worker --help`)"),
     }

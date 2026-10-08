@@ -22,6 +22,18 @@ image, old ones included, without touching the database.
 A replaced or removed avatar is deleted. Artwork stays, since it is voted
 on.
 
+Some files can outlive their row: an avatar from before upload keys once
+replaced, a delete that failed, an upload whose database write never
+happened. `worker uploads gc` lists the files under `UPLOAD_DIR` that no row
+refers to and are older than 24 hours (`--min-age-hours N` to change that);
+`--delete` deletes them. With Compose, run it in the API container, which
+has the volume:
+
+```bash
+docker compose exec api worker uploads gc
+docker compose exec api worker uploads gc --delete
+```
+
 ## Serving them from their own host
 
 1. Point a DNS record such as `cdn.example.com` at the server.
@@ -180,4 +192,5 @@ uploads made during the switch. The database doesn't change.
 Migration 0017 turns the URLs stored before, `{PUBLIC_BASE_URL}/uploads/{uuid}.jpg`,
 into the key `{uuid}.jpg`. That is where those files already are, at the root
 of `UPLOAD_DIR`, so they are served under `UPLOAD_PUBLIC_URL` like the rest.
-Avatars from before aren't deleted when replaced.
+Avatars from before aren't deleted when replaced; `worker uploads gc`
+removes them once nothing refers to them.

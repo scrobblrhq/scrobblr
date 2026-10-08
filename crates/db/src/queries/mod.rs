@@ -8,4 +8,5 @@ pub mod scrobble_clients;
 pub mod scrobblers;
 pub mod scrobbles;
 pub mod tracks;
+pub mod uploads;
 pub mod users;
