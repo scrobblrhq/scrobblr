@@ -26,6 +26,7 @@ just test                 # cargo test --workspace; also regenerates TS bindings
 just test-db              # #[ignore]d database tests (need Postgres and Redis; see Migrations)
 cargo test -p api <name>  # single test
 just sqlx-prepare         # refresh .sqlx/ after a query change (needs a migrated DATABASE_URL)
+just openapi              # rewrite openapi.json after an intended API change
 
 just ci                   # CI's first job: fmt-check, lint, test, types-check (stale TS bindings fail)
 just ci-db                # CI's database job: migrate DATABASE_URL, test-db, sqlx-check (stale .sqlx/ fails)
@@ -64,7 +65,11 @@ Rust workspace crates and their dependency direction: `api` → `db` → `shared
   - `live.rs` — the `/v1/user/{username}/live` SSE fan-out: one `PSUBSCRIBE now_playing:*` on a Redis connection of its own. **Never subscribe on `AppState::redis`**: a subscribed RESP2 connection refuses every other command, which silently broke rate limiting, logins and now playing for the whole API. Publishing now playing is best-effort.
   - Redis clients (API and worker) reconnect with backoff and time a command out after 3 s.
   - `errors.rs` — `AppError` enum with `IntoResponse` mapping to status codes; all handlers return `ApiResult<T>`. Database/Redis/Internal variants log and return opaque 500s.
-  - OpenAPI docs via `aide`: every handler has a sibling `_<name>_doc(TransformOperation)` function registered in the router. Spec served at `/api.json`, Scalar UI at `/docs`.
+  - OpenAPI docs via `aide`: every handler has a sibling `_<name>_doc(TransformOperation)` function registered in the router. Spec served at `/api.json`, Scalar UI at `/docs`. Conventions, all checked by `router/openapi_tests.rs`:
+    - Path parameters go through the named structs in `handlers/mod.rs` (`IdPath`, `UuidPath`, `UsernamePath`, …): aide can't name a bare `Path<i64>`, which left the parameter out of the spec.
+    - Document errors as `response_with::<4xx, ErrorJson, _>`; `ErrorJson` is the `{ error }` body `AppError` sends. A handler returning `impl IntoApiResponse` must declare its success body (`response::<200, Json<T>>()`), or the spec has none.
+    - `router.rs` adds what route groups have in common: bearer security (optional where `optional_auth` runs), 401 and 403 on authenticated groups, 429 everywhere. `compat/docs.rs` describes the protocol routes by hand.
+    - `openapi.json` (repo root) is the spec's snapshot: `just test` fails when the spec changes; review the diff, then `just openapi`. Another test fails on an operation without a summary, a success response, its path parameters, or bodies for its successes and errors.
 
 ### Auth model
 
@@ -183,4 +188,4 @@ Lookups (`find_by_username`, `find_by_email`) are case-insensitive (`lower(col) 
 
 ### Types pipeline (Rust → TypeScript)
 
-`#[ts(export)]` on shared models + `TS_RS_EXPORT_DIR = packages/types/src/generated` (set in `.cargo/config.toml`) means **running `cargo test` regenerates the TS bindings** in `packages/types`, which `apps/extension` consumes via the `types` workspace package. If you change a shared model, run `cargo test -p shared` and commit the regenerated files.
+`#[ts(export)]` on shared models + `TS_RS_EXPORT_DIR = packages/types/src/generated` (set in `.cargo/config.toml`) means **running `cargo test` regenerates the TS bindings** in `packages/types`, published to npm as `@scrobblr/types` (`.github/workflows/types-release.yml`) for the extension and the web app. If you change a shared model, run `cargo test -p shared` and commit the regenerated files (`just types-check` fails otherwise). ts-rs covers `crates/shared`'s models only, not the request and response types handlers define; `openapi.json` covers both and is meant to replace the package once its consumers move (keep the package working until then).

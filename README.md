@@ -100,7 +100,8 @@ imported scrobbles. Operators can also import any account for an existing
 user from the command line (`worker import`; `cargo run -p worker -- --help`
 lists its commands).
 
-Interactive API docs are served at [`/docs`](http://localhost:8080/docs) (OpenAPI spec at `/api.json`).
+Interactive API docs are served at [`/docs`](http://localhost:8080/docs) (OpenAPI spec at `/api.json`;
+[`openapi.json`](openapi.json) is its committed snapshot, which `just test` keeps current).
 
 ### Scrobbling from other apps
 

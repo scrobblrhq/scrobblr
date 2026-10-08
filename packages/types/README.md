@@ -1,9 +1,10 @@
 # @scrobblr/types
 
 Shared TypeScript types for Scrobblr, generated from the Rust API models
-(`crates/shared`) via [ts-rs]. This package is the **contract** between the
-backend and every TypeScript client (the browser extension in this repo, and
-the separate web app).
+(`crates/shared`) via [ts-rs], for the TypeScript clients (the browser
+extension and the web app). It covers those models only; the request and
+response types handlers define are in the OpenAPI spec, `openapi.json` at the
+repo root, which is meant to replace this package.
 
 ## How it stays in sync
 
@@ -17,9 +18,7 @@ can't be forgotten.
 
 ## Consuming it
 
-Inside this monorepo it's a workspace dependency (`"@scrobblr/types": "workspace:*"`).
-
-Elsewhere (the web repo, contributors):
+From npm (the extension, the web app, contributors):
 
 ```sh
 bun add @scrobblr/types
