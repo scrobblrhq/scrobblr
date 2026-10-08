@@ -10,7 +10,7 @@ use axum::http::{Method, Request, StatusCode, header};
 use serde_json::{Value, json};
 
 use crate::compat::CompatConfig;
-use crate::test_app::{TestApp, UPLOADS_URL, with_app};
+use crate::test_app::{BASE_URL, TestApp, UPLOADS_URL, with_app};
 use db::queries::{auth as auth_db, tracks as tracks_db};
 
 fn png() -> Vec<u8> {
@@ -111,6 +111,34 @@ async fn avatars_are_stored_by_key_and_deleted_once_replaced() {
         let (status, me) = app.api(Method::GET, "/v1/user/me", None).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(me["image_url"], profile["image_url"]);
+
+        // Clients save the whole form, the avatar URL they were given too.
+        let (status, me) = app
+            .api(
+                Method::PATCH,
+                "/v1/user/me",
+                Some(json!({ "bio": "hi", "image_url": profile["image_url"] })),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK, "{me}");
+        assert_eq!(me["image_url"], profile["image_url"]);
+        assert_eq!(app.stored_avatar().await.as_deref(), Some(first.as_str()));
+        assert_eq!(app.stored_files(), [first.as_str()]);
+        // Not someone else's upload, nor our own under the API's route.
+        for other in [
+            format!("{UPLOADS_URL}/avatars/00/00000000000000000000000000000000.jpg"),
+            format!("{BASE_URL}/uploads/{first}"),
+        ] {
+            let (status, _) = app
+                .api(
+                    Method::PATCH,
+                    "/v1/user/me",
+                    Some(json!({ "image_url": other })),
+                )
+                .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{other}");
+        }
+        assert_eq!(app.stored_avatar().await.as_deref(), Some(first.as_str()));
 
         let (status, profile) = app.upload("/v1/user/me/avatar", &png()).await;
         assert_eq!(status, StatusCode::OK);

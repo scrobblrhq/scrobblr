@@ -6454,7 +6454,7 @@
         ]
       },
       "patch": {
-        "description": "Updates the authenticated user's own profile: display name (at most 40 characters, the registration rules), bio (1000), avatar URL and privacy. Omitted fields are unchanged; an empty string clears the field.",
+        "description": "Updates the authenticated user's own profile: display name (at most 40 characters, the registration rules), bio (1000), avatar URL and privacy. Omitted fields are unchanged; an empty string clears the field. The avatar URL is any http(s) URL except an uploaded image's, which only `POST /v1/user/me/avatar` sets; sending back the current avatar's URL leaves it as it is. A replaced uploaded avatar is deleted.",
         "requestBody": {
           "content": {
             "application/json": {

@@ -119,15 +119,27 @@ pub async fn update_settings(
             "bio must be at most 1000 characters".into(),
         ));
     }
-    if let Some(url) = &body.image_url {
-        let url = url.trim();
-        if !url.is_empty() {
-            // Never an upload key, which only the avatar upload stores.
-            if !url.starts_with("https://") && !url.starts_with("http://") {
+    let mut image_url = patch_field(&body.image_url);
+    if let Some(Some(url)) = image_url {
+        // Never an upload key, which only the avatar upload stores.
+        if !url.starts_with("https://") && !url.starts_with("http://") {
+            return Err(AppError::BadRequest(
+                "image_url must be an http(s) URL".into(),
+            ));
+        }
+        if is_upload_url(&state, url) {
+            // Clients send back the avatar URL they were given, which keeps
+            // it. Any other upload stays the upload endpoint's to set, so the
+            // database never holds a URL of ours.
+            let current = users_db::find_by_id(&state.db, auth_user.id)
+                .await?
+                .and_then(|u| u.image_url);
+            if current.as_deref().map(shared::media::public_url).as_deref() != Some(url) {
                 return Err(AppError::BadRequest(
-                    "image_url must be an http(s) URL".into(),
+                    "image_url can't point at an uploaded image; use the avatar upload".into(),
                 ));
             }
+            image_url = None;
         }
     }
 
@@ -137,7 +149,7 @@ pub async fn update_settings(
         &users_db::UpdateProfile {
             display_name: display_name.as_ref().map(|name| name.as_deref()),
             bio: patch_field(&body.bio),
-            image_url: patch_field(&body.image_url),
+            image_url,
             is_private: body.is_private,
         },
     )
@@ -149,9 +161,18 @@ pub async fn update_settings(
     Ok(Json(UserProfile::from(user)))
 }
 
+/// Whether `url` is under the uploads' public base or the API's own route.
+fn is_upload_url(state: &AppState, url: &str) -> bool {
+    let under = |base: &str| {
+        url.strip_prefix(base)
+            .is_some_and(|rest| rest.starts_with('/'))
+    };
+    under(shared::media::public_base()) || under(&format!("{}/uploads", state.public_base_url))
+}
+
 pub fn _update_settings_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Update account settings")
-        .description("Updates the authenticated user's own profile: display name (at most 40 characters, the registration rules), bio (1000), avatar URL and privacy. Omitted fields are unchanged; an empty string clears the field.")
+        .description("Updates the authenticated user's own profile: display name (at most 40 characters, the registration rules), bio (1000), avatar URL and privacy. Omitted fields are unchanged; an empty string clears the field. The avatar URL is any http(s) URL except an uploaded image's, which only `POST /v1/user/me/avatar` sets; sending back the current avatar's URL leaves it as it is. A replaced uploaded avatar is deleted.")
         .tag("Users")
         .response::<200, Json<UserProfile>>()
         .response_with::<400, ErrorJson, _>(|r| r.description("Invalid field value"))
