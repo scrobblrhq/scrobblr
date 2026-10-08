@@ -1,5 +1,6 @@
 use crate::{
     errors::{ApiResult, AppError},
+    limits,
     middleware::auth::AuthUser,
     state::AppState,
 };
@@ -13,7 +14,7 @@ use axum::{
     http::StatusCode,
     response::sse::{Event, KeepAlive, Sse},
 };
-use chrono::{Duration, Utc};
+use chrono::{Duration, TimeDelta, Utc};
 use db::queries::scrobble_clients::{ClientIdentity, PROTOCOL_SCROBBLR};
 use db::queries::{
     enrichment as enrichment_db, scrobbles as scrobbles_db, tracks as tracks_db, users as users_db,
@@ -46,12 +47,28 @@ pub struct ScrobbleResponse {
     pub played_at: chrono::DateTime<Utc>,
 }
 
+/// Older plays are refused: history comes in through the importer. Longer
+/// than the scrobbler APIs' 14 days because the mobile app queues plays
+/// while offline, and still short of the chunks compression has reached.
+const MAX_AGE: TimeDelta = TimeDelta::days(30);
+
 /// POST /v1/scrobble
 pub async fn scrobble(
     State(state): State<AppState>,
     Extension(auth_user): Extension<AuthUser>,
     Json(body): Json<ScrobbleRequest>,
 ) -> ApiResult<impl IntoApiResponse> {
+    if body.played_at < Utc::now() - MAX_AGE {
+        return Err(AppError::ScrobbleInvalid(format!(
+            "played_at is more than {} days ago",
+            MAX_AGE.num_days()
+        )));
+    }
+    let quota = limits::reserve_scrobbles(&state, auth_user.id, 1).await;
+    if quota.granted == 0 {
+        return Err(AppError::DailyLimit);
+    }
+
     let source = body.source.clone().unwrap_or_else(|| "extension".into());
     let client = ClientIdentity::new(PROTOCOL_SCROBBLR, &source, false);
     let input = ScrobbleInput {
@@ -69,17 +86,17 @@ pub async fn scrobble(
     // Validation, catalog resolution, dedup, and insertion all live in
     // `ingest_scrobble` so the worker's connected-accounts poller (Spotify)
     // goes through identical logic instead of duplicating it over HTTP.
-    let scrobble_id = scrobbles_db::ingest_scrobble(&state.db, auth_user.id, &input)
-        .await
-        .map_err(|e| match e {
-            scrobbles_db::IngestError::Validation(err) => {
-                AppError::ScrobbleInvalid(err.to_string())
-            }
-            scrobbles_db::IngestError::Duplicate => {
-                AppError::ScrobbleInvalid("duplicate scrobble detected".into())
-            }
-            scrobbles_db::IngestError::Db(err) => AppError::Database(err),
-        })?;
+    let ingested = scrobbles_db::ingest_scrobble(&state.db, auth_user.id, &input).await;
+    if ingested.is_err() {
+        quota.release(&state, 1).await;
+    }
+    let scrobble_id = ingested.map_err(|e| match e {
+        scrobbles_db::IngestError::Validation(err) => AppError::ScrobbleInvalid(err.to_string()),
+        scrobbles_db::IngestError::Duplicate => {
+            AppError::ScrobbleInvalid("duplicate scrobble detected".into())
+        }
+        scrobbles_db::IngestError::Db(err) => AppError::Database(err),
+    })?;
 
     Ok((
         StatusCode::CREATED,
@@ -92,11 +109,12 @@ pub async fn scrobble(
 
 pub fn _scrobble_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Scrobble a track")
-        .description("Records a track listen for the authenticated user. Validates scrobble rules (e.g. minimum listen duration) and deduplicates submissions within a 30-second window.")
+        .description("Records a track listen for the authenticated user. Validates scrobble rules (e.g. minimum listen duration), deduplicates the same track within 30 seconds of another of the user's scrobbles, and refuses plays more than 30 days old (import older history instead). Each account may record `SCROBBLER_DAILY_LIMIT` scrobbles (default 3000) per UTC day, counted together with the scrobbler-compatible APIs.")
         .tag("Scrobbling")
         .response::<201, Json<ScrobbleResponse>>()
-        .response_with::<400, (), _>(|r| r.description("Invalid scrobble (failed validation or duplicate)"))
         .response_with::<401, (), _>(|r| r.description("Not authenticated"))
+        .response_with::<422, (), _>(|r| r.description("Invalid scrobble: failed validation, a duplicate, or more than 30 days old"))
+        .response_with::<429, (), _>(|r| r.description("The account's daily scrobble limit is reached; retry after midnight UTC"))
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -406,4 +424,47 @@ pub fn _live_now_playing_doc(op: TransformOperation) -> TransformOperation {
         })
         .response_with::<403, (), _>(|r| r.description("Profile is private"))
         .response_with::<404, (), _>(|r| r.description("User not found"))
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::http::{Method, StatusCode};
+    use chrono::{TimeDelta, Utc};
+    use serde_json::json;
+
+    use crate::compat::CompatConfig;
+    use crate::test_app::with_app;
+
+    #[tokio::test]
+    #[ignore = "needs Postgres and Redis: just test-db"]
+    async fn native_scrobbles_are_bounded_in_age_and_per_day() {
+        let config = CompatConfig {
+            daily_limit: 2,
+            ..Default::default()
+        };
+        with_app(config, |app| async move {
+            let scrobble = async |track: &str, ago: TimeDelta| {
+                let play = json!({
+                    "track": track,
+                    "artist": "Someone",
+                    "played_at": (Utc::now() - ago).to_rfc3339(),
+                });
+                app.api(Method::POST, "/v1/scrobble", Some(play)).await.0
+            };
+            let old = scrobble("Old", TimeDelta::days(31)).await;
+            assert_eq!(old, StatusCode::UNPROCESSABLE_ENTITY);
+            assert_eq!(
+                scrobble("One", TimeDelta::minutes(9)).await,
+                StatusCode::CREATED
+            );
+            // A duplicate takes nothing from the allowance.
+            let again = scrobble("One", TimeDelta::minutes(9)).await;
+            assert_eq!(again, StatusCode::UNPROCESSABLE_ENTITY);
+            let late = scrobble("Two", TimeDelta::days(29)).await;
+            assert_eq!(late, StatusCode::CREATED);
+            let over = scrobble("Three", TimeDelta::minutes(1)).await;
+            assert_eq!(over, StatusCode::TOO_MANY_REQUESTS);
+        })
+        .await;
+    }
 }

@@ -67,4 +67,5 @@ browser approval, forwarded to the web app), `/` and `/1.2/` (Audioscrobbler
 - `SCROBBLER_API_KEYS`, `SCROBBLER_STRICT_API_KEYS`: Last.fm API keys whose
   secrets you know (their request signatures are then checked), and whether
   to refuse all others.
-- `SCROBBLER_DAILY_LIMIT`: scrobbles per account per day (default 3000).
+- `SCROBBLER_DAILY_LIMIT`: scrobbles per account per UTC day (default 3000),
+  counted together with the native `/v1/scrobble`.

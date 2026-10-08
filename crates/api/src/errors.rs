@@ -47,6 +47,9 @@ pub enum AppError {
     #[error("too many requests")]
     RateLimited,
 
+    #[error("daily scrobble limit reached, try again after midnight UTC")]
+    DailyLimit,
+
     #[error("{0}")]
     Conflict(String),
 
@@ -95,6 +98,7 @@ impl IntoResponse for AppError {
             AppError::EmailTaken => (StatusCode::CONFLICT, self.to_string()),
             AppError::ProviderAccountTaken => (StatusCode::CONFLICT, self.to_string()),
             AppError::RateLimited => (StatusCode::TOO_MANY_REQUESTS, self.to_string()),
+            AppError::DailyLimit => (StatusCode::TOO_MANY_REQUESTS, self.to_string()),
             AppError::Conflict(_) => (StatusCode::CONFLICT, self.to_string()),
             AppError::ServiceUnavailable(_) => (StatusCode::SERVICE_UNAVAILABLE, self.to_string()),
             AppError::UntrustedClient(reason) => {
