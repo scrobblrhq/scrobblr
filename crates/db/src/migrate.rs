@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use sqlx::migrate::{Migration, Migrator};
-use sqlx::{Connection, PgConnection, PgPool};
+use sqlx::{ConnectOptions, Connection, PgConnection, PgPool};
 use thiserror::Error;
 
 static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
@@ -92,7 +92,11 @@ pub async fn status(pool: &PgPool) -> Result<Vec<MigrationStatus>, MigrateError>
 async fn apply(pool: &PgPool, baseline: Option<i64>) -> Result<Vec<i64>, MigrateError> {
     // A dedicated connection, closed on drop, so the session lock can never
     // leak back into the pool on an early return.
-    let mut conn = PgConnection::connect_with(&pool.connect_options()).await?;
+    // Migrations are slow by nature, and a slow one would be logged whole.
+    let options = (*pool.connect_options())
+        .clone()
+        .disable_statement_logging();
+    let mut conn = PgConnection::connect_with(&options).await?;
     sqlx::query("SELECT pg_advisory_lock($1)")
         .bind(LOCK_KEY)
         .execute(&mut conn)
