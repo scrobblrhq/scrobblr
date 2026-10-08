@@ -9,7 +9,10 @@ use std::net::SocketAddr;
 
 use crate::{errors::AppError, state::AppState};
 
-/// Sliding-window rate limiter: [`MAX_REQUESTS`] per [`WINDOW_SECS`] per IP.
+/// Fixed-window rate limiter: [`MAX_REQUESTS`] per [`WINDOW_SECS`] per IP.
+/// The window is part of the key, so a key whose expiry was never set
+/// (the process died between the two commands) still stops counting when
+/// the window ends. A Redis failure lets the request through.
 const MAX_REQUESTS: i64 = 60;
 const WINDOW_SECS: i64 = 60;
 
@@ -19,12 +22,21 @@ pub async fn rate_limit(
     next: Next,
 ) -> Result<Response, AppError> {
     let ip = request_ip(&req, state.trusted_proxy_hops);
-    let key = format!("rl:{ip}");
+    let window = chrono::Utc::now().timestamp() / WINDOW_SECS;
+    let key = format!("rl:{ip}:{window}");
 
-    let count: i64 = state.redis.incr(&key).await.unwrap_or(1);
-
+    let count: i64 = match state.redis.incr(&key).await {
+        Ok(count) => count,
+        Err(e) => {
+            tracing::warn!("rate limit unavailable: {e}");
+            return Ok(next.run(req).await);
+        }
+    };
     if count == 1 {
-        let _ = state.redis.expire::<i64, _>(&key, WINDOW_SECS, None).await;
+        let _ = state
+            .redis
+            .expire::<i64, _>(&key, 2 * WINDOW_SECS, None)
+            .await;
     }
 
     if count > MAX_REQUESTS {
