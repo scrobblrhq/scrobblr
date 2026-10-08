@@ -14,6 +14,7 @@
 
 pub mod audioscrobbler;
 pub mod credentials;
+pub mod docs;
 pub mod lastfm;
 pub mod listenbrainz;
 #[cfg(test)]
@@ -118,8 +119,8 @@ impl CompatConfig {
     }
 }
 
-/// The compatibility endpoints, outside the OpenAPI spec: they speak other
-/// services' protocols.
+/// The compatibility endpoints. They speak other services' protocols, so
+/// [`docs`] describes them in the OpenAPI spec by hand.
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/2.0", get(lastfm::api).post(lastfm::api))

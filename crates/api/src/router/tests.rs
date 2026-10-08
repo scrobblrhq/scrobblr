@@ -166,6 +166,13 @@ async fn every_authenticated_route_takes_the_access_listed() {
                 if !["get", "put", "post", "delete", "patch"].contains(&method.as_str()) {
                     continue;
                 }
+                // The protocol routes take scrobbler credentials instead.
+                let protocol = operation["tags"]
+                    .as_array()
+                    .is_some_and(|tags| tags.iter().any(|t| t == "Scrobbler protocols"));
+                if protocol {
+                    continue;
+                }
                 let method = method.to_uppercase();
                 let (status, _) = call(&app, None, &method, path).await;
                 if status == StatusCode::UNAUTHORIZED {

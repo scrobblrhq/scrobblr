@@ -432,6 +432,7 @@ pub fn build(state: AppState) -> Router {
         .route("/api.json", axum::routing::get(serve_api))
         .finish_api_with(&mut api, api_docs);
     document_rate_limit(&mut api);
+    compat::docs::document(&mut api);
     router.layer(Extension(Arc::new(api))).with_state(state)
 }
 
