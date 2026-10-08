@@ -18,9 +18,7 @@ pub async fn find_by_id(pool: &PgPool, id: i64) -> Result<Option<User>, sqlx::Er
     .await
 }
 
-/// Lookup is case-insensitive. The `idx_users_username` index is on the raw
-/// column, so this query falls back to a sequential scan — consider adding a
-/// `lower(username)` functional index if this becomes a hot path.
+/// Lookup is case-insensitive, served by `idx_users_username_lower`.
 pub async fn find_by_username(pool: &PgPool, username: &str) -> Result<Option<User>, sqlx::Error> {
     sqlx::query_as!(
         User,
@@ -37,7 +35,7 @@ pub async fn find_by_username(pool: &PgPool, username: &str) -> Result<Option<Us
     .await
 }
 
-/// See [`find_by_username`] — same case-insensitive caveat applies.
+/// Case-insensitive, like [`find_by_username`].
 pub async fn find_by_email(pool: &PgPool, email: &str) -> Result<Option<User>, sqlx::Error> {
     sqlx::query_as!(
         User,
