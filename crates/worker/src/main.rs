@@ -141,20 +141,23 @@ async fn main() -> anyhow::Result<()> {
     let classification_handle = tokio::spawn(classifier.clone().run());
     let classification_sweep_handle = tokio::spawn(classifier.run_sweeps());
 
-    // The tasks loop forever; reaching select! means one died or Ctrl-C.
-    tokio::select! {
-        _ = cleanup_handle => tracing::warn!("cleanup task exited unexpectedly"),
-        _ = enrichment_handle => tracing::warn!("enrichment task exited unexpectedly"),
-        _ = maintenance_handle => tracing::warn!("enrichment maintenance task exited unexpectedly"),
-        _ = connected_accounts_handle => tracing::warn!("connected-accounts poller exited unexpectedly"),
-        _ = import_handle => tracing::warn!("import task exited unexpectedly"),
-        _ = lengths_handle => tracing::warn!("length backfill exited unexpectedly"),
-        _ = classification_handle => tracing::warn!("classification task exited unexpectedly"),
-        _ = classification_sweep_handle => tracing::warn!("classification sweep exited unexpectedly"),
-        _ = tokio::signal::ctrl_c() => tracing::info!("received Ctrl-C, shutting down"),
-    }
-
-    Ok(())
+    // The tasks loop forever; one finishing means it died, which must end
+    // the process with a failure so a supervisor restarts it.
+    let died = tokio::select! {
+        _ = cleanup_handle => "cleanup",
+        _ = enrichment_handle => "enrichment",
+        _ = maintenance_handle => "enrichment maintenance",
+        _ = connected_accounts_handle => "connected-accounts poller",
+        _ = import_handle => "import",
+        _ = lengths_handle => "length backfill",
+        _ = classification_handle => "classification",
+        _ = classification_sweep_handle => "classification sweep",
+        _ = tokio::signal::ctrl_c() => {
+            tracing::info!("received Ctrl-C, shutting down");
+            return Ok(());
+        }
+    };
+    anyhow::bail!("{died} task exited unexpectedly")
 }
 
 const USAGE: &str = "\
