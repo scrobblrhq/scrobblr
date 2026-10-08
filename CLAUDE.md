@@ -14,41 +14,40 @@ Dev environment is managed with devenv (nix): `devenv up` starts PostgreSQL (wit
 cargo run -p api          # run the API (requires DATABASE_URL; listens on BIND_ADDR, default 0.0.0.0:8080)
 cargo run -p worker       # background jobs (session/now_playing cleanup, metadata enrichment, now-playing SSE republish, scrobble classification)
 cargo run -p worker -- classify report   # classification review CLI (`worker --help` lists commands)
-just migrate              # apply pending migrations (`just migrate status` lists them)
-just import-lastfm USER LASTFM_USER   # import a Last.fm history in the foreground (needs LASTFM_API_KEY)
-just import-status        # progress of recent imports
+just migrate              # apply pending migrations to DATABASE_URL (`just migrate status` lists them)
+cargo run -p worker -- import lastfm --user NAME --lastfm USER   # operator import (users import via POST /v1/import/lastfm)
 
 just fmt                  # cargo fmt --all
 just lint                 # cargo clippy --workspace --all-targets -- -D warnings
 just lint-fix             # clippy --fix
 just check                # cargo check --workspace
-just ci                   # fmt-check + lint + check + test + build
 
 just test                 # cargo test --workspace; also regenerates TS bindings (see Types pipeline below)
-just test-db              # #[ignore]d database tests (need Postgres; see Migrations)
+just test-db              # #[ignore]d database tests (need Postgres and Redis; see Migrations)
 cargo test -p api <name>  # single test
+just sqlx-prepare         # refresh .sqlx/ after a query change (needs a migrated DATABASE_URL)
+
+just ci                   # CI's first job: fmt-check, lint, test, types-check (stale TS bindings fail)
+just ci-db                # CI's database job: migrate DATABASE_URL, test-db, sqlx-check (stale .sqlx/ fails)
 
 # JS side (bun is the package manager; biome for lint/format)
 bun install
 turbo run build           # per-package build tasks (crates have package.json wrappers)
-cd apps/extension && bun run dev   # Plasmo extension dev mode
-
-# Mobile app (Flutter + Android SDK provided by devenv's android module)
-cd apps/mobile && flutter pub get && flutter test   # pipeline unit tests
-cd apps/mobile && flutter run                        # Android emulator (server: http://10.0.2.2:8080)
 ```
+
+The justfile exports `SQLX_OFFLINE=true`, so every recipe compiles against the committed `.sqlx/` cache, never the local database's schema (the dev database may lag the migrations). Point `DATABASE_URL` at a scratch database when running `ci-db` or `sqlx-prepare`: `migrate` applies the migrations to it.
+
+CI (`.github/workflows/ci.yml`) runs `just ci`, and `just ci-db` against TimescaleDB 2.29.2 on Postgres 18 and Redis 8 (devenv's versions), on pushes to `main` and pull requests. Its Rust toolchain is pinned to devenv's (`RUST_TOOLCHAIN`), so clippy agrees with local runs: bump it when `devenv.lock` updates Rust.
 
 ### SQLx offline mode
 
-Query macros (`sqlx::query!` etc.) compile against the `.sqlx/` cache, so no database is needed to build (but with `DATABASE_URL` set, as `.env` does, they check against the live database instead, which must then be migrated; `SQLX_OFFLINE=true` forces the cache). When you add or change a query, you need a live `DATABASE_URL` and must run `cargo sqlx prepare --workspace` (sqlx-cli is in the devenv shell) and commit the updated `.sqlx/` files.
+Query macros (`sqlx::query!` etc.) compile against the `.sqlx/` cache, so no database is needed to build. Plain `cargo` with `DATABASE_URL` set, as `.env` does, checks them against the live database instead, which must then be migrated; the justfile always forces the cache. When you add or change a query, run `just sqlx-prepare` with `DATABASE_URL` pointing at a migrated database (sqlx-cli is in the devenv shell) and commit the updated `.sqlx/` files; CI's `sqlx-check` fails otherwise.
 
 ### Migrations
 
 Numbered plain-SQL files in `migrations/` (`0001_initial.sql` … next free number), applied **in order** by `just migrate` (= `SQLX_OFFLINE=true cargo run -p worker -- migrate`; offline because it must compile before the database has the schema the query macros expect). The runner is `crates/db/src/migrate.rs`: files are embedded at compile time via `sqlx::migrate!` (`crates/db/build.rs` rebuilds on changes), each applied one is recorded with its checksum in `schema_migrations`, and a session advisory lock serializes concurrent runs. Each file runs in one transaction unless its **first line** is `-- no-transaction` (e.g. `0008`, whose `CALL refresh_continuous_aggregate` can't run in one): then each statement runs on its own (retried while it hits `lock_not_available`, e.g. a policy refresh the scheduler just started), so such a file must be safe to re-run. Never edit an applied migration (checksum mismatch) — add a new one. Don't use `sqlx migrate run`: sqlx-cli sends a no-transaction file as one multi-statement query, which Postgres wraps in an implicit transaction.
 
 Migration is a deploy step, never automatic: the API and worker only call `db::migrate::ensure_current` at startup and refuse to run with pending migrations. devenv runs the runner after Postgres starts; docker-compose has a one-shot `migrate` service the API and worker depend on. `just migrate --baseline N` records `1..=N` as applied without running them (for databases migrated by hand before the runner existed). DB tests (`crates/db/tests/`, `#[ignore]`d) each create a throwaway database from `DATABASE_URL`, migrate it through the runner, and drop it.
-
-(The README's mention of a `crates/core` crate is stale — the actual crate is `crates/shared`.)
 
 ## Architecture
 
@@ -58,7 +57,10 @@ Rust workspace crates and their dependency direction: `api` → `db` → `shared
 - **`crates/db`** — all SQL lives here as `sqlx` query functions under `src/queries/` (one module per area: auth, users, scrobbles, tracks, enrichment, community, classification, imports), plus the migration runner in `src/migrate.rs`. Handlers never write inline SQL (exception: a couple of one-offs in handlers use `sqlx::query_scalar!` directly).
 - **`crates/api`** — Axum 0.8 HTTP layer:
   - `router.rs` merges the route groups into one app: authed routes behind `require_auth`, one group per `Access` they need (see Auth model), among them the `write` **upload** group with a larger `DefaultBodyLimit` (8 MiB, for multipart image uploads); public routes; and user routes behind `optional_auth` (injects `AuthUser` if a valid Bearer token is present, without requiring one — needed for things like `is_following` on public profiles and `has_voted` on image candidates). Uploaded images are served statically from `/uploads` via `ServeDir`. Global layers: rate limiting (60 requests a minute per client IP: the peer address, or with `TRUSTED_PROXY_HOPS=N` the `X-Forwarded-For` entry the outermost of N proxies appended; the API is served with `ConnectInfo` for this), tracing, gzip, permissive CORS.
-  - `middleware/` — `auth.rs` (session/API-token auth and scope checks, inserts `AuthUser`, with the request's `Credential`, into request extensions; handlers extract it with `Extension(auth_user)`), `rate_limit.rs`, `visibility.rs` (enforces `is_private` profiles).
+  - `middleware/` — `auth.rs` (session/API-token auth and scope checks, inserts `AuthUser`, with the request's `Credential`, into request extensions; handlers extract it with `Extension(auth_user)`), `rate_limit.rs` (the global limit, and `ClientIp` for handlers), `visibility.rs` (enforces `is_private` profiles).
+  - `limits.rs` — Redis limits shared by the native and compatible APIs: password-login attempts and the daily scrobble quota. Keys carry their window, so a lost `EXPIRE` can't make one permanent.
+  - `live.rs` — the `/v1/user/{username}/live` SSE fan-out: one `PSUBSCRIBE now_playing:*` on a Redis connection of its own. **Never subscribe on `AppState::redis`**: a subscribed RESP2 connection refuses every other command, which silently broke rate limiting, logins and now playing for the whole API. Publishing now playing is best-effort.
+  - Redis clients (API and worker) reconnect with backoff and time a command out after 3 s.
   - `errors.rs` — `AppError` enum with `IntoResponse` mapping to status codes; all handlers return `ApiResult<T>`. Database/Redis/Internal variants log and return opaque 500s.
   - OpenAPI docs via `aide`: every handler has a sibling `_<name>_doc(TransformOperation)` function registered in the router. Spec served at `/api.json`, Scalar UI at `/docs`.
 
@@ -67,6 +69,8 @@ Rust workspace crates and their dependency direction: `api` → `db` → `shared
 Two credential types, both resolved by the auth middleware:
 - **Sessions**: UUID tokens in `user_sessions`, cached in Redis under `session:{id}` (logout must invalidate both). A session may do anything.
 - **API tokens**: long-lived, stored hashed via `auth_db::hash_api_token`; the raw token is shown only once at creation. Each holds scopes, and none implies another: `scrobble` (`/v1/scrobble`, `/v1/now-playing`), `read` (the account's own data: `GET /v1/user/me`, imports, connected accounts) and `write` (changing the account and posting as it: profile, follows, comments, votes, uploads, imports, catalog refreshes). `POST /v1/auth/tokens` defaults to `["scrobble"]` and refuses unknown names and an empty list; a name stored before that check grants nothing.
+
+The middleware never loads the user: both credentials are deleted with it (`ON DELETE CASCADE`), so the session's or token's `user_id` is enough. `last_used_at` (sessions, API tokens, scrobbler credentials) is written at most every 5 minutes, in the background.
 
 **Scopes are enforced per route group.** `router.rs` puts every authenticated route in a group that `require_auth` guards with an `Access`: `Scope(..)`, `Session` or `Any`. A credential without it gets a 403 saying what's missing (`AppError::MissingScope`, `SessionRequired`), which the group also documents in the OpenAPI spec.
 - **`Session` routes take no API token**, so a leaked token can't mint a successor, revoke the others, or link an account that keeps scrobbling after its revocation: creating and revoking API tokens, logout, scrobbler credentials (`/v1/scrobbler/*`) and starting an account link (`GET /v1/connect/{provider}`).
@@ -77,7 +81,7 @@ Third-party scrobblers have their own, `scrobbler_credentials`, which the auth m
 
 ### Metadata enrichment
 
-The worker runs an enrichment pipeline (`crates/worker/src/enrichment/`) over the catalog: MusicBrainz (MBIDs, durations, release dates — 1 req/s hard limit), Cover Art Archive (album covers by MBID), Deezer (artist images + cover fallback), Last.fm (bios, only when `LASTFM_API_KEY` is set). Jobs live in `enrichment_jobs` (queue queries in `db/src/queries/enrichment.rs`), enqueued at ingest for never-enriched entities, by the `POST /v1/{track,artist,album}/{id}/refresh` endpoints, and by periodic backfill/re-sweeps. Merge policy: fill-only-NULL; `mbid` is never overwritten; images/bio are overwritten only on forced refresh; names/titles are never touched; and an image is never touched when `image_locked` is set (a community-voted or user-uploaded image — see below). Provider rate limiters are in-process — run a single worker instance.
+The worker runs an enrichment pipeline (`crates/worker/src/enrichment/`) over the catalog: MusicBrainz (MBIDs, durations, release dates — 1 req/s hard limit), Cover Art Archive (album covers by MBID), Deezer (artist images + cover fallback), Last.fm (bios, only when `LASTFM_API_KEY` is set). Jobs live in `enrichment_jobs` (queue queries in `db/src/queries/enrichment.rs`), enqueued at ingest for never-enriched entities, by the `POST /v1/{track,artist,album}/{id}/refresh` endpoints, and by periodic backfill/re-sweeps. A track's `mbid_hint` (from imports or what a live client sent; the first one wins, and an enriched track without an mbid is queued again when one arrives) is looked up directly and adopted only if its title and artist match. Merge policy: fill-only-NULL; `mbid` is never overwritten; images/bio are overwritten only on forced refresh; names/titles are never touched; and an image is never touched when `image_locked` is set (a community-voted or user-uploaded image — see below). Provider rate limiters are in-process — run a single worker instance.
 
 The worker also holds an optional Redis client (best-effort — a missing/unreachable `REDIS_URL` only disables this, enrichment still runs): after it fills an artist/album image, it re-publishes `now_playing` over the API's SSE channel for anyone currently playing that entity, so a live now-playing card swaps its fallback for the real cover within seconds instead of showing the pre-enrichment placeholder for the whole track.
 
@@ -136,7 +140,11 @@ Listener/social sections and the private-profile rules: `artist_listeners`/`trac
 
 `tracks.artist_id` remains the **primary** artist: it backs `UNIQUE (artist_id, title_normalized)` and the denormalized `scrobbles.artist_id` every aggregate query reads. `track_artists` (migration `0007`) holds the full credit list, one row per artist with a `track_artist_role` of `primary` or `featured` plus a billing `position`; a partial unique index keeps at most one `primary` per track, and the `primary` row always mirrors `tracks.artist_id`. Chosen over a `BIGINT[]` column because Postgres can't foreign-key array elements.
 
-Credits are written by `tracks_db::record_track_credits` from ingest (`/v1/scrobble`, `/v1/now-playing`, and the Spotify poller, which maps `track.artists[0]` to primary and the rest to featured) and are **add-only** — a client omitting a collaborator never erases one. Aggregate surfaces (`artist_top_tracks`, `artist_listeners`, search) deliberately stay primary-artist-only; making featured credits count there means rewriting them to join `track_artists`.
+Every live source (`ingest_scrobble`, both now-playing paths and the Spotify poller, which maps `track.artists[0]` to primary and the rest to featured) goes through `tracks_db::resolve`: artist, album, track, credits, the client's MusicBrainz hint and the enrichment enqueue. Its `find_or_create_*` read before inserting, so a known catalog entry costs no write (an upsert that rewrote it was three flushed commits per scrobble). Credits are **add-only** — a client omitting a collaborator never erases one. Aggregate surfaces (`artist_top_tracks`, `artist_listeners`, search) deliberately stay primary-artist-only; making featured credits count there means rewriting them to join `track_artists`. The artist and track sections sum the daily aggregates (covering indexes from migration `0015`), never raw scrobbles: compressed chunks are segmented by user, so a query by artist or track would decompress all history.
+
+### Native scrobbling limits
+
+`POST /v1/scrobble` refuses plays more than 30 days old (422; history comes in through imports, and the mobile app queues plays offline with no age cap, hence more than the compatible APIs' 14 days) and takes from the same daily quota as the compatible APIs (`SCROBBLER_DAILY_LIMIT`, 429 past it; duplicates and rejected plays give theirs back). Client track lengths outside 1 ms–24 h count as unknown, `source` is cut to 100 characters, and `recording_mbid` (optional) becomes the track's `mbid_hint`.
 
 ### Scrobble clients
 
@@ -144,28 +152,32 @@ Credits are written by `tracks_db::record_track_credits` from ingest (`/v1/scrob
 
 ### Scrobbler-compatible APIs (Last.fm, Audioscrobbler 1.2, ListenBrainz)
 
-Existing scrobblers work by changing only the server URL (user guide: `docs/scrobbler-clients.md`). Code in `crates/api/src/compat/`: `mod.rs` (config from `SCROBBLER_*`/`WEB_APP_URL`, the router, and the shared submit path and limits), `lastfm.rs` (`/2.0/`), `audioscrobbler.rs` (`/` and `/1.2/` with `hs=true`, `/1.2/nowplaying`, `/1.2/submissions`), `listenbrainz.rs` (`/1/submit-listens`, `/1/validate-token`), `credentials.rs` (`/api/auth/` and the web app's `/v1/scrobbler/*`); storage in `db::queries::scrobblers` (migration `0014`). The protocol routes are a plain axum `Router` merged before the rate-limit layer, outside the OpenAPI spec.
+Existing scrobblers work by changing only the server URL (user guide: `docs/scrobbler-clients.md`). Code in `crates/api/src/compat/`: `mod.rs` (config from `SCROBBLER_*`/`WEB_APP_URL`, the router, and the shared submit path and limits), `lastfm.rs` (`/2.0/`), `audioscrobbler.rs` (`/` and `/1.2/` with `hs=true`, `/1.2/nowplaying`, `/1.2/submissions`), `listenbrainz.rs` (`/1/submit-listens`, `/1/validate-token`), `credentials.rs` (`/api/auth/` and the web app's `/v1/scrobbler/*`); storage in `db::queries::scrobblers` (migration `0014`). The protocol routes are a plain axum `Router` merged before the rate-limit layer.
 
 - **Credentials** (`scrobbler_credentials`, sha256-hashed): `token`s users create (`POST /v1/scrobbler/tokens`) and paste into clients as a ListenBrainz token, an Audioscrobbler password or a Last.fm password; `session`s, Last.fm session keys from `auth.getMobileSession` with the account password or `auth.getSession` after browser approval, bound to the api_key they were issued to. A token given as the Last.fm password comes back as the session key itself, so revoking it signs the client out. They reach only these endpoints, never the native API; managing them takes a session, never an API token.
 - **Signatures:** clients sign with secrets of Last.fm's or of their developer, public in practice, so a signature authenticates nothing; the credential does. A signature is checked when the server knows the secret (`SCROBBLER_API_KEYS`, or the api_key itself, which GNU FM clients such as Pano Scrobbler sign with): a wrong one is error 13. Unknown keys pass as unverified unless `SCROBBLER_STRICT_API_KEYS`. `scrobble_clients.verified` records which.
-- **Password logins** (`auth.getMobileSession`, the 1.2 handshake): attempts are counted before checking, 20 per IP and 10 per username per 15 min (Redis, fails closed), and `handlers::auth::verify_password_login`, shared with `/v1/auth/login`, keeps a missing account as slow as a wrong password. Account passwords only with `SCROBBLER_PASSWORD_LOGIN`, which defaults to off when `AUTH_APP_KEYS` gates the native login (an unsigned login here would get around it). 1.2's handshake proves knowledge of md5(password), so it takes tokens holding a legacy secret (their md5, encrypted with `TOKEN_ENCRYPTION_KEY`); its auth tokens are burned on use and must be within 5 min of the server clock; its sessions live in Redis (24 h, sliding) and are checked against the credential on every request.
-- **Same pipeline:** `compat::submit` sends every play through `ingest_scrobble` (validation, dedup, catalog, credits, enrichment, classification) with `source` = the protocol and the client's `client_id`. Before that: plays older than 14 days or more than 5 min ahead are ignored, a per-user daily quota (`SCROBBLER_DAILY_LIMIT`, default 3000, Redis, fails open) and 120 requests a minute per user apply, and batches are capped (50 for Last.fm and 1.2, 1000 for a ListenBrainz import). A duplicate counts as accepted, so retries are idempotent.
+- **Password logins** (`auth.getMobileSession`, the 1.2 handshake, and the native `/v1/auth/login`, sharing `limits.rs`): attempts are counted before checking, 20 per IP and 10 per username per 15 min (Redis, fails closed), and `handlers::auth::verify_password_login`, shared with `/v1/auth/login`, keeps a missing account as slow as a wrong password. Account passwords only with `SCROBBLER_PASSWORD_LOGIN`, which defaults to off when `AUTH_APP_KEYS` gates the native login (an unsigned login here would get around it). 1.2's handshake proves knowledge of md5(password), so it takes tokens holding a legacy secret (their md5, encrypted with `TOKEN_ENCRYPTION_KEY`); its auth tokens are burned on use and must be within 5 min of the server clock; its sessions live in Redis (24 h, sliding) and are checked against the credential on every request.
+- **Same pipeline:** `compat::submit` sends every play through `ingest_scrobble` (validation, dedup, catalog, credits, enrichment, classification) with `source` = the protocol and the client's `client_id`. Before that: plays older than 14 days or more than 5 min ahead are ignored, a per-user daily quota (`SCROBBLER_DAILY_LIMIT`, default 3000, shared with native scrobbles, Redis, fails open) and 120 requests a minute per user apply, and batches are capped (50 for Last.fm and 1.2, 1000 for a ListenBrainz import). A duplicate counts as accepted, so retries are idempotent. MusicBrainz recording ids clients send (`mbid`, 1.2's `m`, ListenBrainz's `additional_info.recording_mbid`) become enrichment hints.
 - **Browser flow:** `/api/auth/?api_key=…&token=…` (desktop) or `?api_key=…&cb=…` (web) redirects to `{WEB_APP_URL}/scrobbler/authorize` with the same query. The page uses `GET /v1/scrobbler/authorizations/{token}` and `POST …/{token}/approve`, or `POST /v1/scrobbler/authorizations {api_key, callback}` for the web flow, then sends the browser to the returned callback.
 - **Tests:** `compat/tests.rs` (`#[ignore]`d, Postgres and Redis) replays the requests of Pano Scrobbler, Web Scrobbler, mpris-scrobbler and Audioscrobbler 1.2 clients, signatures included.
 
 ### Auth input rules and client attestation
 
-`shared::validation` owns every credential rule (username charset/length, RFC-lite email structure, password length + complexity, display-name sanitization) and is enforced **only at registration** — `login` applies just the bounds needed to keep a hostile body away from Argon2, since re-applying the current rules would lock out older accounts. `login` also verifies against a decoy hash when no user matches, so response latency can't be used to enumerate usernames.
+`shared::validation` owns every credential rule (username charset/length, RFC-lite email structure, password length + complexity, display-name sanitization) and is enforced **only at registration** (and the display-name rule on `PATCH /v1/user/me`) — `login` applies just the bounds needed to keep a hostile body away from Argon2, since re-applying the current rules would lock out older accounts. `login` also verifies against a decoy hash when no user matches, so response latency can't be used to enumerate usernames.
 
 `middleware/app_signature.rs` gates `/v1/auth/register` and `/v1/auth/login` behind an HMAC-SHA256 request signature when `AUTH_APP_KEYS` is set (unset = open, so existing clients keep working). Nonces are burned in Redis, and a Redis failure rejects rather than passes.
 
 ### Username semantics
 
-Lookups (`find_by_username`, `find_by_email`) are case-insensitive (`lower(col) = lower($1)`), but the DB UNIQUE constraint on `users.username` is case-sensitive — keep the two in mind when touching registration/lookup code. `RESERVED_USERNAMES` in `handlers/auth.rs` blocks names that collide with route literals like `/user/me`, checked case-insensitively.
+Lookups (`find_by_username`, `find_by_email`) are case-insensitive (`lower(col) = lower($1)`, indexed by migration `0016`), but the DB UNIQUE constraint on `users.username` is case-sensitive — keep the two in mind when touching registration/lookup code. `RESERVED_USERNAMES` in `handlers/auth.rs` blocks names that collide with route literals like `/user/me`, checked case-insensitively.
 
-### Mobile app (apps/mobile)
+### Clients (sibling repos)
 
-Flutter Android scrobbler. Architecture is documented in `apps/mobile/README.md`; the short version: a Kotlin `NotificationListenerService` uses `MediaSessionManager` to observe every player and forwards raw events into a headless background FlutterEngine; the pure-Dart pipeline in `lib/scrobbling/` (per-source parsers keyed by package name, debounce/dedupe state machine, offline retry queue) is where all behavior lives and is what `flutter test` covers. The UI reads with the session token; the background scrobbler uses a provisioned API token (scope `scrobble`). Dart API models in `lib/api/models.dart` mirror `crates/shared/src/models.rs` **by hand** — update them when API-facing Rust models change (the ts_rs pipeline only covers TypeScript).
+`scrobblrhq/extension` (Plasmo) pastes an API token, calls `/v1/now-playing` and `/v1/scrobble` without retrying, and validates the token with `GET /v1/auth/tokens`. `scrobblrhq/mobile` (Flutter): the UI uses the session; the background scrobbler a provisioned `scrobble` token, with an offline queue (500 plays, no age cap) that drops a play on any 4xx except 429. Its Dart models in `lib/api/models.dart` mirror the API **by hand** — update them when API-facing models change.
+
+### Docker
+
+`docker-compose.yml` passes optional settings as `${VAR:-}`, an empty string when unset, so every reader must treat a blank value as unset (`non_empty_env` in the worker, the same filter elsewhere). The image build sees no `*.md` (`.dockerignore`): don't `include_str!` one.
 
 ### Types pipeline (Rust → TypeScript)
 
