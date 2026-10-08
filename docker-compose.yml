@@ -18,7 +18,10 @@ name: scrobblr
 
 services:
   db:
-    image: timescale/timescaledb:latest-pg16
+    # Pinned: a floating tag upgrades TimescaleDB unannounced, and an image
+    # older than a database's extension can't load it. Dev and CI run
+    # Postgres 18; moving an existing volume to it takes pg_upgrade.
+    image: timescale/timescaledb:2.30.2-pg16
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-scrobblr}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-scrobblr}
@@ -26,7 +29,9 @@ services:
     volumes:
       - db-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-scrobblr} -d ${POSTGRES_DB:-scrobblr}"]
+      # Over TCP: the server that initializes a new volume listens on the
+      # socket only and restarts right after.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:-scrobblr} -d ${POSTGRES_DB:-scrobblr}"]
       interval: 5s
       timeout: 5s
       retries: 10
