@@ -18,14 +18,12 @@ use db::queries::scrobble_clients::{ClientIdentity, PROTOCOL_SCROBBLR};
 use db::queries::{
     enrichment as enrichment_db, scrobbles as scrobbles_db, tracks as tracks_db, users as users_db,
 };
-use fred::interfaces::{EventInterface, PubsubInterface};
-use futures_util::stream::Stream;
+use fred::interfaces::PubsubInterface;
+use futures_util::stream::{self, Stream, StreamExt};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use shared::scrobble::ScrobbleInput;
 use std::convert::Infallible;
-use tokio::sync::mpsc;
-use tokio_stream::wrappers::ReceiverStream;
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ScrobbleRequest {
@@ -184,16 +182,17 @@ pub(crate) async fn set_now_playing(
     )
     .await?;
 
-    // Query rich details to publish
+    // Live streams are a nicety: the update is stored either way.
     if let Some(rich) = scrobbles_db::get_now_playing(&state.db, user_id).await? {
-        let channel = format!("now_playing:{user_id}");
         let payload =
             serde_json::to_string(&rich).map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
-        let _: () = state
+        if let Err(e) = state
             .redis
-            .publish(channel, payload)
+            .publish::<(), _, _>(crate::live::channel(user_id), payload)
             .await
-            .map_err(AppError::Redis)?;
+        {
+            tracing::warn!("failed to publish now playing: {e}");
+        }
     }
 
     Ok(())
@@ -375,57 +374,21 @@ pub async fn live_now_playing(
     let viewer_id = auth_user.map(|Extension(a)| a.id);
     crate::middleware::visibility::ensure_profile_visible(&state, viewer_id, &user).await?;
 
-    let (tx, rx) = mpsc::channel(10);
-
-    let db_pool = state.db.clone();
-    let redis_client = state.redis.clone();
-    let user_id = user.id;
-
-    tokio::spawn(async move {
-        // 1. Send initial now_playing state from DB
-        let initial_np = scrobbles_db::get_now_playing(&db_pool, user_id).await;
-        match initial_np {
-            Ok(Some(rich)) => {
-                if let Ok(event) = Event::default().json_data(&rich)
-                    && tx.send(Ok(event)).await.is_err()
-                {
-                    return; // client disconnected
-                }
-            }
-            Ok(None) => {
-                // Send explicit null to clear any playing state
-                let event = Event::default().data("null");
-                if tx.send(Ok(event)).await.is_err() {
-                    return; // client disconnected
-                }
-            }
-            Err(e) => {
-                tracing::error!("failed to fetch initial now playing for SSE: {e}");
-            }
-        }
-
-        // 2. Subscribe to Redis channel
-        let channel_name = format!("now_playing:{}", user_id);
-        let mut message_rx = redis_client.message_rx();
-        if let Err(e) = redis_client.subscribe(&channel_name).await {
-            tracing::error!("failed to subscribe to redis channel {channel_name} for SSE: {e}");
-            return;
-        }
-
-        // 3. Listen to Redis messages and forward to client
-        while let Ok(msg) = message_rx.recv().await {
-            if msg.channel == channel_name
-                && let Ok(value_str) = msg.value.convert::<String>()
-            {
-                let event = Event::default().data(value_str);
-                if tx.send(Ok(event)).await.is_err() {
-                    break; // client disconnected
-                }
-            }
-        }
-    });
-
-    let stream = ReceiverStream::new(rx);
+    // Listening first, so no update falls between it and the current state.
+    let updates = state.live.listen(user.id);
+    let current = match scrobbles_db::get_now_playing(&state.db, user.id).await? {
+        Some(rich) => Event::default()
+            .json_data(&rich)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?,
+        None => Event::default().data("null"),
+    };
+    let stream = stream::once(async { Ok(current) }).chain(stream::unfold(
+        updates,
+        |mut updates| async move {
+            let payload = updates.recv().await?;
+            Some((Ok(Event::default().data(payload)), updates))
+        },
+    ));
     Ok(SseStream(Sse::new(stream).keep_alive(KeepAlive::default())))
 }
 

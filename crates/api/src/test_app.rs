@@ -75,12 +75,20 @@ where
         .unwrap();
     let redis_url =
         std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
-    let redis = fred::types::Builder::from_config(
-        fred::types::config::Config::from_url(&redis_url).unwrap(),
-    )
-    .build()
-    .unwrap();
+    let redis_config = fred::types::config::Config::from_url(&redis_url).unwrap();
+    let redis = fred::types::Builder::from_config(redis_config.clone())
+        .build()
+        .unwrap();
     redis.init().await.unwrap();
+    let live = Arc::new(crate::live::LiveHub::default());
+    crate::live::subscribe(
+        live.clone(),
+        fred::types::Builder::from_config(redis_config)
+            .build_subscriber_client()
+            .unwrap(),
+    )
+    .await
+    .unwrap();
 
     let username = format!("user{}", &Uuid::new_v4().simple().to_string()[..8]);
     let user_id: i64 = sqlx::query_scalar(
@@ -107,6 +115,7 @@ where
         trusted_proxy_hops: 0,
         clients: Default::default(),
         compat: Arc::new(config),
+        live,
     };
     let octets = rand::random::<[u8; 3]>();
     let app = TestApp {

@@ -1,6 +1,7 @@
 mod compat;
 mod errors;
 mod handlers;
+mod live;
 mod middleware;
 mod router;
 mod state;
@@ -62,9 +63,15 @@ async fn main() -> anyhow::Result<()> {
 
     // Redis
     tracing::info!("connecting to redis...");
-    let redis =
-        RedisBuilder::from_config(fred::types::config::Config::from_url(&redis_url)?).build()?;
+    let redis_config = fred::types::config::Config::from_url(&redis_url)?;
+    let redis = RedisBuilder::from_config(redis_config.clone()).build()?;
     redis.init().await?;
+    let live = std::sync::Arc::new(live::LiveHub::default());
+    live::subscribe(
+        live.clone(),
+        RedisBuilder::from_config(redis_config).build_subscriber_client()?,
+    )
+    .await?;
 
     // Uploaded images (avatars, artist/album art)
     let upload_dir =
@@ -105,6 +112,7 @@ async fn main() -> anyhow::Result<()> {
         trusted_proxy_hops,
         clients: Default::default(),
         compat,
+        live,
     };
     let app = router::build(state);
 

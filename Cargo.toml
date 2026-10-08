@@ -10,7 +10,6 @@ resolver = "2"
 [workspace.dependencies]
 # Async runtime
 tokio = { version = "1", features = ["full"] }
-tokio-stream = { version = "0.1", features = ["sync"] }
 futures-util = "0.3"
 
 # Web framework
@@ -26,7 +25,7 @@ schemars = { version = "0.9", features = ["chrono04", "uuid1"] }
 sqlx = { version = "0", features = ["postgres", "runtime-tokio-native-tls", "uuid", "chrono", "macros", "ipnetwork"] }
 
 # Redis
-fred = { version = "10" }
+fred = { version = "10", features = ["subscriber-client"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
