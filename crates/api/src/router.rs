@@ -459,9 +459,9 @@ async fn health() -> &'static str {
 }
 
 fn api_docs(api: TransformOpenApi) -> TransformOpenApi {
-    api.title("Aide axum Open API")
-        .summary("An example Todo application")
-        .description(include_str!("../../../README.md"))
+    api.title("Scrobblr API")
+        .version(env!("CARGO_PKG_VERSION"))
+        .description("The API of Scrobblr, a self-hosted music scrobbling service.")
         .security_scheme(
             "ApiKey",
             aide::openapi::SecurityScheme::ApiKey {
