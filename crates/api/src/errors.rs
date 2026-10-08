@@ -30,6 +30,9 @@ pub enum AppError {
     #[error("bad request: {0}")]
     BadRequest(String),
 
+    #[error("{0}")]
+    PayloadTooLarge(String),
+
     #[error("scrobble validation failed: {0}")]
     ScrobbleInvalid(String),
 
@@ -93,6 +96,7 @@ impl IntoResponse for AppError {
             AppError::MissingScope(_) => (StatusCode::FORBIDDEN, self.to_string()),
             AppError::SessionRequired => (StatusCode::FORBIDDEN, self.to_string()),
             AppError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            AppError::PayloadTooLarge(_) => (StatusCode::PAYLOAD_TOO_LARGE, self.to_string()),
             AppError::ScrobbleInvalid(_) => (StatusCode::UNPROCESSABLE_ENTITY, self.to_string()),
             AppError::NotFound => (StatusCode::NOT_FOUND, self.to_string()),
             AppError::UsernameTaken => (StatusCode::CONFLICT, self.to_string()),

@@ -180,7 +180,7 @@ pub fn build(state: AppState) -> Router {
                 uploads::_upload_album_image_doc,
             ),
         )
-        .layer(DefaultBodyLimit::max(8 * 1024 * 1024));
+        .layer(DefaultBodyLimit::max(uploads::MAX_UPLOAD_BYTES));
 
     // Credentials and account links: sessions only, so that a leaked API
     // token can't mint a credential (or link an account that scrobbles)

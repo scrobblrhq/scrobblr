@@ -2823,7 +2823,7 @@
                 "properties": {
                   "image": {
                     "contentMediaType": "application/octet-stream",
-                    "description": "JPEG, PNG or WebP, at most 8 MiB and 12000 px a side",
+                    "description": "JPEG, PNG or WebP, at most 8 MiB, 12000 px a side and 40 megapixels",
                     "type": "string"
                   }
                 },
@@ -2858,7 +2858,7 @@
                 }
               }
             },
-            "description": "Not a valid image"
+            "description": "Not a valid image, or too many pixels"
           },
           "401": {
             "content": {
@@ -2889,6 +2889,16 @@
               }
             },
             "description": "Album not found"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Larger than 8 MiB"
           },
           "429": {
             "content": {
@@ -3339,7 +3349,7 @@
                 "properties": {
                   "image": {
                     "contentMediaType": "application/octet-stream",
-                    "description": "JPEG, PNG or WebP, at most 8 MiB and 12000 px a side",
+                    "description": "JPEG, PNG or WebP, at most 8 MiB, 12000 px a side and 40 megapixels",
                     "type": "string"
                   }
                 },
@@ -3374,7 +3384,7 @@
                 }
               }
             },
-            "description": "Not a valid image"
+            "description": "Not a valid image, or too many pixels"
           },
           "401": {
             "content": {
@@ -3405,6 +3415,16 @@
               }
             },
             "description": "Artist not found"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Larger than 8 MiB"
           },
           "429": {
             "content": {
@@ -6521,7 +6541,7 @@
     },
     "/v1/user/me/avatar": {
       "post": {
-        "description": "Sets the authenticated user's avatar from a multipart `image` file field (JPEG/PNG/WebP, re-encoded server-side, max 8 MiB). Returns the updated profile.",
+        "description": "Sets the authenticated user's avatar from a multipart `image` file field (JPEG/PNG/WebP, re-encoded server-side as a JPEG of at most 512 px a side, max 8 MiB). Returns the updated profile.",
         "requestBody": {
           "content": {
             "multipart/form-data": {
@@ -6529,7 +6549,7 @@
                 "properties": {
                   "image": {
                     "contentMediaType": "application/octet-stream",
-                    "description": "JPEG, PNG or WebP, at most 8 MiB and 12000 px a side",
+                    "description": "JPEG, PNG or WebP, at most 8 MiB, 12000 px a side and 40 megapixels",
                     "type": "string"
                   }
                 },
@@ -6561,7 +6581,7 @@
                 }
               }
             },
-            "description": "Not a valid image"
+            "description": "Not a valid image, or too many pixels"
           },
           "401": {
             "content": {
@@ -6582,6 +6602,16 @@
               }
             },
             "description": "Needs a session or an API token with the `write` scope"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Larger than 8 MiB"
           },
           "429": {
             "content": {

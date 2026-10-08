@@ -3,6 +3,7 @@ mod errors;
 mod handlers;
 mod limits;
 mod live;
+mod media;
 mod middleware;
 mod router;
 mod state;
