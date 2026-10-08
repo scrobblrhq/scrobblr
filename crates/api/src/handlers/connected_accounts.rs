@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use super::ProviderPath;
 use crate::{
-    errors::{ApiResult, AppError},
+    errors::{ApiResult, AppError, ErrorJson},
     middleware::auth::AuthUser,
     state::AppState,
 };
@@ -139,9 +139,9 @@ pub fn _connect_provider_doc(op: TransformOperation) -> TransformOperation {
         .description("Returns the provider's authorize URL the client should redirect the user to in order to link their account: `spotify` (auto-scrobbling) or `lastfm` (proves ownership of the Last.fm account before importing its history).")
         .tag("Connected accounts")
         .response::<200, Json<AuthorizeResponse>>()
-        .response_with::<400, (), _>(|r| r.description("Unsupported provider"))
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
-        .response_with::<503, (), _>(|r| r.description("The provider isn't configured on this server"))
+        .response_with::<400, ErrorJson, _>(|r| r.description("Unsupported provider"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
+        .response_with::<503, ErrorJson, _>(|r| r.description("The provider isn't configured on this server"))
 }
 
 /// Resolves and burns a callback's CSRF `state`, returning the user who
@@ -251,8 +251,8 @@ pub fn _spotify_callback_doc(op: TransformOperation) -> TransformOperation {
         .description("Spotify redirects here after the user grants or denies access. Exchanges the authorization code for tokens and links the account to whichever user started the flow (identified via the `state` CSRF token, not request auth).")
         .tag("Connected accounts")
         .response::<200, Json<ConnectResult>>()
-        .response_with::<400, (), _>(|r| r.description("Missing/invalid code or state, the user denied access, or Spotify rejected the exchange"))
-        .response_with::<409, (), _>(|r| r.description("That Spotify account is already linked to another Scrobblr user"))
+        .response_with::<400, ErrorJson, _>(|r| r.description("Missing/invalid code or state, the user denied access, or Spotify rejected the exchange"))
+        .response_with::<409, ErrorJson, _>(|r| r.description("That Spotify account is already linked to another Scrobblr user"))
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -313,8 +313,8 @@ pub fn _lastfm_callback_doc(op: TransformOperation) -> TransformOperation {
         .description("Last.fm redirects here after the user grants access. Exchanges the token for a session and links the Last.fm account it names to whichever user started the flow (identified via the `state` CSRF token, not request auth). A linked account is what lets that user import its history.")
         .tag("Connected accounts")
         .response::<200, Json<ConnectResult>>()
-        .response_with::<400, (), _>(|r| r.description("Missing/invalid token or state, or Last.fm rejected the token"))
-        .response_with::<409, (), _>(|r| r.description("That Last.fm account is already linked to another Scrobblr user"))
+        .response_with::<400, ErrorJson, _>(|r| r.description("Missing/invalid token or state, or Last.fm rejected the token"))
+        .response_with::<409, ErrorJson, _>(|r| r.description("That Last.fm account is already linked to another Scrobblr user"))
 }
 
 /// GET /v1/connect
@@ -331,7 +331,7 @@ pub fn _list_connected_accounts_doc(op: TransformOperation) -> TransformOperatio
         .description("Returns the authenticated user's connected third-party accounts. Tokens are not part of this response type at all — the query never selects them.")
         .tag("Connected accounts")
         .response::<200, Json<Vec<shared::models::ConnectedAccountSummary>>>()
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
 }
 
 /// DELETE /v1/connect/{provider}
@@ -356,6 +356,6 @@ pub fn _disconnect_doc(op: TransformOperation) -> TransformOperation {
         .description("Removes a connected third-party account. The worker stops polling it immediately; a fresh OAuth flow is required to relink.")
         .tag("Connected accounts")
         .response_with::<204, (), _>(|r| r.description("Disconnected"))
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
-        .response_with::<404, (), _>(|r| r.description("No connection for this provider"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("No connection for this provider"))
 }

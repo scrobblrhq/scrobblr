@@ -18,7 +18,7 @@ use uuid::Uuid;
 
 use super::IdPath;
 use crate::{
-    errors::{ApiResult, AppError},
+    errors::{ApiResult, AppError, ErrorJson},
     middleware::auth::AuthUser,
     state::AppState,
 };
@@ -149,13 +149,34 @@ pub async fn upload_avatar(
     Ok(Json(UserProfile::from(user)))
 }
 
+/// The multipart body every upload takes, which aide can't describe.
+fn image_body(mut op: TransformOperation) -> TransformOperation {
+    op.inner_mut().request_body = Some(aide::openapi::ReferenceOr::Item(
+        serde_json::from_value(serde_json::json!({
+            "required": true,
+            "content": { "multipart/form-data": { "schema": {
+                "type": "object",
+                "required": ["image"],
+                "properties": { "image": {
+                    "type": "string",
+                    "contentMediaType": "application/octet-stream",
+                    "description": "JPEG, PNG or WebP, at most 8 MiB and 12000 px a side"
+                } }
+            } } }
+        }))
+        .expect("valid request body"),
+    ));
+    op
+}
+
 pub fn _upload_avatar_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Upload avatar")
         .description("Sets the authenticated user's avatar from a multipart `image` file field (JPEG/PNG/WebP, re-encoded server-side, max 8 MiB). Returns the updated profile.")
         .tag("Users")
         .response::<200, Json<UserProfile>>()
-        .response_with::<400, (), _>(|r| r.description("Not a valid image"))
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
+        .response_with::<400, ErrorJson, _>(|r| r.description("Not a valid image"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
+        .with(image_body)
 }
 
 /// Adds a candidate for an artist/album and returns the refreshed candidate
@@ -198,9 +219,10 @@ pub fn _upload_artist_image_doc(op: TransformOperation) -> TransformOperation {
         .description("Adds a community image candidate for the artist (multipart `image` field). Uploads never replace the current image directly — the most-liked candidate becomes the displayed image once it clears the vote threshold. Returns the refreshed candidate list.")
         .tag("Catalog")
         .response::<200, Json<Vec<ImageCandidate>>>()
-        .response_with::<400, (), _>(|r| r.description("Not a valid image"))
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
-        .response_with::<404, (), _>(|r| r.description("Artist not found"))
+        .response_with::<400, ErrorJson, _>(|r| r.description("Not a valid image"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("Artist not found"))
+        .with(image_body)
 }
 
 /// POST /v1/album/{id}/image
@@ -222,7 +244,8 @@ pub fn _upload_album_image_doc(op: TransformOperation) -> TransformOperation {
         .description("Adds a community cover candidate for the album (multipart `image` field). Uploads never replace the current cover directly — the most-liked candidate becomes the displayed cover once it clears the vote threshold. Returns the refreshed candidate list.")
         .tag("Catalog")
         .response::<200, Json<Vec<ImageCandidate>>>()
-        .response_with::<400, (), _>(|r| r.description("Not a valid image"))
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
-        .response_with::<404, (), _>(|r| r.description("Album not found"))
+        .response_with::<400, ErrorJson, _>(|r| r.description("Not a valid image"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("Album not found"))
+        .with(image_body)
 }

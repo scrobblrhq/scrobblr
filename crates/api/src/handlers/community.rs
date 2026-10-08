@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 
 use super::IdPath;
 use crate::{
-    errors::{ApiResult, AppError},
+    errors::{ApiResult, AppError, ErrorJson},
     middleware::auth::AuthUser,
     state::AppState,
 };
@@ -61,7 +61,7 @@ pub fn _list_artist_images_doc(op: TransformOperation) -> TransformOperation {
         .description("Returns the community image candidates for an artist, most-liked first. `has_voted` reflects the authenticated viewer; `is_default` marks the currently displayed image.")
         .tag("Catalog")
         .response::<200, Json<Vec<ImageCandidate>>>()
-        .response_with::<404, (), _>(|r| r.description("Artist not found"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("Artist not found"))
 }
 
 pub async fn list_album_images(
@@ -77,7 +77,7 @@ pub fn _list_album_images_doc(op: TransformOperation) -> TransformOperation {
         .description("Returns the community cover candidates for an album, most-liked first.")
         .tag("Catalog")
         .response::<200, Json<Vec<ImageCandidate>>>()
-        .response_with::<404, (), _>(|r| r.description("Album not found"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("Album not found"))
 }
 
 /// POST /v1/image/{candidate_id}/vote
@@ -102,8 +102,8 @@ pub fn _vote_image_doc(op: TransformOperation) -> TransformOperation {
         .description("Records the authenticated user's like for a candidate (idempotent). If it becomes the most-liked candidate past the threshold, it is promoted to the entity's displayed image. Returns the refreshed candidate list.")
         .tag("Catalog")
         .response::<200, Json<Vec<ImageCandidate>>>()
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
-        .response_with::<404, (), _>(|r| r.description("Candidate not found"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("Candidate not found"))
 }
 
 /// DELETE /v1/image/{candidate_id}/vote
@@ -128,8 +128,8 @@ pub fn _unvote_image_doc(op: TransformOperation) -> TransformOperation {
         .description("Withdraws the authenticated user's like (idempotent). The currently displayed image is never reverted by this. Returns the refreshed candidate list.")
         .tag("Catalog")
         .response::<200, Json<Vec<ImageCandidate>>>()
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
-        .response_with::<404, (), _>(|r| r.description("Candidate not found"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("Candidate not found"))
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -194,7 +194,7 @@ pub fn _list_artist_comments_doc(op: TransformOperation) -> TransformOperation {
         .description("Returns comments on an artist, newest first.")
         .tag("Catalog")
         .response::<200, Json<Vec<Comment>>>()
-        .response_with::<404, (), _>(|r| r.description("Artist not found"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("Artist not found"))
 }
 
 pub async fn add_artist_comment(
@@ -211,9 +211,9 @@ pub fn _add_artist_comment_doc(op: TransformOperation) -> TransformOperation {
         .description("Posts a comment on an artist as the authenticated user.")
         .tag("Catalog")
         .response::<201, Json<Comment>>()
-        .response_with::<400, (), _>(|r| r.description("Empty or too-long comment"))
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
-        .response_with::<404, (), _>(|r| r.description("Artist not found"))
+        .response_with::<400, ErrorJson, _>(|r| r.description("Empty or too-long comment"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("Artist not found"))
 }
 
 pub async fn list_track_comments(
@@ -228,7 +228,7 @@ pub fn _list_track_comments_doc(op: TransformOperation) -> TransformOperation {
         .description("Returns comments on a track, newest first.")
         .tag("Catalog")
         .response::<200, Json<Vec<Comment>>>()
-        .response_with::<404, (), _>(|r| r.description("Track not found"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("Track not found"))
 }
 
 pub async fn add_track_comment(
@@ -245,9 +245,9 @@ pub fn _add_track_comment_doc(op: TransformOperation) -> TransformOperation {
         .description("Posts a comment on a track as the authenticated user.")
         .tag("Catalog")
         .response::<201, Json<Comment>>()
-        .response_with::<400, (), _>(|r| r.description("Empty or too-long comment"))
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
-        .response_with::<404, (), _>(|r| r.description("Track not found"))
+        .response_with::<400, ErrorJson, _>(|r| r.description("Empty or too-long comment"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("Track not found"))
 }
 
 /// DELETE /v1/comments/{id}
@@ -269,6 +269,6 @@ pub fn _delete_comment_doc(op: TransformOperation) -> TransformOperation {
         .description("Deletes one of the authenticated user's own comments.")
         .tag("Catalog")
         .response::<200, Json<DeletedResponse>>()
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
-        .response_with::<404, (), _>(|r| r.description("Comment not found or not owned"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("Comment not found or not owned"))
 }

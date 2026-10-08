@@ -10,7 +10,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    errors::{ApiResult, AppError},
+    errors::{ApiResult, AppError, ErrorJson},
     state::AppState,
 };
 use db::queries::{enrichment as enrichment_db, tracks as tracks_db, users as users_db};
@@ -34,7 +34,7 @@ pub fn _get_track_doc(op: TransformOperation) -> TransformOperation {
         .description("Returns catalog metadata for a single track by its internal ID, including title, album, duration and the full artist credit list (primary artist first, then featured collaborators in billing order).")
         .tag("Catalog")
         .response::<200, Json<TrackWithCredits>>()
-        .response_with::<404, (), _>(|r| r.description("Track not found"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("Track not found"))
 }
 
 /// GET /v1/artist/:id
@@ -53,7 +53,7 @@ pub fn _get_artist_doc(op: TransformOperation) -> TransformOperation {
         .description("Returns catalog metadata for a single artist by its internal ID.")
         .tag("Catalog")
         .response::<200, Json<Artist>>()
-        .response_with::<404, (), _>(|r| r.description("Artist not found"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("Artist not found"))
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -124,7 +124,7 @@ pub fn _search_doc(op: TransformOperation) -> TransformOperation {
         .description("Full-text search across artists, tracks and users. Use the `type` parameter to restrict results to `track`, `artist`, `user`, or `all` (default). Returns up to 30 results per type. Query must not be empty.")
         .tag("Catalog")
         .response::<200, Json<SearchResponse>>()
-        .response_with::<400, (), _>(|r| r.description("Empty or overlong search query"))
+        .response_with::<400, ErrorJson, _>(|r| r.description("Empty or overlong search query"))
 }
 
 /// Shared query params for the listener/top-track sections.
@@ -157,7 +157,7 @@ pub fn _artist_top_tracks_doc(op: TransformOperation) -> TransformOperation {
         )
         .tag("Catalog")
         .response::<200, Json<Vec<TopTrack>>>()
-        .response_with::<404, (), _>(|r| r.description("Artist not found"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("Artist not found"))
 }
 
 /// GET /v1/artist/:id/listeners
@@ -178,7 +178,7 @@ pub fn _artist_listeners_doc(op: TransformOperation) -> TransformOperation {
         .description("Returns the users who scrobble this artist the most (public profiles only), ranked by play count.")
         .tag("Catalog")
         .response::<200, Json<Vec<TopListener>>>()
-        .response_with::<404, (), _>(|r| r.description("Artist not found"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("Artist not found"))
 }
 
 /// GET /v1/track/:id/listeners
@@ -199,7 +199,7 @@ pub fn _track_listeners_doc(op: TransformOperation) -> TransformOperation {
         .description("Returns the users who scrobble this track the most (public profiles only), ranked by play count.")
         .tag("Catalog")
         .response::<200, Json<Vec<TopListener>>>()
-        .response_with::<404, (), _>(|r| r.description("Track not found"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("Track not found"))
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -237,8 +237,8 @@ pub fn _refresh_track_doc(op: TransformOperation) -> TransformOperation {
         .description("Queues a forced metadata re-enrichment for the track (MusicBrainz ID, duration). Processed asynchronously by the background worker.")
         .tag("Catalog")
         .response::<202, Json<RefreshResponse>>()
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
-        .response_with::<404, (), _>(|r| r.description("Track not found"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("Track not found"))
 }
 
 /// POST /v1/artist/:id/refresh
@@ -257,8 +257,8 @@ pub fn _refresh_artist_doc(op: TransformOperation) -> TransformOperation {
         .description("Queues a forced metadata re-enrichment for the artist (MusicBrainz ID, image, bio). Overwrites provider-sourced fields; processed asynchronously by the background worker.")
         .tag("Catalog")
         .response::<202, Json<RefreshResponse>>()
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
-        .response_with::<404, (), _>(|r| r.description("Artist not found"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("Artist not found"))
 }
 
 /// POST /v1/album/:id/refresh
@@ -277,8 +277,8 @@ pub fn _refresh_album_doc(op: TransformOperation) -> TransformOperation {
         .description("Queues a forced metadata re-enrichment for the album (MusicBrainz ID, cover art, release date). Overwrites provider-sourced fields; processed asynchronously by the background worker.")
         .tag("Catalog")
         .response::<202, Json<RefreshResponse>>()
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
-        .response_with::<404, (), _>(|r| r.description("Album not found"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("Album not found"))
 }
 
 #[cfg(test)]

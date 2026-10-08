@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use super::UsernamePath;
 use crate::{
-    errors::{ApiResult, AppError},
+    errors::{ApiResult, AppError, ErrorJson},
     middleware::auth::AuthUser,
     state::AppState,
 };
@@ -49,8 +49,8 @@ pub fn _get_profile_doc(op: TransformOperation) -> TransformOperation {
         .description("Returns the public profile for a user. If the viewer is authenticated, also includes `is_following`. Private profiles return 403 to non-owners.")
         .tag("Users")
         .response::<200, Json<ProfileResponse>>()
-        .response_with::<403, (), _>(|r| r.description("Profile is private"))
-        .response_with::<404, (), _>(|r| r.description("User not found"))
+        .response_with::<403, ErrorJson, _>(|r| r.description("Profile is private"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("User not found"))
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -79,7 +79,7 @@ pub fn _get_own_profile_doc(op: TransformOperation) -> TransformOperation {
         .description("Alias for fetching the authenticated user's own profile, regardless of privacy settings.")
         .tag("Users")
         .response::<200, Json<ProfileResponse>>()
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
 }
 
 /// Omitted fields are left unchanged; sending an empty string clears the
@@ -160,8 +160,8 @@ pub fn _update_settings_doc(op: TransformOperation) -> TransformOperation {
         .description("Updates the authenticated user's own profile: display name (at most 40 characters, the registration rules), bio (1000), avatar URL and privacy. Omitted fields are unchanged; an empty string clears the field.")
         .tag("Users")
         .response::<200, Json<UserProfile>>()
-        .response_with::<400, (), _>(|r| r.description("Invalid field value"))
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
+        .response_with::<400, ErrorJson, _>(|r| r.description("Invalid field value"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
 }
 
 /// GET /v1/user/:username/friends
@@ -200,8 +200,8 @@ pub fn _get_friends_doc(op: TransformOperation) -> TransformOperation {
         .description("Returns both the follower list and the following list for a given user.")
         .tag("Users")
         .response::<200, Json<FriendsResponse>>()
-        .response_with::<403, (), _>(|r| r.description("Profile is private"))
-        .response_with::<404, (), _>(|r| r.description("User not found"))
+        .response_with::<403, ErrorJson, _>(|r| r.description("Profile is private"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("User not found"))
 }
 
 /// POST /v1/user/:username/follow
@@ -227,9 +227,9 @@ pub fn _follow_doc(op: TransformOperation) -> TransformOperation {
         .description("Follows the specified user on behalf of the authenticated user. Returns 400 if attempting to follow yourself.")
         .tag("Users")
         .response_with::<204, (), _>(|r| r.description("Successfully followed"))
-        .response_with::<400, (), _>(|r| r.description("Cannot follow yourself"))
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
-        .response_with::<404, (), _>(|r| r.description("Target user not found"))
+        .response_with::<400, ErrorJson, _>(|r| r.description("Cannot follow yourself"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("Target user not found"))
 }
 
 /// DELETE /v1/user/:username/follow
@@ -255,7 +255,7 @@ pub fn _unfollow_doc(op: TransformOperation) -> TransformOperation {
         .description("Unfollows the specified user on behalf of the authenticated user.")
         .tag("Users")
         .response_with::<204, (), _>(|r| r.description("Successfully unfollowed"))
-        .response_with::<400, (), _>(|r| r.description("Cannot unfollow yourself"))
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
-        .response_with::<404, (), _>(|r| r.description("Target user not found"))
+        .response_with::<400, ErrorJson, _>(|r| r.description("Cannot unfollow yourself"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("Target user not found"))
 }

@@ -11,7 +11,7 @@ use serde::Deserialize;
 
 use super::IdPath;
 use crate::{
-    errors::{ApiResult, AppError},
+    errors::{ApiResult, AppError, ErrorJson},
     handlers::connected_accounts::lastfm_client,
     middleware::auth::AuthUser,
     state::AppState,
@@ -94,11 +94,11 @@ pub fn _start_lastfm_import_doc(op: TransformOperation) -> TransformOperation {
         .description("Queues an import of the scrobble history of the Last.fm account linked through `GET /v1/connect/lastfm` (linking proves the user owns it). The worker runs it in the background; poll `GET /v1/imports/{id}` for progress. Imports are resumable and deduplicated: by default only scrobbles since the last completed import (minus two weeks, for late scrobbles) are fetched, and `full: true` rescans everything without creating duplicates. Scrobbles already sent to Scrobblr live are not imported twice. One import per user at a time, and one a day.")
         .tag("Imports")
         .response::<202, Json<ScrobbleImport>>()
-        .response_with::<400, (), _>(|r| r.description("No Last.fm account connected"))
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
-        .response_with::<409, (), _>(|r| r.description("An import is already running"))
-        .response_with::<429, (), _>(|r| r.description("An import finished less than a day ago"))
-        .response_with::<503, (), _>(|r| r.description("Last.fm isn't configured on this server"))
+        .response_with::<400, ErrorJson, _>(|r| r.description("No Last.fm account connected"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
+        .response_with::<409, ErrorJson, _>(|r| r.description("An import is already running"))
+        .response_with::<429, ErrorJson, _>(|r| r.description("An import finished less than a day ago"))
+        .response_with::<503, ErrorJson, _>(|r| r.description("Last.fm isn't configured on this server"))
 }
 
 /// GET /v1/imports
@@ -121,7 +121,7 @@ pub fn _list_imports_doc(op: TransformOperation) -> TransformOperation {
         )
         .tag("Imports")
         .response::<200, Json<Vec<ScrobbleImport>>>()
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
 }
 
 /// GET /v1/imports/{id}
@@ -141,8 +141,8 @@ pub fn _get_import_doc(op: TransformOperation) -> TransformOperation {
         .description("Progress of one of the authenticated user's imports: scrobbles read against Last.fm's total, how many were new, duplicates and invalid entries skipped, how far back in time it has reached, and why it failed if it did.")
         .tag("Imports")
         .response::<200, Json<ScrobbleImport>>()
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
-        .response_with::<404, (), _>(|r| r.description("No such import for this user"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("No such import for this user"))
 }
 
 /// DELETE /v1/imports/{id}
@@ -163,6 +163,6 @@ pub fn _cancel_import_doc(op: TransformOperation) -> TransformOperation {
         .description("Stops a pending or running import after the page in flight. Scrobbles already imported stay.")
         .tag("Imports")
         .response_with::<204, (), _>(|r| r.description("Cancelled"))
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
-        .response_with::<404, (), _>(|r| r.description("No running import with this id for this user"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("No running import with this id for this user"))
 }

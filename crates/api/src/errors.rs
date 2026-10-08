@@ -4,7 +4,8 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use serde_json::json;
+use schemars::JsonSchema;
+use serde::Serialize;
 use thiserror::Error;
 
 use crate::middleware::auth::Scope;
@@ -128,23 +129,30 @@ impl IntoResponse for AppError {
             }
         };
 
-        (status, Json(json!({ "error": message }))).into_response()
+        (status, Json(ErrorBody { error: message })).into_response()
     }
 }
+
+/// The body of every error the native API answers with.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct ErrorBody {
+    /// What went wrong, for people (not a stable code).
+    pub error: String,
+}
+
+/// An error response, for `response_with::<status, ErrorJson, _>` in docs.
+pub type ErrorJson = Json<ErrorBody>;
 
 impl OperationOutput for AppError {
     type Inner = Self;
 
     fn operation_response(
-        _ctx: &mut aide::generate::GenContext,
-        _operation: &mut aide::openapi::Operation,
+        ctx: &mut aide::generate::GenContext,
+        operation: &mut aide::openapi::Operation,
     ) -> Option<aide::openapi::Response> {
-        Some(aide::openapi::Response {
-            description: Some(
-                "Error response of the API (JSON with format { error: string })".to_string(),
-            )?,
-            ..Default::default()
-        })
+        let mut response = ErrorJson::operation_response(ctx, operation)?;
+        response.description = "An error, as `{ \"error\": message }`".into();
+        Some(response)
     }
 
     fn inferred_responses(

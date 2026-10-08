@@ -4,9 +4,9 @@ use aide::util::iter_operations_mut;
 use aide::{
     axum::{
         ApiRouter, IntoApiResponse,
-        routing::{delete_with, get, get_with, post_with},
+        routing::{delete_with, get_with, post_with},
     },
-    openapi::OpenApi,
+    openapi::{OpenApi, ReferenceOr, SecurityRequirement, StatusCode},
     scalar::Scalar,
 };
 use axum::{Extension, Json, Router, extract::DefaultBodyLimit, middleware};
@@ -20,6 +20,7 @@ use tower_http::{
 
 use crate::{
     compat,
+    errors::ErrorJson,
     handlers::{auth, community, connected_accounts, imports, scrobbles, tracks, uploads, users},
     middleware::{
         app_signature::require_app_signature,
@@ -386,6 +387,15 @@ pub fn build(state: AppState) -> Router {
                 scrobbles::_activity_heatmap_doc,
             ),
         )
+        .with_path_items(|mut item| {
+            for (_, op) in iter_operations_mut(item.inner_mut()) {
+                op.security = vec![
+                    SecurityRequirement::default(),
+                    [(BEARER.to_string(), vec![])].into_iter().collect(),
+                ];
+            }
+            item
+        })
         .layer(middleware::from_fn_with_state(state.clone(), optional_auth));
 
     let mut api = OpenApi::default();
@@ -393,7 +403,7 @@ pub fn build(state: AppState) -> Router {
     // Static serving of uploaded images (not part of the OpenAPI surface).
     let uploads_service = ServeDir::new(&state.uploads.dir);
 
-    ApiRouter::new()
+    let router = ApiRouter::new()
         .route("/docs", Scalar::new("/api.json").axum_route())
         .merge(authed(
             &state,
@@ -419,14 +429,40 @@ pub fn build(state: AppState) -> Router {
                 .allow_headers(Any)
                 .allow_methods(Any),
         )
-        .route("/api.json", get(serve_api))
-        .finish_api_with(&mut api, api_docs)
-        .layer(Extension(Arc::new(api)))
-        .with_state(state)
+        .route("/api.json", axum::routing::get(serve_api))
+        .finish_api_with(&mut api, api_docs);
+    document_rate_limit(&mut api);
+    router.layer(Extension(Arc::new(api))).with_state(state)
+}
+
+const BEARER: &str = "bearer";
+
+/// The global per-address limit can answer 429 to anything.
+fn document_rate_limit(api: &mut OpenApi) {
+    let Some(paths) = &mut api.paths else { return };
+    for (_, item) in paths.paths.iter_mut() {
+        let ReferenceOr::Item(item) = item else {
+            continue;
+        };
+        for (_, op) in iter_operations_mut(item) {
+            let has_429 = op
+                .responses
+                .as_ref()
+                .is_some_and(|r| r.responses.contains_key(&StatusCode::Code(429)));
+            if !has_429 {
+                let _ = TransformOperation::new(op).response_with::<429, ErrorJson, _>(|r| {
+                    r.description("Over 60 requests a minute from this address")
+                });
+            }
+            if let Some(responses) = &mut op.responses {
+                responses.responses.sort_keys();
+            }
+        }
+    }
 }
 
 /// Puts `routes` behind [`require_auth`] with `access`, and documents the
-/// 403 a credential without it gets.
+/// credential they take, and the 401 and 403 a request without it gets.
 fn authed(state: &AppState, access: Access, routes: ApiRouter<AppState>) -> ApiRouter<AppState> {
     let denied = match access {
         Access::Any => None,
@@ -437,13 +473,14 @@ fn authed(state: &AppState, access: Access, routes: ApiRouter<AppState>) -> ApiR
     };
     routes
         .with_path_items(|mut item| {
-            if let Some(denied) = &denied {
-                for (_, op) in iter_operations_mut(item.inner_mut()) {
-                    let _ = TransformOperation::new(op)
-                        .response_with::<403, (), _>(|r| r.description(denied));
-                    if let Some(responses) = &mut op.responses {
-                        responses.responses.sort_keys();
-                    }
+            for (_, op) in iter_operations_mut(item.inner_mut()) {
+                let op = TransformOperation::new(op)
+                    .security_requirement(BEARER)
+                    .response_with::<401, ErrorJson, _>(|r| {
+                        r.description("No credential, or an invalid or expired one")
+                    });
+                if let Some(denied) = &denied {
+                    let _ = op.response_with::<403, ErrorJson, _>(|r| r.description(denied));
                 }
             }
             item
@@ -463,11 +500,16 @@ fn api_docs(api: TransformOpenApi) -> TransformOpenApi {
         .version(env!("CARGO_PKG_VERSION"))
         .description("The API of Scrobblr, a self-hosted music scrobbling service.")
         .security_scheme(
-            "ApiKey",
-            aide::openapi::SecurityScheme::ApiKey {
-                location: aide::openapi::ApiKeyLocation::Header,
-                name: "X-Auth-Key".into(),
-                description: Some("A key that is ignored.".into()),
+            BEARER,
+            aide::openapi::SecurityScheme::Http {
+                scheme: "bearer".into(),
+                bearer_format: Some("session token or API token".into()),
+                description: Some(
+                    "`Authorization: Bearer {token}`: a session token from login or \
+                     registration (may do anything), or an API token (only what its scopes \
+                     allow, and nothing that takes a session)."
+                        .into(),
+                ),
                 extensions: Default::default(),
             },
         )

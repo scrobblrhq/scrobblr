@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use super::UuidPath;
 use crate::{
-    errors::{ApiResult, AppError},
+    errors::{ApiResult, AppError, ErrorJson},
     limits,
     middleware::auth::{AuthUser, Credential, Scope},
     middleware::rate_limit::ClientIp,
@@ -131,9 +131,9 @@ pub fn _register_doc(op: TransformOperation) -> TransformOperation {
         .description("Creates a new user account and returns a session token. Usernames are 2-30 characters of ASCII letters, digits and the separators `_ - .`, starting and ending alphanumeric. Passwords are 12-128 characters combining at least three of lowercase, uppercase, digits and symbols, and may not contain the username or email.")
         .tag("Auth")
         .response::<201, Json<AuthResponse>>()
-        .response_with::<400, (), _>(|r| r.description("Validation error on username, email, password or display name"))
-        .response_with::<401, (), _>(|r| r.description("Missing or invalid first-party app signature"))
-        .response_with::<409, (), _>(|r| r.description("Username or email already taken"))
+        .response_with::<400, ErrorJson, _>(|r| r.description("Validation error on username, email, password or display name"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Missing or invalid first-party app signature"))
+        .response_with::<409, ErrorJson, _>(|r| r.description("Username or email already taken"))
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -209,8 +209,8 @@ pub fn _login_doc(op: TransformOperation) -> TransformOperation {
         .description("Authenticates a user with username and password. Returns a session token to be used as `Bearer` in the `Authorization` header. Attempts are limited per address and per username, together with the scrobbler APIs' password logins; a success resets the username's count.")
         .tag("Auth")
         .response::<200, Json<AuthResponse>>()
-        .response_with::<401, (), _>(|r| r.description("Invalid credentials, or missing/invalid first-party app signature"))
-        .response_with::<429, (), _>(|r| r.description("More than 20 attempts from this address or 10 for this username in 15 minutes"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Invalid credentials, or missing/invalid first-party app signature"))
+        .response_with::<429, ErrorJson, _>(|r| r.description("More than 20 attempts from this address or 10 for this username in 15 minutes"))
 }
 
 /// POST /v1/logout
@@ -240,7 +240,7 @@ pub fn _logout_doc(op: TransformOperation) -> TransformOperation {
         .description("Invalidates all active sessions for the authenticated user (logout from all devices). Requires a valid session token.")
         .tag("Auth")
         .response_with::<204, (), _>(|r| r.description("Successfully logged out"))
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -359,8 +359,8 @@ pub fn _create_api_token_doc(op: TransformOperation) -> TransformOperation {
         .description("Generates a new long-lived API token for programmatic access (e.g. scrobbling from a music player). The raw token is only shown once — store it securely. `scopes` (default `[\"scrobble\"]`) says what it may do, and scopes don't imply one another: `scrobble` submits scrobbles and now playing, `read` reads the account's own data (profile, imports, connected accounts), and `write` changes the account and posts as it (profile, follows, comments, votes, uploads, imports, catalog refreshes). `expires_days`, 1 to 3650 (ten years), sets when it expires; without it, it never does. Only a session can create, list all or revoke tokens, log out, manage scrobbler credentials and connect accounts.")
         .tag("Auth")
         .response::<201, Json<CreateTokenResponse>>()
-        .response_with::<400, (), _>(|r| r.description("A name that's empty or over 100 characters, an unknown scope or none, or `expires_days` outside 1 to 3650"))
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
+        .response_with::<400, ErrorJson, _>(|r| r.description("A name that's empty or over 100 characters, an unknown scope or none, or `expires_days` outside 1 to 3650"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
 }
 
 /// GET /v1/auth/tokens
@@ -381,7 +381,8 @@ pub fn _list_api_tokens_doc(op: TransformOperation) -> TransformOperation {
     op.summary("List API tokens")
         .description("With a session, returns every API token of the authenticated user; with an API token, only that token, so a client can check the token it was given (its scopes and expiry). The raw token value is never returned here — only metadata.")
         .tag("Auth")
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
+        .response::<200, Json<Vec<shared::models::ApiToken>>>()
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
 }
 
 /// DELETE /v1/auth/tokens/:token_id
@@ -403,8 +404,8 @@ pub fn _delete_api_token_doc(op: TransformOperation) -> TransformOperation {
         .description("Permanently deletes an API token by its ID. Only the owner of the token can revoke it.")
         .tag("Auth")
         .response_with::<204, (), _>(|r| r.description("Token successfully revoked"))
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
-        .response_with::<404, (), _>(|r| r.description("Token not found or not owned by the authenticated user"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("Token not found or not owned by the authenticated user"))
 }
 
 #[cfg(test)]

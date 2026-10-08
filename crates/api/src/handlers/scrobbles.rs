@@ -1,6 +1,6 @@
 use super::UsernamePath;
 use crate::{
-    errors::{ApiResult, AppError},
+    errors::{ApiResult, AppError, ErrorJson},
     limits,
     middleware::auth::AuthUser,
     state::AppState,
@@ -22,6 +22,7 @@ use fred::interfaces::PubsubInterface;
 use futures_util::stream::{self, Stream, StreamExt};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use shared::models::{ActivityDay, NowPlayingRich, ScrobbleRich, TopArtist, TopTrack};
 use shared::scrobble::{ScrobbleInput, plausible_duration_ms};
 use std::convert::Infallible;
 
@@ -120,9 +121,9 @@ pub fn _scrobble_doc(op: TransformOperation) -> TransformOperation {
         .description("Records a track listen for the authenticated user. Validates scrobble rules (e.g. minimum listen duration), deduplicates the same track within 30 seconds of another of the user's scrobbles, and refuses plays more than 30 days old (import older history instead). Each account may record `SCROBBLER_DAILY_LIMIT` scrobbles (default 3000) per UTC day, counted together with the scrobbler-compatible APIs.")
         .tag("Scrobbling")
         .response::<201, Json<ScrobbleResponse>>()
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
-        .response_with::<422, (), _>(|r| r.description("Invalid scrobble: failed validation, a duplicate, or more than 30 days old"))
-        .response_with::<429, (), _>(|r| r.description("The account's daily scrobble limit is reached; retry after midnight UTC"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
+        .response_with::<422, ErrorJson, _>(|r| r.description("Invalid scrobble: failed validation, a duplicate, or more than 30 days old"))
+        .response_with::<429, ErrorJson, _>(|r| r.description("The account's daily scrobble limit is reached; retry after midnight UTC"))
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -221,7 +222,7 @@ pub fn _update_now_playing_doc(op: TransformOperation) -> TransformOperation {
         .description("Sets the track currently being played by the authenticated user. The state expires automatically when the track duration elapses. Broadcasts the update to all SSE subscribers in real time via Redis.")
         .tag("Scrobbling")
         .response_with::<204, (), _>(|r| r.description("Now playing updated"))
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -254,9 +255,9 @@ pub fn _recent_scrobbles_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Get recent scrobbles")
         .description("Returns the most recent scrobbles for a user, ordered by `played_at` descending. Maximum 200 per request. Supports cursor-based pagination via the `before` timestamp. Returns 403 for private profiles.")
         .tag("Scrobbles")
-        .response_with::<200, (), _>(|r| r.description("List of recent scrobbles"))
-        .response_with::<403, (), _>(|r| r.description("Profile is private"))
-        .response_with::<404, (), _>(|r| r.description("User not found"))
+        .response_with::<200, Json<Vec<ScrobbleRich>>, _>(|r| r.description("Recent scrobbles, newest first"))
+        .response_with::<403, ErrorJson, _>(|r| r.description("Profile is private"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("User not found"))
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -303,9 +304,9 @@ pub fn _top_artists_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Get top artists")
         .description("Returns the most scrobbled artists for a user in a given period. Supported periods: `7days`, `1month`, `3months`, `6months`, `1year`, `overall` (default). Maximum 50 results.")
         .tag("Scrobbles")
-        .response_with::<200, (), _>(|r| r.description("Ranked list of top artists with scrobble counts"))
-        .response_with::<403, (), _>(|r| r.description("Profile is private"))
-        .response_with::<404, (), _>(|r| r.description("User not found"))
+        .response_with::<200, Json<Vec<TopArtist>>, _>(|r| r.description("Ranked list of top artists with scrobble counts"))
+        .response_with::<403, ErrorJson, _>(|r| r.description("Profile is private"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("User not found"))
 }
 
 /// GET /v1/user/:username/top-tracks
@@ -333,9 +334,9 @@ pub fn _top_tracks_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Get top tracks")
         .description("Returns the most scrobbled tracks for a user in a given period. Supported periods: `7days`, `1month`, `3months`, `6months`, `1year`, `overall` (default). Maximum 50 results.")
         .tag("Scrobbles")
-        .response_with::<200, (), _>(|r| r.description("Ranked list of top tracks with scrobble counts"))
-        .response_with::<403, (), _>(|r| r.description("Profile is private"))
-        .response_with::<404, (), _>(|r| r.description("User not found"))
+        .response_with::<200, Json<Vec<TopTrack>>, _>(|r| r.description("Ranked list of top tracks with scrobble counts"))
+        .response_with::<403, ErrorJson, _>(|r| r.description("Profile is private"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("User not found"))
 }
 
 /// GET /v1/user/:username/heatmap
@@ -358,11 +359,24 @@ pub async fn activity_heatmap(
 
 pub fn _activity_heatmap_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Get activity heatmap")
-        .description("Returns daily scrobble counts for the past 365 days, suitable for rendering a GitHub-style activity heatmap. Each entry contains a date and a listen count.")
+        .description("Returns daily scrobble counts for the past 365 days, suitable for rendering a GitHub-style activity heatmap. Each entry contains a day (UTC midnight) and a scrobble count; days without scrobbles are left out.")
         .tag("Scrobbles")
-        .response_with::<200, (), _>(|r| r.description("Array of { date, count } objects for the past year"))
-        .response_with::<403, (), _>(|r| r.description("Profile is private"))
-        .response_with::<404, (), _>(|r| r.description("User not found"))
+        .response_with::<200, Json<Vec<ActivityDay>>, _>(|r| r.description("Days with scrobbles in the past year, oldest first"))
+        .response_with::<403, ErrorJson, _>(|r| r.description("Profile is private"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("User not found"))
+}
+
+/// Documents a 200 declared as JSON as the event stream that carries it.
+fn event_stream(mut op: TransformOperation) -> TransformOperation {
+    if let Some(responses) = &mut op.inner_mut().responses
+        && let Some(aide::openapi::ReferenceOr::Item(ok)) = responses
+            .responses
+            .get_mut(&aide::openapi::StatusCode::Code(200))
+        && let Some(json) = ok.content.shift_remove("application/json")
+    {
+        ok.content.insert("text/event-stream".into(), json);
+    }
+    op
 }
 
 pub struct SseStream<S>(Sse<S>);
@@ -413,17 +427,18 @@ pub async fn live_now_playing(
 pub fn _live_now_playing_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Live now playing (SSE)")
         .description(
-            "Server-Sent Events stream that pushes real-time now-playing updates for a user. \
-             Emits the current state immediately on connect, then sends an event on every change. \
-             Sends `null` when the user stops listening. \
-             The connection is kept alive automatically via SSE keep-alive.",
+            "Server-Sent Events stream of a user's now playing. The first event is the current \
+             state (`null` when nothing is playing), then one per update, each a JSON \
+             `NowPlayingRich`. An entry that expires sends no event: compare `expires_at` with \
+             the clock. The connection is kept alive with SSE comments.",
         )
         .tag("Scrobbles")
-        .response_with::<200, (), _>(|r| {
-            r.description("SSE stream — content-type: text/event-stream")
+        .response_with::<200, Json<Option<NowPlayingRich>>, _>(|r| {
+            r.description("`text/event-stream`; each event's data is the JSON shown")
         })
-        .response_with::<403, (), _>(|r| r.description("Profile is private"))
-        .response_with::<404, (), _>(|r| r.description("User not found"))
+        .with(event_stream)
+        .response_with::<403, ErrorJson, _>(|r| r.description("Profile is private"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("User not found"))
 }
 
 #[cfg(test)]

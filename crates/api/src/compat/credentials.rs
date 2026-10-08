@@ -16,7 +16,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 
 use crate::{
-    errors::{ApiResult, AppError},
+    errors::{ApiResult, AppError, ErrorJson},
     middleware::auth::AuthUser,
     state::AppState,
 };
@@ -71,7 +71,7 @@ pub fn _list_credentials_doc(op: TransformOperation) -> TransformOperation {
         .description("The tokens the user made for third-party scrobblers and the Last.fm sessions clients obtained with them or by logging in. Secrets are never returned.")
         .tag("Scrobblers")
         .response::<200, Json<Vec<ScrobblerCredential>>>()
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -105,8 +105,8 @@ pub fn _create_token_doc(op: TransformOperation) -> TransformOperation {
         .description("A secret to paste into a third-party scrobbler: the user token of a ListenBrainz client, the password of an Audioscrobbler 1.2 client, or the password of a Last.fm-API client (instead of the account password). It can scrobble and nothing else, and is shown only in this response. `legacy_auth` is false when the server has no TOKEN_ENCRYPTION_KEY, which Audioscrobbler 1.2 needs.")
         .tag("Scrobblers")
         .response::<201, Json<CreatedScrobblerToken>>()
-        .response_with::<400, (), _>(|r| r.description("Missing or overlong name"))
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
+        .response_with::<400, ErrorJson, _>(|r| r.description("Missing or overlong name"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
 }
 
 /// DELETE /v1/scrobbler/credentials/{id}
@@ -127,8 +127,8 @@ pub fn _delete_credential_doc(op: TransformOperation) -> TransformOperation {
         .description("Clients using it are signed out at once, including Audioscrobbler 1.2 sessions it opened.")
         .tag("Scrobblers")
         .response_with::<204, (), _>(|r| r.description("Revoked"))
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
-        .response_with::<404, (), _>(|r| r.description("No such credential of this user"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("No such credential of this user"))
 }
 
 /// GET /v1/scrobbler/authorizations/{token}
@@ -158,8 +158,8 @@ pub fn _get_authorization_doc(op: TransformOperation) -> TransformOperation {
         .description("For the page a Last.fm-API client sends the user to (`/api/auth/?api_key=…&token=…`, forwarded to the web app's `/scrobbler/authorize`): which client asks, and whether the request is still pending.")
         .tag("Scrobblers")
         .response::<200, Json<ScrobblerAuthorization>>()
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
-        .response_with::<404, (), _>(|r| r.description("Unknown token"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("Unknown token"))
 }
 
 /// POST /v1/scrobbler/authorizations/{token}/approve
@@ -188,10 +188,10 @@ pub fn _approve_authorization_doc(op: TransformOperation) -> TransformOperation 
         .description("Lets the Last.fm-API client that holds the token scrobble for the user: its next `auth.getSession` gets a session key. Desktop flow.")
         .tag("Scrobblers")
         .response_with::<204, (), _>(|r| r.description("Approved"))
-        .response_with::<400, (), _>(|r| r.description("The request expired (they last an hour)"))
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
-        .response_with::<404, (), _>(|r| r.description("Unknown token"))
-        .response_with::<409, (), _>(|r| r.description("Approved by another user already"))
+        .response_with::<400, ErrorJson, _>(|r| r.description("The request expired (they last an hour)"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("Unknown token"))
+        .response_with::<409, ErrorJson, _>(|r| r.description("Approved by another user already"))
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -240,6 +240,6 @@ pub fn _authorize_callback_doc(op: TransformOperation) -> TransformOperation {
         .description("For a Last.fm-API client that sent the user with a callback (`/api/auth/?api_key=…&cb=…`): approves it at once and returns the callback URL with the token, which the client trades for a session key with `auth.getSession` within 10 minutes.")
         .tag("Scrobblers")
         .response::<200, Json<ScrobblerAuthorizationRedirect>>()
-        .response_with::<400, (), _>(|r| r.description("Invalid api_key or callback"))
-        .response_with::<401, (), _>(|r| r.description("Not authenticated"))
+        .response_with::<400, ErrorJson, _>(|r| r.description("Invalid api_key or callback"))
+        .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
 }
