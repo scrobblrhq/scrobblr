@@ -115,14 +115,20 @@ URL: see [docs/scrobbler-clients.md](docs/scrobbler-clients.md).
 ```bash
 just fmt        # cargo fmt --all
 just lint       # clippy with -D warnings
-just check      # cargo check --workspace
-just ci         # fmt-check + lint + check + test + build
-just test-db    # database tests (need Postgres; each creates its own database)
-
-cargo test      # also regenerates packages/types from crates/shared (ts-rs)
+just test       # unit tests; also regenerates packages/types from crates/shared (ts-rs)
+just test-db    # database tests (need Postgres and Redis; each creates its own database)
+just ci         # what CI's first job runs: fmt-check, lint, test, types-check
+just ci-db      # what CI's database job runs: migrate DATABASE_URL, test-db, sqlx-check
 ```
 
-SQLx query macros compile against the committed `.sqlx/` cache, so no database is needed to build. After adding or changing a query, run `cargo sqlx prepare --workspace` (requires a live `DATABASE_URL`) and commit the updated cache.
+SQLx query macros compile against the committed `.sqlx/` cache (the justfile
+sets `SQLX_OFFLINE=true`), so no database is needed to build. After adding or
+changing a query, run `just sqlx-prepare` against a migrated `DATABASE_URL`
+and commit the updated cache; CI fails when it is stale.
+
+CI (`.github/workflows/ci.yml`) runs `just ci`, and `just ci-db` against a
+TimescaleDB and a Redis service, on every push to `main` and every pull
+request.
 
 ---
 

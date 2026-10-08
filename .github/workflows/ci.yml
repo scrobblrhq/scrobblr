@@ -1,0 +1,86 @@
+name: CI
+
+# Each job runs one justfile recipe, so a local `just ci` / `just ci-db`
+# checks exactly what CI does.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  # devenv's toolchain, so clippy's lints match local runs. Bump together
+  # with devenv.lock.
+  RUST_TOOLCHAIN: 1.98.1
+
+jobs:
+  checks:
+    name: Format, lint, unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
+      - run: just ci
+
+  database:
+    name: Database tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # The same TimescaleDB and Postgres versions as devenv.
+        image: timescale/timescaledb:2.29.2-pg18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: scrobblr
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/scrobblr
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
+      # The version devenv provides; kept in the cached Cargo bin directory.
+      - name: Install sqlx-cli
+        run: |
+          command -v sqlx >/dev/null || cargo install sqlx-cli --version 0.9.0 --locked \
+            --no-default-features --features rustls,postgres
+      - run: just ci-db
