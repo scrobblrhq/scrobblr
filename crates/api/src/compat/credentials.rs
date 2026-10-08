@@ -3,6 +3,7 @@
 //! a Last.fm-API client sends the user to (`/api/auth/`). Managing them
 //! takes a session (`Access::Session` in `router.rs`), never an API token.
 
+use crate::handlers::{TokenPath, UuidPath};
 use aide::transform::TransformOperation;
 use axum::{
     Json,
@@ -13,7 +14,6 @@ use axum::{
 use chrono::{TimeDelta, Utc};
 use schemars::JsonSchema;
 use serde::Deserialize;
-use uuid::Uuid;
 
 use crate::{
     errors::{ApiResult, AppError},
@@ -113,7 +113,7 @@ pub fn _create_token_doc(op: TransformOperation) -> TransformOperation {
 pub async fn delete_credential(
     State(state): State<AppState>,
     Extension(auth_user): Extension<AuthUser>,
-    Path(id): Path<Uuid>,
+    Path(UuidPath { id }): Path<UuidPath>,
 ) -> ApiResult<StatusCode> {
     if scrobblers_db::delete_credential(&state.db, id, auth_user.id).await? {
         Ok(StatusCode::NO_CONTENT)
@@ -134,7 +134,7 @@ pub fn _delete_credential_doc(op: TransformOperation) -> TransformOperation {
 /// GET /v1/scrobbler/authorizations/{token}
 pub async fn get_authorization(
     State(state): State<AppState>,
-    Path(token): Path<String>,
+    Path(TokenPath { token }): Path<TokenPath>,
 ) -> ApiResult<Json<ScrobblerAuthorization>> {
     let a = scrobblers_db::get_authorization(&state.db, &token)
         .await?
@@ -166,7 +166,7 @@ pub fn _get_authorization_doc(op: TransformOperation) -> TransformOperation {
 pub async fn approve_authorization(
     State(state): State<AppState>,
     Extension(auth_user): Extension<AuthUser>,
-    Path(token): Path<String>,
+    Path(TokenPath { token }): Path<TokenPath>,
 ) -> ApiResult<StatusCode> {
     if scrobblers_db::approve_authorization(&state.db, &token, auth_user.id).await? {
         return Ok(StatusCode::NO_CONTENT);

@@ -1,3 +1,4 @@
+use super::UsernamePath;
 use crate::{
     errors::{ApiResult, AppError},
     limits,
@@ -232,7 +233,7 @@ pub struct RecentQuery {
 /// GET /v1/user/:username/recent
 pub async fn recent_scrobbles(
     State(state): State<AppState>,
-    Path(username): Path<String>,
+    Path(UsernamePath { username }): Path<UsernamePath>,
     Query(q): Query<RecentQuery>,
     auth_user: Option<Extension<AuthUser>>,
 ) -> ApiResult<impl IntoApiResponse> {
@@ -280,7 +281,7 @@ fn period_to_since(period: &str) -> chrono::DateTime<Utc> {
 /// GET /v1/user/:username/top-artists
 pub async fn top_artists(
     State(state): State<AppState>,
-    Path(username): Path<String>,
+    Path(UsernamePath { username }): Path<UsernamePath>,
     Query(q): Query<PeriodQuery>,
     auth_user: Option<Extension<AuthUser>>,
 ) -> ApiResult<impl IntoApiResponse> {
@@ -310,7 +311,7 @@ pub fn _top_artists_doc(op: TransformOperation) -> TransformOperation {
 /// GET /v1/user/:username/top-tracks
 pub async fn top_tracks(
     State(state): State<AppState>,
-    Path(username): Path<String>,
+    Path(UsernamePath { username }): Path<UsernamePath>,
     Query(q): Query<PeriodQuery>,
     auth_user: Option<Extension<AuthUser>>,
 ) -> ApiResult<impl IntoApiResponse> {
@@ -340,7 +341,7 @@ pub fn _top_tracks_doc(op: TransformOperation) -> TransformOperation {
 /// GET /v1/user/:username/heatmap
 pub async fn activity_heatmap(
     State(state): State<AppState>,
-    Path(username): Path<String>,
+    Path(UsernamePath { username }): Path<UsernamePath>,
     auth_user: Option<Extension<AuthUser>>,
 ) -> ApiResult<impl IntoApiResponse> {
     let user = users_db::find_by_username(&state.db, &username)
@@ -381,7 +382,7 @@ impl<S> OperationOutput for SseStream<S> {
 
 pub async fn live_now_playing(
     State(state): State<AppState>,
-    Path(username): Path<String>,
+    Path(UsernamePath { username }): Path<UsernamePath>,
     auth_user: Option<Extension<AuthUser>>,
 ) -> ApiResult<SseStream<impl Stream<Item = Result<Event, Infallible>>>> {
     let user = users_db::find_by_username(&state.db, &username)

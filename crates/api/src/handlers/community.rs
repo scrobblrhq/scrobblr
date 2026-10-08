@@ -14,6 +14,7 @@ use axum::{
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use super::IdPath;
 use crate::{
     errors::{ApiResult, AppError},
     middleware::auth::AuthUser,
@@ -49,7 +50,7 @@ async fn list_images(
 
 pub async fn list_artist_images(
     State(state): State<AppState>,
-    Path(id): Path<i64>,
+    Path(IdPath { id }): Path<IdPath>,
     auth_user: Option<Extension<AuthUser>>,
 ) -> ApiResult<impl IntoApiResponse> {
     list_images(&state, "artist", id, auth_user.map(|Extension(a)| a.id)).await
@@ -65,7 +66,7 @@ pub fn _list_artist_images_doc(op: TransformOperation) -> TransformOperation {
 
 pub async fn list_album_images(
     State(state): State<AppState>,
-    Path(id): Path<i64>,
+    Path(IdPath { id }): Path<IdPath>,
     auth_user: Option<Extension<AuthUser>>,
 ) -> ApiResult<impl IntoApiResponse> {
     list_images(&state, "album", id, auth_user.map(|Extension(a)| a.id)).await
@@ -83,7 +84,7 @@ pub fn _list_album_images_doc(op: TransformOperation) -> TransformOperation {
 pub async fn vote_image(
     State(state): State<AppState>,
     Extension(auth_user): Extension<AuthUser>,
-    Path(candidate_id): Path<i64>,
+    Path(IdPath { id: candidate_id }): Path<IdPath>,
 ) -> ApiResult<impl IntoApiResponse> {
     let (entity_type, entity_id) = community_db::candidate_entity(&state.db, candidate_id)
         .await?
@@ -109,7 +110,7 @@ pub fn _vote_image_doc(op: TransformOperation) -> TransformOperation {
 pub async fn unvote_image(
     State(state): State<AppState>,
     Extension(auth_user): Extension<AuthUser>,
-    Path(candidate_id): Path<i64>,
+    Path(IdPath { id: candidate_id }): Path<IdPath>,
 ) -> ApiResult<impl IntoApiResponse> {
     let (entity_type, entity_id) = community_db::candidate_entity(&state.db, candidate_id)
         .await?
@@ -183,7 +184,7 @@ async fn create_comment(
 
 pub async fn list_artist_comments(
     State(state): State<AppState>,
-    Path(id): Path<i64>,
+    Path(IdPath { id }): Path<IdPath>,
 ) -> ApiResult<impl IntoApiResponse> {
     list_comments(&state, "artist", id).await
 }
@@ -199,7 +200,7 @@ pub fn _list_artist_comments_doc(op: TransformOperation) -> TransformOperation {
 pub async fn add_artist_comment(
     State(state): State<AppState>,
     Extension(auth_user): Extension<AuthUser>,
-    Path(id): Path<i64>,
+    Path(IdPath { id }): Path<IdPath>,
     Json(body): Json<NewCommentRequest>,
 ) -> ApiResult<impl IntoApiResponse> {
     create_comment(&state, "artist", id, auth_user.id, body.body).await
@@ -217,7 +218,7 @@ pub fn _add_artist_comment_doc(op: TransformOperation) -> TransformOperation {
 
 pub async fn list_track_comments(
     State(state): State<AppState>,
-    Path(id): Path<i64>,
+    Path(IdPath { id }): Path<IdPath>,
 ) -> ApiResult<impl IntoApiResponse> {
     list_comments(&state, "track", id).await
 }
@@ -233,7 +234,7 @@ pub fn _list_track_comments_doc(op: TransformOperation) -> TransformOperation {
 pub async fn add_track_comment(
     State(state): State<AppState>,
     Extension(auth_user): Extension<AuthUser>,
-    Path(id): Path<i64>,
+    Path(IdPath { id }): Path<IdPath>,
     Json(body): Json<NewCommentRequest>,
 ) -> ApiResult<impl IntoApiResponse> {
     create_comment(&state, "track", id, auth_user.id, body.body).await
@@ -253,7 +254,7 @@ pub fn _add_track_comment_doc(op: TransformOperation) -> TransformOperation {
 pub async fn delete_comment(
     State(state): State<AppState>,
     Extension(auth_user): Extension<AuthUser>,
-    Path(id): Path<i64>,
+    Path(IdPath { id }): Path<IdPath>,
 ) -> ApiResult<impl IntoApiResponse> {
     let deleted = community_db::delete_comment(&state.db, id, auth_user.id).await?;
     if !deleted {

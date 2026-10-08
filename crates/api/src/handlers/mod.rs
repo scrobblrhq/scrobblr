@@ -7,6 +7,36 @@ pub mod tracks;
 pub mod uploads;
 pub mod users;
 
+use schemars::JsonSchema;
+use serde::Deserialize;
+
+/// Path parameters, named so the OpenAPI spec documents them.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct IdPath {
+    pub id: i64,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct UuidPath {
+    pub id: uuid::Uuid,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct UsernamePath {
+    pub username: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ProviderPath {
+    /// `spotify` or `lastfm`.
+    pub provider: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct TokenPath {
+    pub token: String,
+}
+
 /// A page size from the query: `default` when absent, within 1 to `max`.
 pub fn page_limit(requested: Option<i64>, default: i64, max: i64) -> i64 {
     requested.unwrap_or(default).clamp(1, max)

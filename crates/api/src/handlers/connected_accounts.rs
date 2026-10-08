@@ -10,6 +10,7 @@ use fred::types::Expiration;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use super::ProviderPath;
 use crate::{
     errors::{ApiResult, AppError},
     middleware::auth::AuthUser,
@@ -98,7 +99,7 @@ pub struct AuthorizeResponse {
 pub async fn connect_provider(
     State(state): State<AppState>,
     Extension(auth_user): Extension<AuthUser>,
-    Path(provider): Path<String>,
+    Path(ProviderPath { provider }): Path<ProviderPath>,
 ) -> ApiResult<impl IntoApiResponse> {
     ensure_supported_provider(&provider)?;
 
@@ -337,7 +338,7 @@ pub fn _list_connected_accounts_doc(op: TransformOperation) -> TransformOperatio
 pub async fn disconnect(
     State(state): State<AppState>,
     Extension(auth_user): Extension<AuthUser>,
-    Path(provider): Path<String>,
+    Path(ProviderPath { provider }): Path<ProviderPath>,
 ) -> ApiResult<impl IntoApiResponse> {
     ensure_supported_provider(&provider)?;
 

@@ -16,6 +16,7 @@ use axum::{
 };
 use uuid::Uuid;
 
+use super::IdPath;
 use crate::{
     errors::{ApiResult, AppError},
     middleware::auth::AuthUser,
@@ -182,7 +183,7 @@ async fn add_candidate(
 pub async fn upload_artist_image(
     State(state): State<AppState>,
     Extension(auth_user): Extension<AuthUser>,
-    Path(id): Path<i64>,
+    Path(IdPath { id }): Path<IdPath>,
     mut multipart: Multipart,
 ) -> ApiResult<impl IntoApiResponse> {
     tracks_db::find_artist_by_id(&state.db, id)
@@ -206,7 +207,7 @@ pub fn _upload_artist_image_doc(op: TransformOperation) -> TransformOperation {
 pub async fn upload_album_image(
     State(state): State<AppState>,
     Extension(auth_user): Extension<AuthUser>,
-    Path(id): Path<i64>,
+    Path(IdPath { id }): Path<IdPath>,
     mut multipart: Multipart,
 ) -> ApiResult<impl IntoApiResponse> {
     tracks_db::find_album_by_id(&state.db, id)

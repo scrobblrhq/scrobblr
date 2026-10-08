@@ -11,6 +11,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use super::UuidPath;
 use crate::{
     errors::{ApiResult, AppError},
     limits,
@@ -387,7 +388,7 @@ pub fn _list_api_tokens_doc(op: TransformOperation) -> TransformOperation {
 pub async fn delete_api_token(
     State(state): State<AppState>,
     Extension(auth_user): Extension<AuthUser>,
-    axum::extract::Path(token_id): axum::extract::Path<Uuid>,
+    axum::extract::Path(UuidPath { id: token_id }): axum::extract::Path<UuidPath>,
 ) -> ApiResult<impl IntoApiResponse> {
     let deleted = auth_db::delete_api_token(&state.db, token_id, auth_user.id).await?;
     if deleted {

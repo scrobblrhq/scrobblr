@@ -8,6 +8,7 @@ use axum::{
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use super::UsernamePath;
 use crate::{
     errors::{ApiResult, AppError},
     middleware::auth::AuthUser,
@@ -26,7 +27,7 @@ pub struct ProfileResponse {
 /// GET /v1/user/:username
 pub async fn get_profile(
     State(state): State<AppState>,
-    Path(username): Path<String>,
+    Path(UsernamePath { username }): Path<UsernamePath>,
     auth_user: Option<Extension<AuthUser>>,
 ) -> ApiResult<impl IntoApiResponse> {
     let user = users_db::find_by_username(&state.db, &username)
@@ -166,7 +167,7 @@ pub fn _update_settings_doc(op: TransformOperation) -> TransformOperation {
 /// GET /v1/user/:username/friends
 pub async fn get_friends(
     State(state): State<AppState>,
-    Path(username): Path<String>,
+    Path(UsernamePath { username }): Path<UsernamePath>,
     auth_user: Option<Extension<AuthUser>>,
 ) -> ApiResult<impl IntoApiResponse> {
     let user = users_db::find_by_username(&state.db, &username)
@@ -207,7 +208,7 @@ pub fn _get_friends_doc(op: TransformOperation) -> TransformOperation {
 pub async fn follow(
     State(state): State<AppState>,
     Extension(auth_user): Extension<AuthUser>,
-    Path(username): Path<String>,
+    Path(UsernamePath { username }): Path<UsernamePath>,
 ) -> ApiResult<StatusCode> {
     let target = users_db::find_by_username(&state.db, &username)
         .await?
@@ -235,7 +236,7 @@ pub fn _follow_doc(op: TransformOperation) -> TransformOperation {
 pub async fn unfollow(
     State(state): State<AppState>,
     Extension(auth_user): Extension<AuthUser>,
-    Path(username): Path<String>,
+    Path(UsernamePath { username }): Path<UsernamePath>,
 ) -> ApiResult<StatusCode> {
     let target = users_db::find_by_username(&state.db, &username)
         .await?

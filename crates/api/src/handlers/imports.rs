@@ -9,6 +9,7 @@ use chrono::{TimeDelta, Utc};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
+use super::IdPath;
 use crate::{
     errors::{ApiResult, AppError},
     handlers::connected_accounts::lastfm_client,
@@ -127,7 +128,7 @@ pub fn _list_imports_doc(op: TransformOperation) -> TransformOperation {
 pub async fn get_import(
     State(state): State<AppState>,
     Extension(auth_user): Extension<AuthUser>,
-    Path(id): Path<i64>,
+    Path(IdPath { id }): Path<IdPath>,
 ) -> ApiResult<impl IntoApiResponse> {
     let import = imports_db::get(&state.db, id, Some(auth_user.id))
         .await?
@@ -148,7 +149,7 @@ pub fn _get_import_doc(op: TransformOperation) -> TransformOperation {
 pub async fn cancel_import(
     State(state): State<AppState>,
     Extension(auth_user): Extension<AuthUser>,
-    Path(id): Path<i64>,
+    Path(IdPath { id }): Path<IdPath>,
 ) -> ApiResult<impl IntoApiResponse> {
     if imports_db::cancel(&state.db, id, Some(auth_user.id)).await? {
         Ok(StatusCode::NO_CONTENT)

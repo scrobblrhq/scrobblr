@@ -1,3 +1,4 @@
+use super::IdPath;
 use aide::axum::IntoApiResponse;
 use aide::transform::TransformOperation;
 use axum::{
@@ -18,7 +19,7 @@ use shared::models::{Artist, TopListener, TopTrack, Track, TrackWithCredits, Use
 /// GET /v1/track/:id
 pub async fn get_track(
     State(state): State<AppState>,
-    Path(id): Path<i64>,
+    Path(IdPath { id }): Path<IdPath>,
 ) -> ApiResult<Json<TrackWithCredits>> {
     let track = tracks_db::find_track_by_id(&state.db, id)
         .await?
@@ -39,7 +40,7 @@ pub fn _get_track_doc(op: TransformOperation) -> TransformOperation {
 /// GET /v1/artist/:id
 pub async fn get_artist(
     State(state): State<AppState>,
-    Path(id): Path<i64>,
+    Path(IdPath { id }): Path<IdPath>,
 ) -> ApiResult<Json<Artist>> {
     tracks_db::find_artist_by_id(&state.db, id)
         .await?
@@ -139,7 +140,7 @@ fn section_limit(q: &SectionQuery) -> i64 {
 /// GET /v1/artist/:id/top-tracks
 pub async fn artist_top_tracks(
     State(state): State<AppState>,
-    Path(id): Path<i64>,
+    Path(IdPath { id }): Path<IdPath>,
     Query(q): Query<SectionQuery>,
 ) -> ApiResult<Json<Vec<TopTrack>>> {
     tracks_db::find_artist_by_id(&state.db, id)
@@ -162,7 +163,7 @@ pub fn _artist_top_tracks_doc(op: TransformOperation) -> TransformOperation {
 /// GET /v1/artist/:id/listeners
 pub async fn artist_listeners(
     State(state): State<AppState>,
-    Path(id): Path<i64>,
+    Path(IdPath { id }): Path<IdPath>,
     Query(q): Query<SectionQuery>,
 ) -> ApiResult<Json<Vec<TopListener>>> {
     tracks_db::find_artist_by_id(&state.db, id)
@@ -183,7 +184,7 @@ pub fn _artist_listeners_doc(op: TransformOperation) -> TransformOperation {
 /// GET /v1/track/:id/listeners
 pub async fn track_listeners(
     State(state): State<AppState>,
-    Path(id): Path<i64>,
+    Path(IdPath { id }): Path<IdPath>,
     Query(q): Query<SectionQuery>,
 ) -> ApiResult<Json<Vec<TopListener>>> {
     tracks_db::find_track_by_id(&state.db, id)
@@ -223,7 +224,7 @@ async fn queue_refresh(
 /// POST /v1/track/:id/refresh
 pub async fn refresh_track(
     State(state): State<AppState>,
-    Path(id): Path<i64>,
+    Path(IdPath { id }): Path<IdPath>,
 ) -> ApiResult<impl IntoApiResponse> {
     tracks_db::find_track_by_id(&state.db, id)
         .await?
@@ -243,7 +244,7 @@ pub fn _refresh_track_doc(op: TransformOperation) -> TransformOperation {
 /// POST /v1/artist/:id/refresh
 pub async fn refresh_artist(
     State(state): State<AppState>,
-    Path(id): Path<i64>,
+    Path(IdPath { id }): Path<IdPath>,
 ) -> ApiResult<impl IntoApiResponse> {
     tracks_db::find_artist_by_id(&state.db, id)
         .await?
@@ -263,7 +264,7 @@ pub fn _refresh_artist_doc(op: TransformOperation) -> TransformOperation {
 /// POST /v1/album/:id/refresh
 pub async fn refresh_album(
     State(state): State<AppState>,
-    Path(id): Path<i64>,
+    Path(IdPath { id }): Path<IdPath>,
 ) -> ApiResult<impl IntoApiResponse> {
     tracks_db::find_album_by_id(&state.db, id)
         .await?
