@@ -212,13 +212,17 @@ async fn connect_redis() -> Option<fred::clients::Client> {
         tracing::info!("worker: REDIS_URL not set — now-playing won't refresh after enrichment");
         return None;
     };
-    let config = match fred::types::config::Config::from_url(&url) {
+    let mut config = match fred::types::config::Config::from_url(&url) {
         Ok(config) => config,
         Err(e) => {
             tracing::warn!("worker: invalid REDIS_URL, now-playing won't refresh live: {e}");
             return None;
         }
     };
+    // Unlike one inside REDIS_URL, it may hold any character.
+    if let Some(password) = non_empty_env("REDIS_PASSWORD") {
+        config.password = Some(password);
+    }
     let mut builder = RedisBuilder::from_config(config);
     builder
         .set_policy(fred::types::config::ReconnectPolicy::new_exponential(

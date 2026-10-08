@@ -65,7 +65,12 @@ async fn main() -> anyhow::Result<()> {
 
     // Redis
     tracing::info!("connecting to redis...");
-    let redis_builder = redis_builder(fred::types::config::Config::from_url(&redis_url)?);
+    let mut redis_config = fred::types::config::Config::from_url(&redis_url)?;
+    // Unlike one inside REDIS_URL, it may hold any character.
+    if let Some(password) = non_empty_env("REDIS_PASSWORD") {
+        redis_config.password = Some(password);
+    }
+    let redis_builder = redis_builder(redis_config);
     let redis = redis_builder.build()?;
     redis.init().await?;
     let live = std::sync::Arc::new(live::LiveHub::default());
