@@ -30,9 +30,11 @@ just sqlx-prepare         # refresh .sqlx/ after a query change (needs a migrate
 just ci                   # CI's first job: fmt-check, lint, test, types-check (stale TS bindings fail)
 just ci-db                # CI's database job: migrate DATABASE_URL, test-db, sqlx-check (stale .sqlx/ fails)
 
-# JS side (bun is the package manager; biome for lint/format)
+just build                # release build of api and worker
+
+# packages/types (bun is the package manager; biome for lint/format)
 bun install
-turbo run build           # per-package build tasks (crates have package.json wrappers)
+cd packages/types && bun run build
 ```
 
 The justfile exports `SQLX_OFFLINE=true`, so every recipe compiles against the committed `.sqlx/` cache, never the local database's schema (the dev database may lag the migrations). Point `DATABASE_URL` at a scratch database when running `ci-db` or `sqlx-prepare`: `migrate` applies the migrations to it.

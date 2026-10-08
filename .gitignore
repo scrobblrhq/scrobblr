@@ -45,9 +45,6 @@ devenv.local.yaml
 # pre-commit
 .pre-commit-config.yaml
 
-# turbo
-.turbo
-
 # user-uploaded images (avatars, community art)
 uploads/
 .claude/settings.json

@@ -48,9 +48,9 @@ sqlx-prepare:
 sqlx-check:
     SQLX_OFFLINE=false cargo sqlx prepare --workspace --check
 
-# build
+# release build of both binaries
 build:
-    turbo run build
+    cargo build --release -p api -p worker
 
 # CI's first job: everything that needs no services
 ci: fmt-check lint test types-check

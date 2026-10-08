@@ -25,7 +25,7 @@ scrobblr/
 └── .env.example
 ```
 
-**Stack:** Rust · Axum 0.8 · SQLx 0.8 · PostgreSQL + TimescaleDB · Redis (fred) · Bun + Turbo + Biome (JS tooling for the types package)
+**Stack:** Rust · Axum 0.8 · SQLx 0.8 · PostgreSQL + TimescaleDB · Redis (fred) · Bun + Biome (JS tooling for the types package)
 
 ---
 

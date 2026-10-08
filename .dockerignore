@@ -6,7 +6,6 @@
 .claude
 .devenv*
 .direnv
-.turbo
 
 # JS / mobile side — not part of the Rust build
 node_modules

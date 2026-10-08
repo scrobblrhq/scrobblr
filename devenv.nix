@@ -7,7 +7,6 @@
     pkg-config
     openssl
     sqlx-cli
-    turbo
     biome
     just
   ];
