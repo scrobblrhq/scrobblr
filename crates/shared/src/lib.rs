@@ -2,6 +2,7 @@ pub mod classification;
 pub mod crypto;
 pub mod import;
 pub mod lastfm;
+pub mod media;
 pub mod models;
 pub mod scrobble;
 pub mod spotify;

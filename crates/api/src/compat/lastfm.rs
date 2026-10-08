@@ -664,7 +664,8 @@ fn profile_url(state: &AppState, username: &str) -> String {
 }
 
 fn images(url: Option<&str>) -> (String, Value) {
-    let url = url.unwrap_or_default();
+    let url = url.map(shared::media::public_url).unwrap_or_default();
+    let url = url.as_ref();
     let sizes = ["small", "medium", "large", "extralarge"];
     (
         sizes

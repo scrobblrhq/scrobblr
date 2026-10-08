@@ -15,6 +15,7 @@ pub struct User {
     pub password_hash: String,
     pub display_name: Option<String>,
     pub bio: Option<String>,
+    #[serde(serialize_with = "crate::media::serialize_opt_url")]
     pub image_url: Option<String>,
     pub website_url: Option<String>,
     pub country: Option<String>,
@@ -34,6 +35,7 @@ pub struct UserProfile {
     pub username: String,
     pub display_name: Option<String>,
     pub bio: Option<String>,
+    #[serde(serialize_with = "crate::media::serialize_opt_url")]
     pub image_url: Option<String>,
     pub website_url: Option<String>,
     pub country: Option<String>,
@@ -71,6 +73,7 @@ pub struct Artist {
     pub name: String,
     pub name_normalized: String,
     pub mbid: Option<Uuid>,
+    #[serde(serialize_with = "crate::media::serialize_opt_url")]
     pub image_url: Option<String>,
     pub bio: Option<String>,
     pub scrobble_count: i64,
@@ -87,6 +90,7 @@ pub struct Album {
     pub title: String,
     pub title_normalized: String,
     pub mbid: Option<Uuid>,
+    #[serde(serialize_with = "crate::media::serialize_opt_url")]
     pub image_url: Option<String>,
     pub release_date: Option<chrono::NaiveDate>,
     pub scrobble_count: i64,
@@ -124,6 +128,7 @@ pub enum TrackArtistRole {
 pub struct TrackCredit {
     pub artist_id: i64,
     pub name: String,
+    #[serde(serialize_with = "crate::media::serialize_opt_url")]
     pub image_url: Option<String>,
     pub role: TrackArtistRole,
     pub position: i32,
@@ -166,6 +171,7 @@ pub struct ScrobbleRich {
     pub artist_name: String,
     pub album_id: Option<i64>,
     pub album_title: Option<String>,
+    #[serde(serialize_with = "crate::media::serialize_opt_url")]
     pub album_image: Option<String>,
     pub duration_ms: Option<i32>,
 }
@@ -222,6 +228,7 @@ pub struct ApiToken {
 pub struct TopArtist {
     pub artist_id: i64,
     pub artist_name: String,
+    #[serde(serialize_with = "crate::media::serialize_opt_url")]
     pub image_url: Option<String>,
     pub play_count: i64,
 }
@@ -233,6 +240,7 @@ pub struct TopTrack {
     pub track_title: String,
     pub artist_id: i64,
     pub artist_name: String,
+    #[serde(serialize_with = "crate::media::serialize_opt_url")]
     pub album_image: Option<String>,
     pub play_count: i64,
 }
@@ -245,6 +253,7 @@ pub struct TopListener {
     pub user_id: i64,
     pub username: String,
     pub display_name: Option<String>,
+    #[serde(serialize_with = "crate::media::serialize_opt_url")]
     pub image_url: Option<String>,
     pub play_count: i64,
 }
@@ -262,9 +271,11 @@ pub struct NowPlayingRich {
     pub track_title: String,
     pub artist_name: String,
     pub album_title: Option<String>,
+    #[serde(serialize_with = "crate::media::serialize_opt_url")]
     pub album_image: Option<String>,
     /// Fallback artwork for clients when the album has no cover (tracks have
     /// no artwork of their own — the album cover is the track's image).
+    #[serde(serialize_with = "crate::media::serialize_opt_url")]
     pub artist_image: Option<String>,
     pub started_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
@@ -278,6 +289,7 @@ pub struct NowPlayingRich {
 #[ts(export)]
 pub struct ImageCandidate {
     pub id: i64,
+    #[serde(serialize_with = "crate::media::serialize_url")]
     pub url: String,
     pub uploaded_by: String,
     pub vote_count: i64,
@@ -297,6 +309,7 @@ pub struct Comment {
     pub user_id: i64,
     pub username: String,
     pub display_name: Option<String>,
+    #[serde(serialize_with = "crate::media::serialize_opt_url")]
     pub image_url: Option<String>,
     pub body: String,
     pub created_at: DateTime<Utc>,
@@ -476,4 +489,156 @@ pub struct ScrobblerAuthorization {
 pub struct ScrobblerAuthorizationRedirect {
     pub token: String,
     pub redirect_url: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::Value;
+
+    const KEY: &str = "avatars/ab/abcd.jpg";
+
+    /// Every string in `value`.
+    fn strings(value: &Value) -> Vec<&str> {
+        match value {
+            Value::String(s) => vec![s],
+            Value::Array(items) => items.iter().flat_map(strings).collect(),
+            Value::Object(fields) => fields.values().flat_map(strings).collect(),
+            _ => vec![],
+        }
+    }
+
+    #[test]
+    fn every_image_field_serializes_keys_as_urls() {
+        let now = Utc::now();
+        let image = || Some(KEY.to_owned());
+        let user = User {
+            id: 1,
+            username: "u".into(),
+            email: "u@example.com".into(),
+            password_hash: String::new(),
+            display_name: None,
+            bio: None,
+            image_url: image(),
+            website_url: None,
+            country: None,
+            scrobble_count: 0,
+            is_private: false,
+            is_verified: false,
+            last_seen_at: None,
+            created_at: now,
+            updated_at: now,
+        };
+        let models = [
+            serde_json::to_value(&user).unwrap(),
+            serde_json::to_value(UserProfile::from(user)).unwrap(),
+            serde_json::to_value(Artist {
+                id: 1,
+                name: "a".into(),
+                name_normalized: "a".into(),
+                mbid: None,
+                image_url: image(),
+                bio: None,
+                scrobble_count: 0,
+                listener_count: 0,
+                created_at: now,
+            })
+            .unwrap(),
+            serde_json::to_value(Album {
+                id: 1,
+                artist_id: 1,
+                title: "a".into(),
+                title_normalized: "a".into(),
+                mbid: None,
+                image_url: image(),
+                release_date: None,
+                scrobble_count: 0,
+                created_at: now,
+            })
+            .unwrap(),
+            serde_json::to_value(TrackCredit {
+                artist_id: 1,
+                name: "a".into(),
+                image_url: image(),
+                role: TrackArtistRole::Primary,
+                position: 0,
+            })
+            .unwrap(),
+            serde_json::to_value(ScrobbleRich {
+                id: 1,
+                played_at: now,
+                source: "s".into(),
+                track_id: 1,
+                track_title: "t".into(),
+                artist_id: 1,
+                artist_name: "a".into(),
+                album_id: None,
+                album_title: None,
+                album_image: image(),
+                duration_ms: None,
+            })
+            .unwrap(),
+            serde_json::to_value(TopArtist {
+                artist_id: 1,
+                artist_name: "a".into(),
+                image_url: image(),
+                play_count: 1,
+            })
+            .unwrap(),
+            serde_json::to_value(TopTrack {
+                track_id: 1,
+                track_title: "t".into(),
+                artist_id: 1,
+                artist_name: "a".into(),
+                album_image: image(),
+                play_count: 1,
+            })
+            .unwrap(),
+            serde_json::to_value(TopListener {
+                user_id: 1,
+                username: "u".into(),
+                display_name: None,
+                image_url: image(),
+                play_count: 1,
+            })
+            .unwrap(),
+            serde_json::to_value(NowPlayingRich {
+                track_title: "t".into(),
+                artist_name: "a".into(),
+                album_title: None,
+                album_image: image(),
+                artist_image: image(),
+                started_at: now,
+                expires_at: now,
+                source: "s".into(),
+            })
+            .unwrap(),
+            serde_json::to_value(ImageCandidate {
+                id: 1,
+                url: KEY.into(),
+                uploaded_by: "u".into(),
+                vote_count: 1,
+                has_voted: false,
+                is_default: false,
+                created_at: now,
+            })
+            .unwrap(),
+            serde_json::to_value(Comment {
+                id: 1,
+                user_id: 1,
+                username: "u".into(),
+                display_name: None,
+                image_url: image(),
+                body: "b".into(),
+                created_at: now,
+            })
+            .unwrap(),
+        ];
+        let url = format!("{}/{KEY}", crate::media::public_base());
+        for model in &models {
+            let strings = strings(model);
+            assert!(!strings.contains(&KEY), "bare key in {model}");
+            assert!(strings.contains(&url.as_str()), "no image URL in {model}");
+        }
+    }
 }

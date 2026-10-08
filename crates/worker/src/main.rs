@@ -65,6 +65,8 @@ async fn main() -> anyhow::Result<()> {
     }
 
     db::migrate::ensure_current(&db).await?;
+    // The now playing it re-publishes carries image URLs, built like the API's.
+    shared::media::set_public_url(shared::media::public_url_from_env()?);
 
     // Redis lets the worker re-publish now-playing over the API's SSE channel
     // once it fills an image, so live cards swap the fallback for the cover.

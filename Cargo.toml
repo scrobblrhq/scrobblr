@@ -61,7 +61,7 @@ rand = "0.8"
 hex = "0.4"
 
 # Types
-ts-rs = { version = "12.0.1", features = ["chrono-impl", "uuid-impl"] }
+ts-rs = { version = "12.0.1", features = ["chrono-impl", "uuid-impl", "no-serde-warnings"] }
 
 # Image processing (upload validation / normalization)
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }

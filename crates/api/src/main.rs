@@ -80,6 +80,8 @@ async fn main() -> anyhow::Result<()> {
         );
         "http://localhost:8080".into()
     });
+    shared::media::set_public_url(shared::media::public_url_from_env()?);
+    tracing::info!("uploads served from {}", shared::media::public_base());
     let uploads = std::sync::Arc::new(state::UploadConfig {
         dir: upload_dir,
         public_base_url: public_base_url.trim_end_matches('/').to_string(),
