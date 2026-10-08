@@ -206,12 +206,21 @@ pub struct UpdateProfile<'a> {
     pub is_private: Option<bool>,
 }
 
+/// Returns the updated user and the `image_url` it replaced. The row is
+/// locked first, so concurrent updates each report the image they replaced.
 pub async fn update_profile(
     pool: &PgPool,
     user_id: i64,
     update: &UpdateProfile<'_>,
-) -> Result<User, sqlx::Error> {
-    sqlx::query_as!(
+) -> Result<(User, Option<String>), sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    let previous_image = sqlx::query_scalar!(
+        "SELECT image_url FROM users WHERE id = $1 FOR UPDATE",
+        user_id
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    let user = sqlx::query_as!(
         User,
         r#"
         UPDATE users SET
@@ -234,6 +243,8 @@ pub async fn update_profile(
         update.image_url.flatten(),
         update.is_private,
     )
-    .fetch_one(pool)
-    .await
+    .fetch_one(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok((user, previous_image))
 }

@@ -9,12 +9,22 @@ use aide::{
     openapi::{OpenApi, ReferenceOr, SecurityRequirement, StatusCode},
     scalar::Scalar,
 };
-use axum::{Extension, Json, Router, extract::DefaultBodyLimit, middleware};
+use axum::{
+    Extension, Json, Router,
+    extract::{DefaultBodyLimit, Request},
+    http::{HeaderValue, StatusCode as HttpStatus, header},
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
+};
+use shared::media::UploadKey;
+use std::path::Path;
 use std::sync::Arc;
+use tower::ServiceBuilder;
 use tower_http::{
     compression::CompressionLayer,
     cors::{Any, CorsLayer},
     services::ServeDir,
+    set_header::SetResponseHeaderLayer,
     trace::TraceLayer,
 };
 
@@ -34,6 +44,38 @@ use crate::{
 mod openapi_tests;
 #[cfg(test)]
 mod tests;
+
+/// The upload directory, for when no static server is in front (not part of
+/// the OpenAPI surface). Keys are never reused, so a file never changes.
+fn uploads_service(root: &Path) -> Router {
+    let cache = |response: &Response<_>| {
+        response
+            .status()
+            .is_success()
+            .then(|| HeaderValue::from_static("public, max-age=31536000, immutable"))
+    };
+    Router::new().fallback_service(
+        ServiceBuilder::new()
+            .layer(middleware::from_fn(upload_keys_only))
+            .layer(SetResponseHeaderLayer::overriding(
+                header::CACHE_CONTROL,
+                cache,
+            ))
+            .layer(SetResponseHeaderLayer::overriding(
+                header::X_CONTENT_TYPE_OPTIONS,
+                HeaderValue::from_static("nosniff"),
+            ))
+            .service(ServeDir::new(root)),
+    )
+}
+
+/// Nothing under the root but uploads: no directories, no `.tmp/`.
+async fn upload_keys_only(request: Request, next: Next) -> Response {
+    match UploadKey::parse(request.uri().path().trim_start_matches('/')) {
+        Some(_) => next.run(request).await,
+        None => HttpStatus::NOT_FOUND.into_response(),
+    }
+}
 
 async fn serve_api(Extension(api): Extension<Arc<OpenApi>>) -> impl IntoApiResponse {
     Json(api)
@@ -402,10 +444,7 @@ pub fn build(state: AppState) -> Router {
 
     let mut api = OpenApi::default();
 
-    // Static serving of uploaded images (not part of the OpenAPI surface).
-    let uploads_service = ServeDir::new(&state.uploads.dir);
-
-    let router = ApiRouter::new()
+    let mut router = ApiRouter::new()
         .route("/docs", Scalar::new("/api.json").axum_route())
         .merge(authed(
             &state,
@@ -421,8 +460,11 @@ pub fn build(state: AppState) -> Router {
         .merge(public)
         .merge(optional_authed_users)
         .merge(ApiRouter::from(compat::router()))
-        .layer(middleware::from_fn_with_state(state.clone(), rate_limit))
-        .nest_service("/uploads", uploads_service)
+        .layer(middleware::from_fn_with_state(state.clone(), rate_limit));
+    if let Some(root) = state.media.local_root() {
+        router = router.nest_service("/uploads", uploads_service(root));
+    }
+    let router = router
         .layer(TraceLayer::new_for_http())
         .layer(CompressionLayer::new())
         .layer(

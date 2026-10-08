@@ -20,7 +20,8 @@ use tower::ServiceExt;
 use uuid::Uuid;
 
 use crate::compat::CompatConfig;
-use crate::state::{AppState, UploadConfig};
+use crate::media::{LocalStorage, Media, Storage};
+use crate::state::AppState;
 use db::queries::auth as auth_db;
 
 pub const PASSWORD: &str = "correct horse battery staple 42!";
@@ -35,6 +36,8 @@ pub struct TestApp {
     pub username: String,
     pub session: Uuid,
 }
+
+pub const UPLOADS_URL: &str = "https://media.scrobblr.test";
 
 /// Runs `test` against the full router on a throwaway, migrated database,
 /// dropped afterwards even if the test panics.
@@ -104,13 +107,16 @@ where
         .unwrap()
         .id;
 
+    // Process-wide: every test sets the same value.
+    shared::media::set_public_url(UPLOADS_URL.into());
+    let uploads = std::env::temp_dir().join(name.clone());
     let state = AppState {
         db: pool.clone(),
         redis,
-        uploads: Arc::new(UploadConfig {
-            dir: std::env::temp_dir(),
-            public_base_url: BASE_URL.into(),
-        }),
+        public_base_url: BASE_URL.into(),
+        media: Arc::new(Media::new(Storage::Local(
+            LocalStorage::open(uploads.clone()).unwrap(),
+        ))),
         app_keys: None,
         trusted_proxy_hops: 0,
         clients: Default::default(),
@@ -133,6 +139,7 @@ where
     conn.execute(format!("DROP DATABASE {name} WITH (FORCE)").as_str())
         .await
         .unwrap();
+    let _ = std::fs::remove_dir_all(uploads);
     if let Err(e) = result {
         std::panic::resume_unwind(e);
     }

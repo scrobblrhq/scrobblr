@@ -131,7 +131,7 @@ async fn handshake_reply(state: &AppState, params: &Params, ip: &str) -> ApiResu
             false,
         )
         .await?;
-    let base = &state.uploads.public_base_url;
+    let base = &state.public_base_url;
     Ok(format!(
         "OK\n{id}\n{base}/1.2/nowplaying\n{base}/1.2/submissions"
     ))

@@ -71,22 +71,25 @@ async fn main() -> anyhow::Result<()> {
     let live = std::sync::Arc::new(live::LiveHub::default());
     live::subscribe(live.clone(), redis_builder.build_subscriber_client()?).await?;
 
-    // Uploaded images (avatars, artist/album art)
-    let upload_dir =
-        std::path::PathBuf::from(std::env::var("UPLOAD_DIR").unwrap_or_else(|_| "uploads".into()));
-    tokio::fs::create_dir_all(&upload_dir).await?;
-    let public_base_url = std::env::var("PUBLIC_BASE_URL").unwrap_or_else(|_| {
+    let public_base_url = non_empty_env("PUBLIC_BASE_URL").unwrap_or_else(|| {
         tracing::warn!(
-            "PUBLIC_BASE_URL not set — uploaded image URLs will point at http://localhost:8080"
+            "PUBLIC_BASE_URL not set — links to this API will use http://localhost:8080"
         );
         "http://localhost:8080".into()
     });
+
+    // Uploaded images (avatars, artist/album art)
+    let upload_dir =
+        std::path::PathBuf::from(non_empty_env("UPLOAD_DIR").unwrap_or_else(|| "uploads".into()));
+    let storage = media::LocalStorage::open(upload_dir.clone())
+        .map_err(|e| anyhow::anyhow!("UPLOAD_DIR {}: {e}", upload_dir.display()))?;
+    let media = std::sync::Arc::new(media::Media::new(media::Storage::Local(storage)));
     shared::media::set_public_url(shared::media::public_url_from_env()?);
-    tracing::info!("uploads served from {}", shared::media::public_base());
-    let uploads = std::sync::Arc::new(state::UploadConfig {
-        dir: upload_dir,
-        public_base_url: public_base_url.trim_end_matches('/').to_string(),
-    });
+    tracing::info!(
+        "uploads stored in {}, served from {}",
+        upload_dir.display(),
+        shared::media::public_base()
+    );
 
     let compat = std::sync::Arc::new(compat::CompatConfig::from_env(app_keys.is_some())?);
     if !compat.password_login {
@@ -107,7 +110,8 @@ async fn main() -> anyhow::Result<()> {
     let state = state::AppState {
         db,
         redis,
-        uploads,
+        public_base_url: public_base_url.trim_end_matches('/').into(),
+        media,
         app_keys,
         trusted_proxy_hops,
         clients: Default::default(),
@@ -125,6 +129,12 @@ async fn main() -> anyhow::Result<()> {
     )
     .await?;
     Ok(())
+}
+
+/// A setting, unless unset or blank (docker-compose passes unset ones as
+/// empty strings).
+fn non_empty_env(name: &str) -> Option<String> {
+    std::env::var(name).ok().filter(|v| !v.trim().is_empty())
 }
 
 /// Reconnects for as long as Redis is away, and fails a command after a

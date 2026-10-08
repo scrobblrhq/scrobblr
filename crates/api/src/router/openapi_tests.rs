@@ -9,7 +9,8 @@ use axum::http::Request;
 use serde_json::Value;
 use tower::ServiceExt;
 
-use crate::state::{AppState, UploadConfig};
+use crate::media::{LocalStorage, Media, Storage};
+use crate::state::AppState;
 
 const SNAPSHOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../openapi.json");
 
@@ -20,10 +21,10 @@ async fn spec() -> Value {
             .connect_lazy("postgres://localhost/unused")
             .unwrap(),
         redis: fred::types::Builder::default_centralized().build().unwrap(),
-        uploads: Arc::new(UploadConfig {
-            dir: std::env::temp_dir(),
-            public_base_url: "https://scrobblr.example".into(),
-        }),
+        public_base_url: "https://scrobblr.example".into(),
+        media: Arc::new(Media::new(Storage::Local(
+            LocalStorage::open(std::env::temp_dir().join("scrobblr_openapi_tests")).unwrap(),
+        ))),
         app_keys: None,
         trusted_proxy_hops: 0,
         clients: Default::default(),

@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use axum::extract::FromRef;
@@ -8,25 +7,18 @@ use sqlx::PgPool;
 
 use crate::compat::CompatConfig;
 use crate::live::LiveHub;
+use crate::media::Media;
 use crate::middleware::app_signature::AppKeys;
 use db::queries::scrobble_clients::{self as clients_db, ClientIdentity};
-
-/// Where uploaded images are written and how their public URLs are built.
-#[derive(Debug)]
-pub struct UploadConfig {
-    /// Local directory backing `/uploads` (created at startup).
-    pub dir: PathBuf,
-    /// External base URL clients can reach the API on; stored image URLs
-    /// are `{public_base_url}/uploads/{file}`.
-    pub public_base_url: String,
-}
 
 /// Shared application state injected into every handler via Axum's `State` extractor.
 #[derive(Clone)]
 pub struct AppState {
     pub db: PgPool,
     pub redis: RedisClient,
-    pub uploads: Arc<UploadConfig>,
+    /// External base URL clients reach the API on (`PUBLIC_BASE_URL`).
+    pub public_base_url: Arc<str>,
+    pub media: Arc<Media>,
     /// `None` when `AUTH_APP_KEYS` is unset, which leaves the auth
     /// endpoints open to any client.
     pub app_keys: Option<Arc<AppKeys>>,

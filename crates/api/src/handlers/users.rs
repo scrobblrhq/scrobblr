@@ -122,26 +122,16 @@ pub async fn update_settings(
     if let Some(url) = &body.image_url {
         let url = url.trim();
         if !url.is_empty() {
+            // Never an upload key, which only the avatar upload stores.
             if !url.starts_with("https://") && !url.starts_with("http://") {
                 return Err(AppError::BadRequest(
                     "image_url must be an http(s) URL".into(),
                 ));
             }
-            // Only the avatar-upload endpoint may set an /uploads/ URL, and it
-            // always points at a file that user just created. Rejecting them
-            // here stops a user aiming image_url at someone else's uploaded
-            // file — which their next avatar upload's cleanup would delete.
-            let uploads_prefix = format!("{}/uploads/", state.uploads.public_base_url);
-            if url.starts_with(&uploads_prefix) {
-                return Err(AppError::BadRequest(
-                    "image_url cannot reference an uploaded file; use the avatar upload endpoint"
-                        .into(),
-                ));
-            }
         }
     }
 
-    let user = users_db::update_profile(
+    let (user, previous_image) = users_db::update_profile(
         &state.db,
         auth_user.id,
         &users_db::UpdateProfile {
@@ -152,6 +142,10 @@ pub async fn update_settings(
         },
     )
     .await?;
+    state
+        .media
+        .delete_replaced_avatar(previous_image.as_deref(), user.image_url.as_deref())
+        .await;
     Ok(Json(UserProfile::from(user)))
 }
 

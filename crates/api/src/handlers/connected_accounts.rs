@@ -112,7 +112,7 @@ pub async fn connect_provider(
         // query string and appends `token` to it.
         let callback = format!(
             "{}/v1/connect/lastfm/callback?state={csrf_state}",
-            state.uploads.public_base_url
+            state.public_base_url
         );
         lastfm_client()?.auth_url(&callback)
     } else {

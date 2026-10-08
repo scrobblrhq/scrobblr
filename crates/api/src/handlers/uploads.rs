@@ -3,11 +3,17 @@
 //! app and the upcoming website.
 //!
 //! Every upload is decoded (rejecting non-images), downscaled (avatars to
-//! 512 px, artwork to 1024 px) and re-encoded as JPEG by `media::image`,
-//! then written under `UPLOAD_DIR` and served back from `/uploads/{file}`.
-//! Artist/album images set `image_locked` so the enrichment worker never
-//! overwrites community art.
+//! 512 px, artwork to 1024 px) and re-encoded as JPEG, then stored under a
+//! new key, which is what the database keeps (see `media`). Artist/album
+//! images set `image_locked` so the enrichment worker never overwrites
+//! community art.
 
+use super::IdPath;
+use crate::{
+    errors::{ApiResult, AppError, ErrorJson},
+    middleware::auth::AuthUser,
+    state::AppState,
+};
 use aide::axum::IntoApiResponse;
 use aide::transform::TransformOperation;
 use axum::{
@@ -15,22 +21,12 @@ use axum::{
     extract::{Extension, Multipart, Path, State, multipart::MultipartError},
     http::StatusCode,
 };
-use uuid::Uuid;
-
-use super::IdPath;
-use crate::{
-    errors::{ApiResult, AppError, ErrorJson},
-    media,
-    middleware::auth::AuthUser,
-    state::AppState,
-};
 use db::queries::{community as community_db, tracks as tracks_db, users as users_db};
+use shared::media::UploadKind;
 use shared::models::{ImageCandidate, UserProfile};
 
 /// Body limit of the upload routes (router.rs).
 pub const MAX_UPLOAD_BYTES: usize = 8 * 1024 * 1024;
-const AVATAR_SIDE: u32 = 512;
-const ARTWORK_SIDE: u32 = 1024;
 
 /// Reads the first file field out of the multipart body.
 async fn read_image_field(multipart: &mut Multipart) -> ApiResult<Vec<u8>> {
@@ -59,65 +55,34 @@ async fn read_image_field(multipart: &mut Multipart) -> ApiResult<Vec<u8>> {
     ))
 }
 
-/// Stores normalized bytes and returns the public URL.
-async fn store_image(state: &AppState, bytes: &[u8]) -> ApiResult<String> {
-    let file_name = format!("{}.jpg", Uuid::new_v4());
-    let path = state.uploads.dir.join(&file_name);
-    tokio::fs::write(&path, bytes)
-        .await
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("could not store upload: {e}")))?;
-    Ok(format!(
-        "{}/uploads/{file_name}",
-        state.uploads.public_base_url
-    ))
-}
-
-/// Best-effort removal of a previously uploaded file when it is replaced.
-async fn delete_if_owned(state: &AppState, old_url: Option<&str>) {
-    let Some(old_url) = old_url else { return };
-    let Some((_, file_name)) = old_url.split_once("/uploads/") else {
-        return; // external URL (enrichment providers) — not ours to delete
-    };
-    // Guard against traversal; stored names are always `{uuid}.jpg`.
-    if file_name.contains(['/', '\\']) || file_name.contains("..") {
-        return;
-    }
-    let _ = tokio::fs::remove_file(state.uploads.dir.join(file_name)).await;
-}
-
-async fn process_upload(
-    state: &AppState,
-    multipart: &mut Multipart,
-    max_side: u32,
-) -> ApiResult<String> {
-    let raw = read_image_field(multipart).await?;
-    let normalized = media::normalize(raw, max_side).await?;
-    store_image(state, &normalized).await
-}
-
 /// POST /v1/user/me/avatar
 pub async fn upload_avatar(
     State(state): State<AppState>,
     Extension(auth_user): Extension<AuthUser>,
     mut multipart: Multipart,
 ) -> ApiResult<impl IntoApiResponse> {
-    let url = process_upload(&state, &mut multipart, AVATAR_SIDE).await?;
-
-    let previous = users_db::find_by_id(&state.db, auth_user.id)
-        .await?
-        .and_then(|u| u.image_url);
-
-    let user = users_db::update_profile(
+    let raw = read_image_field(&mut multipart).await?;
+    let key = state.media.store(UploadKind::Avatar, raw).await?;
+    let updated = users_db::update_profile(
         &state.db,
         auth_user.id,
         &users_db::UpdateProfile {
-            image_url: Some(Some(&url)),
+            image_url: Some(Some(key.as_str())),
             ..Default::default()
         },
     )
-    .await?;
-
-    delete_if_owned(&state, previous.as_deref()).await;
+    .await;
+    let (user, previous_image) = match updated {
+        Ok(updated) => updated,
+        Err(e) => {
+            state.media.delete(&key).await;
+            return Err(e.into());
+        }
+    };
+    state
+        .media
+        .delete_replaced_avatar(previous_image.as_deref(), user.image_url.as_deref())
+        .await;
     Ok(Json(UserProfile::from(user)))
 }
 
@@ -157,13 +122,26 @@ pub fn _upload_avatar_doc(op: TransformOperation) -> TransformOperation {
 /// only once it wins the community vote (see `community` queries).
 async fn add_candidate(
     state: &AppState,
+    kind: UploadKind,
     entity_type: &str,
     entity_id: i64,
     uploader: i64,
     multipart: &mut Multipart,
 ) -> ApiResult<Vec<ImageCandidate>> {
-    let url = process_upload(state, multipart, ARTWORK_SIDE).await?;
-    community_db::add_image_candidate(&state.db, entity_type, entity_id, &url, uploader).await?;
+    let raw = read_image_field(multipart).await?;
+    let key = state.media.store(kind, raw).await?;
+    let added = community_db::add_image_candidate(
+        &state.db,
+        entity_type,
+        entity_id,
+        key.as_str(),
+        uploader,
+    )
+    .await;
+    if let Err(e) = added {
+        state.media.delete(&key).await;
+        return Err(e.into());
+    }
     // The uploader's auto-like may already push a first candidate to the
     // threshold on a tiny community.
     community_db::promote_winning_image(&state.db, entity_type, entity_id).await?;
@@ -183,7 +161,15 @@ pub async fn upload_artist_image(
     tracks_db::find_artist_by_id(&state.db, id)
         .await?
         .ok_or(AppError::NotFound)?;
-    let candidates = add_candidate(&state, "artist", id, auth_user.id, &mut multipart).await?;
+    let candidates = add_candidate(
+        &state,
+        UploadKind::ArtistImage,
+        "artist",
+        id,
+        auth_user.id,
+        &mut multipart,
+    )
+    .await?;
     Ok(Json(candidates))
 }
 
@@ -209,7 +195,15 @@ pub async fn upload_album_image(
     tracks_db::find_album_by_id(&state.db, id)
         .await?
         .ok_or(AppError::NotFound)?;
-    let candidates = add_candidate(&state, "album", id, auth_user.id, &mut multipart).await?;
+    let candidates = add_candidate(
+        &state,
+        UploadKind::AlbumImage,
+        "album",
+        id,
+        auth_user.id,
+        &mut multipart,
+    )
+    .await?;
     Ok(Json(candidates))
 }
 
