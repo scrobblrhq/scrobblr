@@ -58,6 +58,8 @@ The API comes up on http://localhost:8080 (docs at `/docs`). A one-shot
 Point the web app / mobile app at this origin. With `--profile caddy
 --profile web`, Caddy serves the web app, the API and the uploads over HTTPS
 on their own hosts ([docs/web-integration.md](docs/web-integration.md)).
+Behind a Cloudflare Tunnel instead, with nothing published on the host:
+[docs/tunnel-deploy.md](docs/tunnel-deploy.md).
 
 ### With devenv
 
