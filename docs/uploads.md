@@ -1,9 +1,7 @@
 # Uploaded images
 
 Avatars and community artist and album art are the only files Scrobblr
-stores. Out of the box the API serves them itself, so a local or self-hosted
-instance needs no setup. This guide covers moving them to their own
-hostname, putting Cloudflare in front, and backups.
+stores. The API serves them itself, so an instance needs no setup for them.
 
 ## How they are stored
 
@@ -17,7 +15,9 @@ The result is written under `UPLOAD_DIR` at a random key, such as
 and a file never changes. The database stores the key, and clients get
 `{UPLOAD_PUBLIC_URL}/{key}`. `UPLOAD_PUBLIC_URL` defaults to
 `{PUBLIC_BASE_URL}/uploads`, the API's own route. Changing it moves every
-image, old ones included, without touching the database.
+image, old ones included, without touching the database. Images uploaded
+before migration 0017 have keys of the form `{uuid}.jpg`, at the root of
+`UPLOAD_DIR`.
 
 A replaced or removed avatar is deleted. Artwork stays, since it is voted
 on.
@@ -34,130 +34,22 @@ docker compose exec api worker uploads gc
 docker compose exec api worker uploads gc --delete
 ```
 
-## Serving them from their own host
+## Serving
 
-1. Point a DNS record such as `cdn.example.com` at the server.
-2. Have a static server serve `UPLOAD_DIR` there, read-only (examples below).
-3. Set `UPLOAD_PUBLIC_URL=https://cdn.example.com` for the API **and** the
-   worker, and restart both.
+The API answers `/uploads/{key}` with keys only (never `.tmp/`, where files
+are written before being moved into place, and never directory listings),
+`Cache-Control: public, max-age=31536000, immutable`,
+`X-Content-Type-Options: nosniff` and `Access-Control-Allow-Origin: *`, so
+web pages can read the pixels. Another server can serve the directory
+instead: point `UPLOAD_PUBLIC_URL` at it, for the API **and** the worker,
+and have it send the same headers.
 
-The API keeps answering `/uploads`, so nothing breaks in between.
-
-The static server should do what the API's route does:
-
-- Serve keys only (paths ending in `.jpg`), never `.tmp/`, where files are
-  written before being moved into place, and never directory listings.
-- Send `Cache-Control: public, max-age=31536000, immutable` with every file
-  it serves, but not with a 404.
-- Send `X-Content-Type-Options: nosniff`, and `Access-Control-Allow-Origin: *`
-  so web pages can read the pixels (for example, to draw them on a canvas).
-
-### Docker Compose with Caddy
-
-`docker-compose.yml` has an optional Caddy service that terminates HTTPS
-for the API and for the uploads host (and the web app,
-[docs/web-integration.md](web-integration.md)), with certificates from
-Let's Encrypt. Its configuration is `deploy/Caddyfile`. In `.env.docker`:
-
-```bash
-API_DOMAIN=api.example.com
-UPLOADS_DOMAIN=cdn.example.com
-PUBLIC_BASE_URL=https://api.example.com
-UPLOAD_PUBLIC_URL=https://cdn.example.com
-TRUSTED_PROXY_HOPS=1
-API_PORT=127.0.0.1:8080
-```
-
-```bash
-docker compose --env-file .env.docker --profile caddy up -d
-```
-
-Ports 80 and 443 must reach the server. Caddy mounts the `uploads` volume
-read-only.
-
-### Caddy on the host
-
-```caddyfile
-cdn.example.com {
-	root * /srv/scrobblr/uploads
-	@upload {
-		path_regexp ^/([a-z0-9][a-z0-9.-]*/)*[a-z0-9][a-z0-9.-]*\.jpg$
-		file
-	}
-	handle @upload {
-		header Cache-Control "public, max-age=31536000, immutable"
-		header X-Content-Type-Options nosniff
-		header Access-Control-Allow-Origin "*"
-		file_server
-	}
-	handle {
-		respond 404
-	}
-}
-```
-
-### nginx
-
-```nginx
-server {
-    listen 443 ssl;
-    server_name cdn.example.com;
-    # ssl_certificate / ssl_certificate_key as for your other sites
-    root /srv/scrobblr/uploads;
-
-    location ~ "^/([a-z0-9][a-z0-9.-]*/)*[a-z0-9][a-z0-9.-]*\.jpg$" {
-        # Without `always`, nginx adds these to successful responses only.
-        add_header Cache-Control "public, max-age=31536000, immutable";
-        add_header X-Content-Type-Options nosniff;
-        add_header Access-Control-Allow-Origin "*";
-        try_files $uri =404;
-    }
-
-    location / {
-        return 404;
-    }
-}
-```
-
-### Permissions
+## Permissions
 
 The API creates files 0644 and directories 0755 whatever its umask, so a
-static server running as another user can read them; only the API's user
-can write. `.tmp/` is 0700. The static server's user also needs to traverse
-the directories above `UPLOAD_DIR`.
-
-A Docker named volume lives under `/var/lib/docker/volumes`, which other
-users on the host can't enter. For a static server running on the host
-rather than in Compose, bind-mount a host directory instead, owned by the
-API container's user (uid 10001):
-
-```yaml
-    volumes:
-      - /srv/scrobblr/uploads:/data/uploads
-```
-
-## Cloudflare in front
-
-Cloudflare's free plan can cache the images at its edge, so most requests
-never reach your server.
-
-- Proxy the uploads hostname (orange cloud) and set SSL/TLS to **Full
-  (strict)**. Behind the proxy, Let's Encrypt may fail to reach your server
-  for renewals; a free Cloudflare origin certificate avoids that (in Caddy:
-  `tls /path/to/origin.pem /path/to/origin.key` in the site block).
-- Cloudflare caches `.jpg` files by default. With Browser Cache TTL set to
-  respect existing headers, browsers keep the year-long `Cache-Control` too.
-  New images get new URLs, so nothing ever needs purging to show up.
-- A deleted image stays reachable at its old URL until Cloudflare's and
-  browsers' cached copies expire. Its URL can't be guessed, but for a
-  takedown, purge it (see [Taking an image down](#taking-an-image-down)).
-- The API's hostname can be proxied too. `deploy/Caddyfile` trusts
-  Cloudflare's address ranges and hands the API each user's address
-  (`CF-Connecting-IP`), so `TRUSTED_PROXY_HOPS=1` either way. A proxy of
-  your own must do the same (nginx: `set_real_ip_from` for each range,
-  `real_ip_header CF-Connecting-IP`, `proxy_set_header X-Forwarded-For
-  $remote_addr`), or rate limits see Cloudflare's addresses instead of your
-  users'.
+server running as another user can read them; only the API's user (uid
+10001 in the image) can write. `.tmp/` is 0700. A restored copy must be
+owned by that user again.
 
 ## Taking an image down
 
@@ -185,23 +77,8 @@ take the key from its URL, the part after the uploads base, such as
    docker compose exec api rm /data/uploads/avatars/3f/3f9c…e1.jpg
    ```
 
-3. **Purge it from Cloudflare**, or it stays served from the edge until
-   its copy expires there. In the dashboard: your zone, **Caching →
-   Configuration → Custom Purge**, purge by **URL**, and enter the full
-   URL. Or with the API, using a token with the **Cache Purge**
-   permission on the zone:
-
-   ```bash
-   curl -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/purge_cache" \
-     -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-     -H "Content-Type: application/json" \
-     --data '{"files": ["https://uploads.example.com/avatars/3f/3f9c…e1.jpg"]}'
-   ```
-
-   Purge every URL it was served under: if the API's hostname is proxied
-   too, also `https://api.example.com/uploads/<key>`. The response says
-   `"success": true` once the purge is accepted; requesting the URL then
-   gets a 404 from your server.
+3. **Purge it from any cache in front** (a CDN or a caching proxy), or it
+   stays served from there until its copy expires.
 
 Browsers that already loaded the image keep their copy for up to a year
 (`Cache-Control: immutable`), and nothing on the server can reach it. The
@@ -236,21 +113,3 @@ docker run --rm -v scrobblr_uploads:/uploads -v "$PWD":/backup alpine \
   sh -c 'tar xzf /backup/uploads.tar.gz -C /uploads && chown -R 10001:10001 /uploads'
 docker compose up -d
 ```
-
-## Moving to an S3-compatible bucket
-
-Not built in yet; the code is ready for it. A bucket such as Cloudflare R2,
-MinIO or Backblaze B2 would be another `Storage` variant in
-`crates/api/src/media/`: write with `Content-Type: image/jpeg` and the same
-`Cache-Control`, and delete. Copy the directory to the bucket under the same
-keys (`rclone copy --exclude '.tmp/**' uploads/ remote:bucket`), point
-`UPLOAD_PUBLIC_URL` at the bucket's public hostname, and copy again to catch
-uploads made during the switch. The database doesn't change.
-
-## Upgrading from before upload keys
-
-Migration 0017 turns the URLs stored before, `{PUBLIC_BASE_URL}/uploads/{uuid}.jpg`,
-into the key `{uuid}.jpg`. That is where those files already are, at the root
-of `UPLOAD_DIR`, so they are served under `UPLOAD_PUBLIC_URL` like the rest.
-Avatars from before aren't deleted when replaced; `worker uploads gc`
-removes them once nothing refers to them.
