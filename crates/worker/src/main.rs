@@ -110,12 +110,17 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
+    let deezer_limiter = Arc::new(enrichment::ratelimit::RateLimiter::new(
+        enrichment::DEEZER_INTERVAL,
+    ));
+
     // Claims jobs from enrichment_jobs and queries the metadata providers
     // (MusicBrainz, Cover Art Archive, Deezer, optionally Last.fm).
     let enricher = Arc::new(enrichment::Enricher::from_env(
         db.clone(),
         redis.clone(),
         lastfm_limiter.clone(),
+        deezer_limiter.clone(),
     )?);
     let enrichment_handle = supervise("enrichment", {
         let enricher = enricher.clone();
@@ -153,6 +158,15 @@ async fn main() -> anyhow::Result<()> {
             }
         }
     });
+
+    // Asks Deezer for the lengths no other source has, and for a third
+    // opinion where the catalog and MusicBrainz disagree.
+    let deezer_lengths = Arc::new(enrichment::lengths::DeezerLengths::from_env(
+        db.clone(),
+        lastfm_http.clone(),
+        deezer_limiter,
+    ));
+    let deezer_lengths_handle = supervise("deezer lengths", move || deezer_lengths.clone().run());
 
     // Runs Last.fm history imports, started from the API or `worker import`.
     let importer = lastfm_import::Importer::from_env(db.clone(), lastfm_http, lastfm_limiter)?;
@@ -198,6 +212,7 @@ async fn main() -> anyhow::Result<()> {
         _ = connected_accounts_handle => "connected-accounts poller",
         _ = import_handle => "import",
         _ = lengths_handle => "length backfill",
+        _ = deezer_lengths_handle => "deezer lengths",
         _ = classification_handle => "classification",
         _ = classification_sweep_handle => "classification sweep",
         _ = rankings_handle => "rankings",

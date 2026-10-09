@@ -285,7 +285,8 @@ pub async fn classify_user_day(
     let rows = sqlx::query!(
         r#"
         SELECT s.id, s.played_at, s.track_id, s.duration_ms, s.listened_ms,
-               t.duration_ms AS catalog_duration_ms, t.mb_duration_ms
+               COALESCE(t.duration_ms, t.deezer_duration_ms) AS catalog_duration_ms,
+               t.mb_duration_ms
         FROM scrobbles s
         JOIN tracks t ON t.id = s.track_id
         WHERE s.user_id = $1 AND s.played_at > $2 AND s.played_at < $3
@@ -552,7 +553,8 @@ pub async fn enqueue_stale(
         SELECT DISTINCT f.user_id, f.day, $1::int
         FROM scrobble_flags f
         JOIN tracks t ON t.id = f.track_id
-        WHERE f.status = 'no_data' AND (t.mb_duration_ms > 0 OR t.duration_ms > 0)
+        WHERE f.status = 'no_data'
+          AND (t.mb_duration_ms > 0 OR t.duration_ms > 0 OR t.deezer_duration_ms > 0)
           AND ($2::date IS NULL OR f.day >= $2) AND ($3::date IS NULL OR f.day <= $3)
           AND NOT EXISTS (
               SELECT 1 FROM classification_queue q WHERE q.user_id = f.user_id AND q.day = f.day

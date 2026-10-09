@@ -568,7 +568,8 @@ pub struct TrackNeedingLength {
 }
 
 /// Tracks with no length from any source that Last.fm hasn't been asked
-/// about yet, most scrobbled first.
+/// about yet, most scrobbled first. Deezer's lengths count: they are kept
+/// apart, but stand in for the catalog's.
 pub async fn tracks_missing_length(
     pool: &PgPool,
     limit: i64,
@@ -580,6 +581,7 @@ pub async fn tracks_missing_length(
         FROM tracks t
         JOIN artists a ON a.id = t.artist_id
         WHERE t.duration_ms IS NULL AND t.mb_duration_ms IS NULL AND t.lastfm_checked_at IS NULL
+          AND t.deezer_duration_ms IS NULL
         ORDER BY t.scrobble_count DESC, t.id
         LIMIT $1
         "#,
@@ -621,6 +623,85 @@ pub async fn requeue_length_checks(
         UPDATE tracks SET lastfm_checked_at = NULL
         WHERE lastfm_checked_at < NOW() - make_interval(days => $1)
           AND duration_ms IS NULL AND mb_duration_ms IS NULL
+        "#,
+        older_than_days,
+    )
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
+}
+
+/// Tracks to ask Deezer about, most scrobbled first: those with no length
+/// at all, then those whose catalog and MusicBrainz lengths differ by 1.5x
+/// or more, where a third length tells which one is wrong.
+pub async fn tracks_for_deezer_length(
+    pool: &PgPool,
+    limit: i64,
+) -> Result<Vec<TrackNeedingLength>, sqlx::Error> {
+    sqlx::query_as!(
+        TrackNeedingLength,
+        r#"
+        SELECT id AS "id!", title AS "title!", artist_name AS "artist_name!"
+        FROM (
+            (SELECT t.id, t.title, a.name AS artist_name, 0 AS kind, t.scrobble_count
+             FROM tracks t
+             JOIN artists a ON a.id = t.artist_id
+             WHERE t.deezer_checked_at IS NULL AND t.duration_ms IS NULL AND t.mb_duration_ms IS NULL
+             ORDER BY t.scrobble_count DESC, t.id
+             LIMIT $1)
+            UNION ALL
+            (SELECT t.id, t.title, a.name, 1, t.scrobble_count
+             FROM tracks t
+             JOIN artists a ON a.id = t.artist_id
+             WHERE t.deezer_checked_at IS NULL AND t.duration_ms > 0 AND t.mb_duration_ms > 0
+               AND GREATEST(t.duration_ms, t.mb_duration_ms) * 2
+                   >= LEAST(t.duration_ms, t.mb_duration_ms) * 3
+             ORDER BY t.scrobble_count DESC, t.id
+             LIMIT $1)
+        ) backlog
+        ORDER BY kind, scrobble_count DESC, id
+        LIMIT $1
+        "#,
+        limit,
+    )
+    .fetch_all(pool)
+    .await
+}
+
+/// Records Deezer's answer: its length, kept apart from the catalog's.
+pub async fn record_deezer_length(
+    pool: &PgPool,
+    track_id: i64,
+    length_ms: Option<i32>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        r#"
+        UPDATE tracks
+        SET deezer_duration_ms = COALESCE($2, deezer_duration_ms), deezer_checked_at = NOW()
+        WHERE id = $1
+        "#,
+        track_id,
+        length_ms,
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Lets tracks Deezer had no length for be asked again.
+pub async fn requeue_deezer_checks(
+    pool: &PgPool,
+    older_than_days: i32,
+) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query!(
+        r#"
+        UPDATE tracks SET deezer_checked_at = NULL
+        WHERE deezer_checked_at < NOW() - make_interval(days => $1)
+          AND deezer_duration_ms IS NULL
+          AND ((duration_ms IS NULL AND mb_duration_ms IS NULL)
+               OR (duration_ms > 0 AND mb_duration_ms > 0
+                   AND GREATEST(duration_ms, mb_duration_ms) * 2
+                       >= LEAST(duration_ms, mb_duration_ms) * 3))
         "#,
         older_than_days,
     )

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT s.id, s.played_at, s.track_id, s.duration_ms, s.listened_ms,\n               t.duration_ms AS catalog_duration_ms, t.mb_duration_ms\n        FROM scrobbles s\n        JOIN tracks t ON t.id = s.track_id\n        WHERE s.user_id = $1 AND s.played_at > $2 AND s.played_at < $3\n        ORDER BY s.played_at, s.id\n        ",
+  "query": "\n        SELECT s.id, s.played_at, s.track_id, s.duration_ms, s.listened_ms,\n               COALESCE(t.duration_ms, t.deezer_duration_ms) AS catalog_duration_ms,\n               t.mb_duration_ms\n        FROM scrobbles s\n        JOIN tracks t ON t.id = s.track_id\n        WHERE s.user_id = $1 AND s.played_at > $2 AND s.played_at < $3\n        ORDER BY s.played_at, s.id\n        ",
   "describe": {
     "columns": [
       {
@@ -52,9 +52,9 @@
       false,
       true,
       true,
-      true,
+      null,
       true
     ]
   },
-  "hash": "2bd2c79f9fc3bea9daa75d8add1da1d0cba8b0d06d35c6cde866531bc7946a6d"
+  "hash": "f1bd3efca9e0858f15cf021266c1d185d8a3729109a8fc1a36fd0666d4e93868"
 }

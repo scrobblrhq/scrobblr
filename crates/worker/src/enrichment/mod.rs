@@ -51,7 +51,8 @@ const RESWEEP_PER_TABLE: i64 = 200;
 /// Per-provider minimum request intervals.
 const MUSICBRAINZ_INTERVAL: Duration = Duration::from_millis(1100); // hard 1 req/s limit
 const COVERART_INTERVAL: Duration = Duration::from_millis(600); // no hard limit; be nice
-const DEEZER_INTERVAL: Duration = Duration::from_millis(250); // limit is 50 req / 5 s
+/// Shared by image enrichment and the length lookups.
+pub const DEEZER_INTERVAL: Duration = Duration::from_millis(250); // limit is 50 req / 5 s
 /// Shared by every Last.fm caller in the worker (bios, imports, lengths):
 /// Last.fm allows 5 requests/s averaged over 5 minutes.
 pub const LASTFM_INTERVAL: Duration = Duration::from_millis(250);
@@ -66,7 +67,7 @@ pub struct Enricher {
     http: reqwest::Client,
     musicbrainz: RateLimiter,
     coverart: RateLimiter,
-    deezer: RateLimiter,
+    deezer: Arc<RateLimiter>,
     lastfm: Option<Lastfm>,
     /// Publishes now-playing refreshes when an image is filled; `None`
     /// disables live refresh (worker still enriches).
@@ -86,6 +87,7 @@ impl Enricher {
         db: PgPool,
         redis: Option<fred::clients::Client>,
         lastfm_limiter: Arc<RateLimiter>,
+        deezer_limiter: Arc<RateLimiter>,
     ) -> anyhow::Result<Self> {
         let http = reqwest::Client::builder()
             // MusicBrainz requires an identifying User-Agent.
@@ -107,7 +109,7 @@ impl Enricher {
             http,
             musicbrainz: RateLimiter::new(MUSICBRAINZ_INTERVAL),
             coverart: RateLimiter::new(COVERART_INTERVAL),
-            deezer: RateLimiter::new(DEEZER_INTERVAL),
+            deezer: deezer_limiter,
             lastfm,
             redis,
         })

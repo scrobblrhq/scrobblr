@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT s.id, s.played_at, s.track_id, s.artist_id, s.duration_ms, s.listened_ms,\n               s.import_id IS NOT NULL AS \"imported!\",\n               t.duration_ms AS catalog_duration_ms, t.mb_duration_ms,\n               c.protocol AS \"protocol?\", c.name AS \"client_name?\", c.verified AS \"verified?\",\n               f.status::text AS \"flag?\"\n        FROM scrobbles s\n        JOIN tracks t ON t.id = s.track_id\n        LEFT JOIN scrobble_clients c ON c.id = s.client_id\n        LEFT JOIN scrobble_flags f ON f.scrobble_id = s.id AND f.played_at = s.played_at\n        WHERE s.user_id = $1 AND s.played_at >= $2 AND s.played_at < $3\n        ",
+  "query": "\n        SELECT s.id, s.played_at, s.track_id, s.artist_id, s.duration_ms, s.listened_ms,\n               s.import_id IS NOT NULL AS \"imported!\",\n               COALESCE(t.duration_ms, t.deezer_duration_ms) AS catalog_duration_ms,\n               t.mb_duration_ms,\n               c.protocol AS \"protocol?\", c.name AS \"client_name?\", c.verified AS \"verified?\",\n               f.status::text AS \"flag?\"\n        FROM scrobbles s\n        JOIN tracks t ON t.id = s.track_id\n        LEFT JOIN scrobble_clients c ON c.id = s.client_id\n        LEFT JOIN scrobble_flags f ON f.scrobble_id = s.id AND f.played_at = s.played_at\n        WHERE s.user_id = $1 AND s.played_at >= $2 AND s.played_at < $3\n        ",
   "describe": {
     "columns": [
       {
@@ -84,7 +84,7 @@
       true,
       true,
       null,
-      true,
+      null,
       true,
       false,
       false,
@@ -92,5 +92,5 @@
       null
     ]
   },
-  "hash": "5360ececbd69a3c1b5d6add1715e407eef76e6a6d1a205a8996af036e5077294"
+  "hash": "4bc49cf66113650846e892674914449d1cbdc1d9940f20e33af65a35cae314a4"
 }

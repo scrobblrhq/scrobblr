@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT t.id, t.title, a.name AS artist_name\n        FROM tracks t\n        JOIN artists a ON a.id = t.artist_id\n        WHERE t.duration_ms IS NULL AND t.mb_duration_ms IS NULL AND t.lastfm_checked_at IS NULL\n        ORDER BY t.scrobble_count DESC, t.id\n        LIMIT $1\n        ",
+  "query": "\n        SELECT t.id, t.title, a.name AS artist_name\n        FROM tracks t\n        JOIN artists a ON a.id = t.artist_id\n        WHERE t.duration_ms IS NULL AND t.mb_duration_ms IS NULL AND t.lastfm_checked_at IS NULL\n          AND t.deezer_duration_ms IS NULL\n        ORDER BY t.scrobble_count DESC, t.id\n        LIMIT $1\n        ",
   "describe": {
     "columns": [
       {
@@ -30,5 +30,5 @@
       false
     ]
   },
-  "hash": "1cfc8e84bbe51a2c26bc510d2a1b3281b43aa11ddbb70c1e9718fd28ece2d674"
+  "hash": "89f03764af24eeedddca24837254daf54885f9fc55580886e38746475aee4da5"
 }

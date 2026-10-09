@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE tracks\n        SET deezer_duration_ms = COALESCE($2, deezer_duration_ms), deezer_checked_at = NOW()\n        WHERE id = $1\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "289273caf8d247aad96631c1ebddeefb2d3fe4a7a38b6429ab0edb82f447de63"
+}

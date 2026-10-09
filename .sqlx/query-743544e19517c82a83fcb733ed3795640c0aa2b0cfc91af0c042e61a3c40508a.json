@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE tracks SET deezer_checked_at = NULL\n        WHERE deezer_checked_at < NOW() - make_interval(days => $1)\n          AND deezer_duration_ms IS NULL\n          AND ((duration_ms IS NULL AND mb_duration_ms IS NULL)\n               OR (duration_ms > 0 AND mb_duration_ms > 0\n                   AND GREATEST(duration_ms, mb_duration_ms) * 2\n                       >= LEAST(duration_ms, mb_duration_ms) * 3))\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "743544e19517c82a83fcb733ed3795640c0aa2b0cfc91af0c042e61a3c40508a"
+}

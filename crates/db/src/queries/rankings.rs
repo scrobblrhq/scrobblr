@@ -239,7 +239,8 @@ pub async fn weigh_user_day(
         r#"
         SELECT s.id, s.played_at, s.track_id, s.artist_id, s.duration_ms, s.listened_ms,
                s.import_id IS NOT NULL AS "imported!",
-               t.duration_ms AS catalog_duration_ms, t.mb_duration_ms,
+               COALESCE(t.duration_ms, t.deezer_duration_ms) AS catalog_duration_ms,
+               t.mb_duration_ms,
                c.protocol AS "protocol?", c.name AS "client_name?", c.verified AS "verified?",
                f.status::text AS "flag?"
         FROM scrobbles s
