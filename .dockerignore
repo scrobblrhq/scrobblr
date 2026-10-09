@@ -27,6 +27,5 @@ uploads
 .env.*
 
 # Docs / misc
-deploy
 scripts
 *.md

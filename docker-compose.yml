@@ -1,18 +1,14 @@
-# Scrobblr backend — Postgres (TimescaleDB) + Redis + API + worker.
-#
-# This is both the self-host stack and the "shared dev backend" the web/mobile
-# devs point at (so they never need the Rust toolchain or a local DB).
+# Scrobblr backend: Postgres (TimescaleDB), Redis, the migrations, the API
+# and the worker. No reverse proxy: whoever deploys puts their own in front.
 #
 #   cp .env.docker.example .env.docker
 #   docker compose --env-file .env.docker up -d --build
 #
 # The API is then on http://localhost:8080 (docs at /docs, spec at /api.json).
 # Uploaded images are on the `uploads` volume, served by the API at /uploads.
-# `--profile web` adds the web app, and `--profile caddy` HTTPS for it, the
-# API and a separate uploads host (docs/web-integration.md, docs/uploads.md).
 #
-# NB: pass --env-file so Compose reads .env.docker and NOT the repo's app-level
-# .env (which points DATABASE_URL/PUBLIC_BASE_URL at localhost/the emulator).
+# Pass --env-file: without it Compose reads the repo's .env, which is for
+# `cargo run` on the host.
 
 name: scrobblr
 
@@ -99,7 +95,6 @@ services:
       SCROBBLER_STRICT_API_KEYS: ${SCROBBLER_STRICT_API_KEYS:-}
       SCROBBLER_DAILY_LIMIT: ${SCROBBLER_DAILY_LIMIT:-}
     ports:
-      # Behind Caddy, 127.0.0.1:8080: nothing should reach the API around it.
       - "${API_PORT:-8080}:8080"
     volumes:
       - uploads:/data/uploads
@@ -155,54 +150,6 @@ services:
         condition: service_started
     restart: unless-stopped
 
-  # Optional (`--profile web`): the SvelteKit web app, an image built from
-  # its own repo. Its server calls the API on this network, with the user's
-  # session and address (docs/web-integration.md).
-  web:
-    image: ${WEB_IMAGE:-scrobblr-web:latest}
-    profiles: ["web"]
-    environment:
-      # adapter-node: the public origin, and the client Caddy names.
-      ORIGIN: ${WEB_APP_URL:-https://web.localhost}
-      ADDRESS_HEADER: X-Forwarded-For
-      XFF_DEPTH: "1"
-      # Uploads pass through it on their way to the API, which takes 8 MiB.
-      BODY_SIZE_LIMIT: 9M
-      SCROBBLR_API_URL: http://api:8080
-    depends_on:
-      api:
-        condition: service_healthy
-    restart: unless-stopped
-
-  # Optional (`--profile caddy`): HTTPS for WEB_DOMAIN and API_DOMAIN,
-  # proxied to the web app and the API with the client's address in
-  # X-Forwarded-For, and UPLOADS_DOMAIN, served straight from the uploads
-  # volume, read-only. Set PUBLIC_BASE_URL=https://$API_DOMAIN,
-  # UPLOAD_PUBLIC_URL=https://$UPLOADS_DOMAIN, WEB_APP_URL=https://$WEB_DOMAIN,
-  # TRUSTED_PROXY_HOPS=1 and API_PORT=127.0.0.1:8080.
-  caddy:
-    image: caddy:2-alpine
-    profiles: ["caddy"]
-    environment:
-      WEB_DOMAIN: ${WEB_DOMAIN:-web.localhost}
-      API_DOMAIN: ${API_DOMAIN:-localhost}
-      UPLOADS_DOMAIN: ${UPLOADS_DOMAIN:-uploads.localhost}
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - uploads:/srv/uploads:ro
-      - caddy-data:/data
-      - caddy-config:/config
-    depends_on:
-      api:
-        condition: service_started
-    restart: unless-stopped
-
 volumes:
   db-data:
   uploads:
-  caddy-data:
-  caddy-config:

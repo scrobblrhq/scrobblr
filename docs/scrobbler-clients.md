@@ -4,8 +4,7 @@ Scrobblr speaks the protocols existing scrobblers already know: the Last.fm
 API (as Libre.fm and other GNU FM servers do), the older Audioscrobbler 1.2
 protocol, and ListenBrainz's. Most apps that let you change the server only
 need that server URL and a token. Below, `https://scrobblr.example` stands for
-your Scrobblr server, the address its API is reachable on: on scrobblr.app,
-`https://api.scrobblr.app`.
+your Scrobblr server, the address its API is reachable on.
 
 ## 1. Make a scrobbler token
 

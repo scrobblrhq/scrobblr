@@ -56,9 +56,7 @@ docker compose --env-file .env.docker up -d --build
 
 The API comes up on http://localhost:8080 (docs at `/docs`). A one-shot
 `migrate` service applies pending migrations before the API and worker start.
-Point the web app / mobile app at this origin. With `--profile caddy
---profile web`, Caddy serves the web app, the API and the uploads over HTTPS
-on their own hosts ([docs/web-integration.md](docs/web-integration.md)).
+Point the web app / mobile app at this origin.
 
 ### With devenv
 
@@ -153,7 +151,7 @@ request.
 | `BIND_ADDR`          | —        | `0.0.0.0:8080`           | API listen address                  |
 | `PUBLIC_BASE_URL`    | —        | `http://localhost:8080`  | Public origin of the API, for links it builds to itself — set to your public origin |
 | `WEB_APP_URL`        | —        | —                        | The web app's origin, where browsers approve scrobblers and link Spotify and Last.fm accounts |
-| `TRUSTED_PROXY_HOPS` | —        | `0`                      | Proxies whose `X-Forwarded-For` names the client: `1` behind `deploy/Caddyfile` and the web app |
+| `TRUSTED_PROXY_HOPS` | —        | `0`                      | Proxies whose `X-Forwarded-For` names the client: `1` behind one reverse proxy |
 | `TRUSTED_PROXIES`    | —        | loopback, private networks | The peers `X-Forwarded-For` is believed from |
 | `CORS_ALLOWED_ORIGINS` | —      | none                     | Origins whose pages may call the native API from a browser, or `*` |
 | `RATE_LIMIT_REQUESTS` | —       | `60`                     | Requests per client address per window (`0` turns the global limit off) |
