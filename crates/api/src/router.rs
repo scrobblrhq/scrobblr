@@ -21,12 +21,8 @@ use std::path::Path;
 use std::sync::Arc;
 use tower::ServiceBuilder;
 use tower_http::{
-    catch_panic::CatchPanicLayer,
-    compression::CompressionLayer,
-    cors::{Any, CorsLayer},
-    services::ServeDir,
-    set_header::SetResponseHeaderLayer,
-    trace::TraceLayer,
+    catch_panic::CatchPanicLayer, compression::CompressionLayer, services::ServeDir,
+    set_header::SetResponseHeaderLayer, trace::TraceLayer,
 };
 
 use crate::{
@@ -37,6 +33,7 @@ use crate::{
     middleware::{
         app_signature::require_app_signature,
         auth::{Access, Scope, optional_auth, require_auth},
+        cors,
         rate_limit::{rate_limit, upload_limit},
     },
     state::AppState,
@@ -48,7 +45,8 @@ mod openapi_tests;
 mod tests;
 
 /// The upload directory, for when no static server is in front (not part of
-/// the OpenAPI surface). Keys are never reused, so a file never changes.
+/// the OpenAPI surface). Keys are never reused, so a file never changes. Any
+/// page may read the pixels, as from the uploads host.
 fn uploads_service(root: &Path) -> Router {
     let cache = |response: &Response<_>| {
         response
@@ -66,6 +64,10 @@ fn uploads_service(root: &Path) -> Router {
             .layer(SetResponseHeaderLayer::overriding(
                 header::X_CONTENT_TYPE_OPTIONS,
                 HeaderValue::from_static("nosniff"),
+            ))
+            .layer(SetResponseHeaderLayer::overriding(
+                header::ACCESS_CONTROL_ALLOW_ORIGIN,
+                HeaderValue::from_static("*"),
             ))
             .service(ServeDir::new(root)),
     )
@@ -461,7 +463,7 @@ pub fn build(state: AppState) -> Router {
 
     let mut api = OpenApi::default();
 
-    let mut router = ApiRouter::new()
+    let native = ApiRouter::new()
         .route("/docs", Scalar::new("/api.json").axum_route())
         .merge(authed(
             &state,
@@ -475,8 +477,15 @@ pub fn build(state: AppState) -> Router {
         .merge(authed(&state, Access::Any, any_credential_routes))
         .merge(auth_public)
         .merge(public)
-        .merge(optional_authed_users)
-        .merge(ApiRouter::from(compat::router()))
+        .merge(optional_authed_users);
+    let native = match state.cors.layer() {
+        Some(cors) => native.layer(cors),
+        None => native,
+    };
+    let mut router = native
+        .merge(ApiRouter::from(
+            compat::router().layer(cors::protocol_layer()),
+        ))
         .layer(middleware::from_fn_with_state(state.clone(), rate_limit));
     if let Some(root) = state.media.local_root() {
         router = router.nest_service("/uploads", uploads_service(root));
@@ -485,12 +494,6 @@ pub fn build(state: AppState) -> Router {
         .layer(CatchPanicLayer::custom(panic_response))
         .layer(TraceLayer::new_for_http())
         .layer(CompressionLayer::new())
-        .layer(
-            CorsLayer::new()
-                .allow_origin(Any)
-                .allow_headers(Any)
-                .allow_methods(Any),
-        )
         .route("/api.json", axum::routing::get(serve_api))
         .finish_api_with(&mut api, api_docs);
     document_rate_limit(&mut api);

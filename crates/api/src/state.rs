@@ -9,6 +9,7 @@ use crate::compat::CompatConfig;
 use crate::live::LiveHub;
 use crate::media::Media;
 use crate::middleware::app_signature::AppKeys;
+use crate::middleware::cors::CorsOrigins;
 use crate::middleware::rate_limit::TrustedProxies;
 use db::queries::scrobble_clients::{self as clients_db, ClientIdentity};
 
@@ -25,6 +26,8 @@ pub struct AppState {
     pub app_keys: Option<Arc<AppKeys>>,
     /// The reverse proxies whose `X-Forwarded-For` names the client.
     pub proxies: Arc<TrustedProxies>,
+    /// The pages that may call the native API from a browser.
+    pub cors: Arc<CorsOrigins>,
     pub clients: Arc<ClientCache>,
     /// The scrobbler-compatible APIs' settings.
     pub compat: Arc<CompatConfig>,

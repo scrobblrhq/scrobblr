@@ -27,6 +27,7 @@ async fn spec() -> Value {
         ))),
         app_keys: None,
         proxies: Default::default(),
+        cors: Default::default(),
         clients: Default::default(),
         compat: Default::default(),
         live: Default::default(),

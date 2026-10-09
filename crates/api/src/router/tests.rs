@@ -4,6 +4,7 @@
 //! test) and Redis (`just test-db`).
 
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use axum::body::Body;
 use axum::extract::ConnectInfo;
@@ -14,7 +15,8 @@ use serde_json::{Value, json};
 use crate::compat::CompatConfig;
 use crate::errors::AppError;
 use crate::middleware::auth::{Access, Scope};
-use crate::test_app::{TestApp, with_app};
+use crate::middleware::cors::CorsOrigins;
+use crate::test_app::{TestApp, with_app, with_custom_app};
 use db::queries::auth as auth_db;
 
 /// Every authenticated route and what it needs. A route that answers 401
@@ -439,6 +441,92 @@ async fn tokens_get_only_scopes_the_server_knows() {
         assert_eq!(status, StatusCode::FORBIDDEN);
         assert_eq!(body["error"], "this API token lacks the `scrobble` scope");
     })
+    .await;
+}
+
+/// The web app calls the native API from its server, so by default no page
+/// gets CORS headers from it; the protocol routes and uploads answer any.
+#[tokio::test]
+#[ignore = "needs Postgres and Redis: just test-db"]
+async fn pages_get_cors_headers_only_where_allowed() {
+    use axum::http::header::{
+        ACCESS_CONTROL_ALLOW_HEADERS, ACCESS_CONTROL_ALLOW_ORIGIN, ACCESS_CONTROL_REQUEST_HEADERS,
+        ACCESS_CONTROL_REQUEST_METHOD, ORIGIN,
+    };
+    fn preflight(path: &str, origin: &str) -> Request<Body> {
+        Request::options(path)
+            .header(ORIGIN, origin)
+            .header(ACCESS_CONTROL_REQUEST_METHOD, "POST")
+            .header(ACCESS_CONTROL_REQUEST_HEADERS, "authorization,content-type")
+            .body(Body::empty())
+            .unwrap()
+    }
+    fn get(path: &str, origin: &str) -> Request<Body> {
+        Request::get(path)
+            .header(ORIGIN, origin)
+            .body(Body::empty())
+            .unwrap()
+    }
+    let allows_authorization = |headers: &axum::http::HeaderMap| {
+        headers[ACCESS_CONTROL_ALLOW_HEADERS]
+            .to_str()
+            .unwrap()
+            .contains("authorization")
+    };
+
+    with_app(CompatConfig::default(), |app| async move {
+        for req in [
+            preflight("/v1/scrobble", "https://scrobblr.app"),
+            get("/v1/search?q=a", "https://scrobblr.app"),
+        ] {
+            let (_, headers, _) = app.send(req).await;
+            assert!(
+                !headers.contains_key(ACCESS_CONTROL_ALLOW_ORIGIN),
+                "{headers:?}"
+            );
+        }
+
+        let (status, headers, _) = app
+            .send(preflight("/1/submit-listens", "https://player.example"))
+            .await;
+        assert!(status.is_success(), "{status}");
+        assert_eq!(headers[ACCESS_CONTROL_ALLOW_ORIGIN], "*");
+        assert!(allows_authorization(&headers));
+        let (_, headers, _) = app
+            .send(get("/1/validate-token", "https://player.example"))
+            .await;
+        assert_eq!(headers[ACCESS_CONTROL_ALLOW_ORIGIN], "*");
+
+        let missing = format!("/uploads/avatars/00/{}.jpg", "0".repeat(32));
+        let (status, headers, _) = app.send(get(&missing, "https://player.example")).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(headers[ACCESS_CONTROL_ALLOW_ORIGIN], "*");
+    })
+    .await;
+
+    let allowed = CorsOrigins::parse(Some("https://scrobblr.app")).unwrap();
+    with_custom_app(
+        |state| state.cors = Arc::new(allowed),
+        |app| async move {
+            let (status, headers, _) = app
+                .send(preflight("/v1/scrobble", "https://scrobblr.app"))
+                .await;
+            assert!(status.is_success(), "{status}");
+            assert_eq!(headers[ACCESS_CONTROL_ALLOW_ORIGIN], "https://scrobblr.app");
+            assert!(allows_authorization(&headers));
+            let (_, headers, _) = app
+                .send(get("/v1/search?q=a", "https://scrobblr.app"))
+                .await;
+            assert_eq!(headers[ACCESS_CONTROL_ALLOW_ORIGIN], "https://scrobblr.app");
+            let (_, headers, _) = app
+                .send(preflight("/v1/scrobble", "https://elsewhere.example"))
+                .await;
+            assert!(
+                !headers.contains_key(ACCESS_CONTROL_ALLOW_ORIGIN),
+                "{headers:?}"
+            );
+        },
+    )
     .await;
 }
 

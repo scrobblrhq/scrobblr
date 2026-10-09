@@ -118,6 +118,23 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
+    let cors = middleware::cors::CorsOrigins::from_env()?;
+    match &cors {
+        middleware::cors::CorsOrigins::None => {
+            tracing::info!("no web page may call the native API (CORS_ALLOWED_ORIGINS unset)")
+        }
+        middleware::cors::CorsOrigins::Any => {
+            tracing::info!("any web page may call the native API (CORS_ALLOWED_ORIGINS=*)")
+        }
+        middleware::cors::CorsOrigins::List(origins) => {
+            let origins: Vec<&str> = origins.iter().filter_map(|o| o.to_str().ok()).collect();
+            tracing::info!(
+                "web pages that may call the native API: {}",
+                origins.join(", ")
+            )
+        }
+    }
+
     // Axum
     let state = state::AppState {
         db,
@@ -126,6 +143,7 @@ async fn main() -> anyhow::Result<()> {
         media,
         app_keys,
         proxies: std::sync::Arc::new(proxies),
+        cors: std::sync::Arc::new(cors),
         clients: Default::default(),
         compat,
         live,
