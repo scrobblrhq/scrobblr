@@ -148,11 +148,59 @@ never reach your server.
   New images get new URLs, so nothing ever needs purging to show up.
 - A deleted image stays reachable at its old URL until Cloudflare's and
   browsers' cached copies expire. Its URL can't be guessed, but for a
-  takedown, purge the URL in Cloudflare.
+  takedown, purge it (see [Taking an image down](#taking-an-image-down)).
 - Leave the API's hostname unproxied (grey cloud). If you proxy it too,
   configure Caddy's `trusted_proxies` with Cloudflare's address ranges and
   set `TRUSTED_PROXY_HOPS=2`. Otherwise rate limits see Cloudflare's
   addresses instead of your users'.
+
+## Taking an image down
+
+To remove an image someone uploaded (an avatar or artist or album art),
+take the key from its URL, the part after the uploads base, such as
+`avatars/3f/3f9c…e1.jpg`. Then:
+
+1. **Remove what refers to it**, in one transaction. A displayed artwork
+   is unlocked, so enrichment or another candidate can replace it:
+
+   ```bash
+   docker compose exec -T db psql -U scrobblr -d scrobblr -v key='avatars/3f/3f9c…e1.jpg' <<'SQL'
+   BEGIN;
+   UPDATE users SET image_url = NULL WHERE image_url = :'key';
+   UPDATE artists SET image_url = NULL, image_locked = false WHERE image_url = :'key';
+   UPDATE albums SET image_url = NULL, image_locked = false WHERE image_url = :'key';
+   DELETE FROM image_candidates WHERE url = :'key';
+   COMMIT;
+   SQL
+   ```
+
+2. **Delete the file**, as the API's user:
+
+   ```bash
+   docker compose exec api rm /data/uploads/avatars/3f/3f9c…e1.jpg
+   ```
+
+3. **Purge it from Cloudflare**, or it stays served from the edge until
+   its copy expires there. In the dashboard: your zone, **Caching →
+   Configuration → Custom Purge**, purge by **URL**, and enter the full
+   URL. Or with the API, using a token with the **Cache Purge**
+   permission on the zone:
+
+   ```bash
+   curl -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/purge_cache" \
+     -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+     -H "Content-Type: application/json" \
+     --data '{"files": ["https://uploads.example.com/avatars/3f/3f9c…e1.jpg"]}'
+   ```
+
+   Purge every URL it was served under: if the API's hostname is proxied
+   too, also `https://api.example.com/uploads/<key>`. The response says
+   `"success": true` once the purge is accepted; requesting the URL then
+   gets a 404 from your server.
+
+Browsers that already loaded the image keep their copy for up to a year
+(`Cache-Control: immutable`), and nothing on the server can reach it. The
+URL can't be guessed, so only someone who had it can see that copy.
 
 ## Backups
 
