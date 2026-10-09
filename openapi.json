@@ -7062,7 +7062,7 @@
     },
     "/v1/user/{username}/live": {
       "get": {
-        "description": "Server-Sent Events stream of a user's now playing. The first event is the current state (`null` when nothing is playing), then one per update, each a JSON `NowPlayingRich`. An entry that expires sends no event: compare `expires_at` with the clock. The connection is kept alive with SSE comments.",
+        "description": "Server-Sent Events stream of a user's now playing. The first event is the current state (`null` when nothing is playing), then one per update, each a JSON `NowPlayingRich`. An entry that expires sends no event: compare `expires_at` with the clock. An idle stream sends a comment every 15 seconds, and tells proxies not to buffer it (`X-Accel-Buffering: no`).",
         "parameters": [
           {
             "in": "path",

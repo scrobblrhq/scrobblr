@@ -234,7 +234,7 @@ mod tests {
     #[ignore = "needs Postgres and Redis: just test-db"]
     async fn a_watched_profile_gets_updates_and_redis_keeps_working() {
         use axum::body::Body;
-        use axum::http::{Method, Request, StatusCode};
+        use axum::http::{Method, Request, StatusCode, header};
         use futures_util::StreamExt;
         use serde_json::json;
         use tower::ServiceExt;
@@ -242,12 +242,20 @@ mod tests {
         crate::test_app::with_app(Default::default(), |app| async move {
             let mut req = Request::builder()
                 .uri(format!("/v1/user/{}/live", app.username))
+                .header(header::ACCEPT_ENCODING, "gzip")
                 .body(Body::empty())
                 .unwrap();
             req.extensions_mut()
                 .insert(axum::extract::ConnectInfo(app.ip));
             let response = app.router.clone().oneshot(req).await.unwrap();
             assert_eq!(response.status(), StatusCode::OK);
+            // Nothing on the way may hold events back: no compression (it
+            // buffers), no caching, and a word for nginx.
+            let headers = response.headers();
+            assert_eq!(headers[header::CONTENT_TYPE], "text/event-stream");
+            assert_eq!(headers[header::CACHE_CONTROL], "no-cache");
+            assert_eq!(headers["x-accel-buffering"], "no");
+            assert!(!headers.contains_key(header::CONTENT_ENCODING));
             let mut body = response.into_body().into_data_stream();
             let mut next_event = async || loop {
                 let chunk = tokio::time::timeout(std::time::Duration::from_secs(5), body.next())

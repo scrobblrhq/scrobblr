@@ -379,6 +379,10 @@ fn event_stream(mut op: TransformOperation) -> TransformOperation {
     op
 }
 
+/// How often an idle live stream sends a comment, well within the idle
+/// timeouts of proxies on the way (Cloudflare's is 100 s).
+const KEEP_ALIVE: std::time::Duration = std::time::Duration::from_secs(15);
+
 pub struct SseStream<S>(Sse<S>);
 
 impl<S> IntoResponse for SseStream<S>
@@ -386,7 +390,8 @@ where
     Sse<S>: IntoResponse,
 {
     fn into_response(self) -> Response {
-        self.0.into_response()
+        // nginx buffers a response unless told not to.
+        ([("x-accel-buffering", "no")], self.0).into_response()
     }
 }
 
@@ -425,17 +430,21 @@ pub async fn live_now_playing(
             Some((Ok(Event::default().data(payload)), updates))
         },
     ));
-    Ok(SseStream(Sse::new(stream).keep_alive(KeepAlive::default())))
+    Ok(SseStream(
+        Sse::new(stream).keep_alive(KeepAlive::new().interval(KEEP_ALIVE)),
+    ))
 }
 
 pub fn _live_now_playing_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Live now playing (SSE)")
-        .description(
-            "Server-Sent Events stream of a user's now playing. The first event is the current \
-             state (`null` when nothing is playing), then one per update, each a JSON \
-             `NowPlayingRich`. An entry that expires sends no event: compare `expires_at` with \
-             the clock. The connection is kept alive with SSE comments.",
-        )
+        .description(&format!(
+            "Server-Sent Events stream of a user's now playing. The first event is the \
+                 current state (`null` when nothing is playing), then one per update, each a JSON \
+                 `NowPlayingRich`. An entry that expires sends no event: compare `expires_at` with \
+                 the clock. An idle stream sends a comment every {} seconds, and tells proxies \
+                 not to buffer it (`X-Accel-Buffering: no`).",
+            KEEP_ALIVE.as_secs()
+        ))
         .tag("Scrobbles")
         .response_with::<200, Json<Option<NowPlayingRich>>, _>(|r| {
             r.description("`text/event-stream`; each event's data is the JSON shown")
