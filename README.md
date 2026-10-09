@@ -55,7 +55,9 @@ docker compose --env-file .env.docker up -d --build
 
 The API comes up on http://localhost:8080 (docs at `/docs`). A one-shot
 `migrate` service applies pending migrations before the API and worker start.
-Point the web app / mobile app at this origin.
+Point the web app / mobile app at this origin. With `--profile caddy
+--profile web`, Caddy serves the web app, the API and the uploads over HTTPS
+on their own hosts ([docs/web-integration.md](docs/web-integration.md)).
 
 ### With devenv
 
@@ -104,6 +106,12 @@ lists its commands).
 Interactive API docs are served at [`/docs`](http://localhost:8080/docs) (OpenAPI spec at `/api.json`;
 [`openapi.json`](openapi.json) is its committed snapshot, which `just test` keeps current).
 
+### The web app
+
+The web app (SvelteKit) calls the API from its server with the user's
+session; the browser never calls the API. What it must send and the pages
+it must have: [docs/web-integration.md](docs/web-integration.md).
+
 ### Scrobbling from other apps
 
 Existing scrobblers (Web Scrobbler, Pano Scrobbler, Audioscrobbler 1.2 players,
@@ -142,6 +150,10 @@ request.
 | `REDIS_URL`          | —        | `redis://127.0.0.1:6379` | Redis (sessions; worker now-playing republish) |
 | `BIND_ADDR`          | —        | `0.0.0.0:8080`           | API listen address                  |
 | `PUBLIC_BASE_URL`    | —        | `http://localhost:8080`  | Public origin of the API, for links it builds to itself — set to your public origin |
+| `WEB_APP_URL`        | —        | —                        | The web app's origin, where browsers approve scrobblers and link Spotify and Last.fm accounts |
+| `TRUSTED_PROXY_HOPS` | —        | `0`                      | Proxies whose `X-Forwarded-For` names the client: `1` behind `deploy/Caddyfile` and the web app |
+| `TRUSTED_PROXIES`    | —        | loopback, private networks | The peers `X-Forwarded-For` is believed from |
+| `CORS_ALLOWED_ORIGINS` | —      | none                     | Origins whose pages may call the native API from a browser, or `*` |
 | `UPLOAD_DIR`         | —        | `uploads`                | Directory user-uploaded images are written to |
 | `UPLOAD_PUBLIC_URL`  | —        | `{PUBLIC_BASE_URL}/uploads` | Base URL serving `UPLOAD_DIR`, e.g. a CDN host ([docs/uploads.md](docs/uploads.md)) |
 | `RUST_LOG`           | —        | —                        | Tracing filter (e.g. `api=debug,worker=debug,sqlx=warn`) |
