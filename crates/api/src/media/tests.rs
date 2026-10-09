@@ -238,6 +238,46 @@ async fn refused_uploads_store_nothing() {
     .await;
 }
 
+#[tokio::test]
+#[ignore = "needs Postgres and Redis: just test-db"]
+async fn an_avatar_url_is_https_or_the_current_one() {
+    with_app(CompatConfig::default(), |app| async move {
+        let patch = |image_url: &str| {
+            app.api(
+                Method::PATCH,
+                "/v1/user/me",
+                Some(json!({ "bio": "hi", "image_url": image_url })),
+            )
+        };
+        for refused in [
+            "http://example.com/me.jpg",
+            "javascript:alert(1)",
+            "avatars/00/00000000000000000000000000000000.jpg",
+        ] {
+            let (status, _) = patch(refused).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{refused}");
+        }
+        let (status, profile) = patch("https://example.com/me.jpg").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(profile["image_url"], "https://example.com/me.jpg");
+
+        // Stored before the rule; a profile form sends it back unchanged.
+        let old = "http://old.example/me.jpg";
+        sqlx::query("UPDATE users SET image_url = $1 WHERE id = $2")
+            .bind(old)
+            .bind(app.user_id)
+            .execute(&app.pool)
+            .await
+            .unwrap();
+        let (status, profile) = patch(old).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(profile["image_url"], old);
+        let (status, _) = patch("http://old.example/other.jpg").await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    })
+    .await;
+}
+
 /// Refused uploads count too: the limit is on the work, not the result.
 #[tokio::test]
 #[ignore = "needs Postgres and Redis: just test-db"]

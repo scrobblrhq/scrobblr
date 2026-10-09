@@ -121,23 +121,22 @@ pub async fn update_settings(
     }
     let mut image_url = patch_field(&body.image_url);
     if let Some(Some(url)) = image_url {
-        // Never an upload key, which only the avatar upload stores.
-        if !url.starts_with("https://") && !url.starts_with("http://") {
-            return Err(AppError::BadRequest(
-                "image_url must be an http(s) URL".into(),
-            ));
-        }
-        if is_upload_url(&state, url) {
+        let upload = is_upload_url(&state, url);
+        if upload || !url.starts_with("https://") {
             // Clients send back the avatar URL they were given, which keeps
-            // it. Any other upload stays the upload endpoint's to set, so the
-            // database never holds a URL of ours.
+            // it, even an upload or an http URL from before this rule.
+            // Otherwise uploads stay the upload endpoint's to set, so the
+            // database never holds a URL of ours (nor a key, which isn't
+            // https either).
             let current = users_db::find_by_id(&state.db, auth_user.id)
                 .await?
                 .and_then(|u| u.image_url);
             if current.as_deref().map(shared::media::public_url).as_deref() != Some(url) {
-                return Err(AppError::BadRequest(
-                    "image_url can't point at an uploaded image; use the avatar upload".into(),
-                ));
+                return Err(AppError::BadRequest(if upload {
+                    "image_url can't point at an uploaded image; use the avatar upload".into()
+                } else {
+                    "image_url must be an https URL".into()
+                }));
             }
             image_url = None;
         }
@@ -172,7 +171,7 @@ fn is_upload_url(state: &AppState, url: &str) -> bool {
 
 pub fn _update_settings_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Update account settings")
-        .description("Updates the authenticated user's own profile: display name (at most 40 characters, the registration rules), bio (1000), avatar URL and privacy. Omitted fields are unchanged; an empty string clears the field. The avatar URL is any http(s) URL except an uploaded image's, which only `POST /v1/user/me/avatar` sets; sending back the current avatar's URL leaves it as it is. A replaced uploaded avatar is deleted.")
+        .description("Updates the authenticated user's own profile: display name (at most 40 characters, the registration rules), bio (1000), avatar URL and privacy. Omitted fields are unchanged; an empty string clears the field. The avatar URL is any https URL except an uploaded image's, which only `POST /v1/user/me/avatar` sets; sending back the current avatar's URL, whatever it is, leaves it as it is. A replaced uploaded avatar is deleted.")
         .tag("Users")
         .response::<200, Json<UserProfile>>()
         .response_with::<400, ErrorJson, _>(|r| r.description("Invalid field value"))
