@@ -539,6 +539,16 @@
         ],
         "type": "object"
       },
+      "LogoutQuery": {
+        "properties": {
+          "all": {
+            "default": false,
+            "description": "End every session of the user, on every device, not just this one.",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "NewCommentRequest": {
         "properties": {
           "body": {
@@ -3837,7 +3847,20 @@
     },
     "/v1/auth/logout": {
       "post": {
-        "description": "Invalidates all active sessions for the authenticated user (logout from all devices). Requires a valid session token.",
+        "description": "Ends the session the request is made with; the user's other devices stay signed in. With `all=true`, ends every session of the user instead. API tokens are left alone either way. Requires a session.",
+        "parameters": [
+          {
+            "description": "End every session of the user, on every device, not just this one.",
+            "in": "query",
+            "name": "all",
+            "schema": {
+              "default": false,
+              "description": "End every session of the user, on every device, not just this one.",
+              "type": "boolean"
+            },
+            "style": "form"
+          }
+        ],
         "responses": {
           "204": {
             "description": "Successfully logged out"

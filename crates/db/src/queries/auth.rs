@@ -60,6 +60,24 @@ pub async fn touch_session(pool: &PgPool, id: Uuid) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
+/// Ends one session; `false` if it was gone already.
+pub async fn delete_session(pool: &PgPool, id: Uuid) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query!("DELETE FROM user_sessions WHERE id = $1", id)
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected() > 0)
+}
+
+/// Ends every session of the user, returning their ids.
+pub async fn delete_user_sessions(pool: &PgPool, user_id: i64) -> Result<Vec<Uuid>, sqlx::Error> {
+    sqlx::query_scalar!(
+        "DELETE FROM user_sessions WHERE user_id = $1 RETURNING id",
+        user_id,
+    )
+    .fetch_all(pool)
+    .await
+}
+
 /// Deletes all sessions past their `expires_at` timestamp and returns the
 /// number of rows removed. Intended to be called from a periodic cleanup job.
 pub async fn delete_expired_sessions(pool: &PgPool) -> Result<u64, sqlx::Error> {

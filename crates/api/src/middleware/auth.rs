@@ -64,7 +64,7 @@ pub enum Access {
 #[derive(Clone, Debug)]
 pub enum Credential {
     /// A login session, which may do anything.
-    Session,
+    Session { id: Uuid },
     /// An API token, with those of its scopes this server knows.
     ApiToken { id: Uuid, scopes: Vec<Scope> },
 }
@@ -73,7 +73,7 @@ impl Credential {
     /// Whether this credential may use routes that need `access`.
     pub fn check(&self, access: Access) -> Result<(), AppError> {
         match (self, access) {
-            (Credential::Session, _) | (_, Access::Any) => Ok(()),
+            (Credential::Session { .. }, _) | (_, Access::Any) => Ok(()),
             (Credential::ApiToken { scopes, .. }, Access::Scope(scope)) => {
                 if scopes.contains(&scope) {
                     Ok(())
@@ -123,7 +123,7 @@ pub async fn require_auth(
 
         AuthUser {
             id: user_id,
-            credential: Credential::Session,
+            credential: Credential::Session { id: session_id },
         }
     } else {
         let hash = auth_db::hash_api_token(&token);
@@ -165,7 +165,7 @@ async fn try_authenticate_session(state: &AppState, token: &str) -> Option<AuthU
 
     Some(AuthUser {
         id: user_id,
-        credential: Credential::Session,
+        credential: Credential::Session { id: session_id },
     })
 }
 
@@ -258,7 +258,8 @@ mod tests {
             Access::Scope(Scope::Write),
             Access::Session,
         ] {
-            assert!(Credential::Session.check(access).is_ok(), "{access:?}");
+            let session = Credential::Session { id: Uuid::nil() };
+            assert!(session.check(access).is_ok(), "{access:?}");
         }
     }
 

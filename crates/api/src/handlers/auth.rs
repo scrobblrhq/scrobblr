@@ -2,7 +2,7 @@ use aide::axum::IntoApiResponse;
 use aide::transform::TransformOperation;
 use axum::{
     Json,
-    extract::{Extension, State},
+    extract::{Extension, Query, State},
     http::StatusCode,
 };
 use chrono::Utc;
@@ -213,19 +213,30 @@ pub fn _login_doc(op: TransformOperation) -> TransformOperation {
         .response_with::<429, ErrorJson, _>(|r| r.description("More than 20 attempts from this address, or 10 for this username from this address, in 15 minutes"))
 }
 
-/// POST /v1/logout
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct LogoutQuery {
+    /// End every session of the user, on every device, not just this one.
+    #[serde(default)]
+    pub all: bool,
+}
+
+/// POST /v1/auth/logout
 pub async fn logout(
     State(state): State<AppState>,
     Extension(auth_user): Extension<AuthUser>,
+    Query(q): Query<LogoutQuery>,
 ) -> ApiResult<StatusCode> {
-    let deleted_ids = sqlx::query_scalar!(
-        "DELETE FROM user_sessions WHERE user_id = $1 RETURNING id",
-        auth_user.id,
-    )
-    .fetch_all(&state.db)
-    .await?;
+    let Credential::Session { id } = auth_user.credential else {
+        return Err(AppError::SessionRequired);
+    };
+    let ended = if q.all {
+        auth_db::delete_user_sessions(&state.db, auth_user.id).await?
+    } else {
+        auth_db::delete_session(&state.db, id).await?;
+        vec![id]
+    };
 
-    for session_id in deleted_ids {
+    for session_id in ended {
         let cache_key = format!("session:{session_id}");
         if let Err(err) = state.redis.del::<i64, _>(&cache_key).await {
             tracing::warn!(%session_id, ?err, "failed to invalidate session cache on logout");
@@ -237,7 +248,7 @@ pub async fn logout(
 
 pub fn _logout_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Log out")
-        .description("Invalidates all active sessions for the authenticated user (logout from all devices). Requires a valid session token.")
+        .description("Ends the session the request is made with; the user's other devices stay signed in. With `all=true`, ends every session of the user instead. API tokens are left alone either way. Requires a session.")
         .tag("Auth")
         .response_with::<204, (), _>(|r| r.description("Successfully logged out"))
         .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
@@ -454,6 +465,48 @@ mod tests {
                 "{days}"
             );
         }
+    }
+
+    /// Logging out on one device (say the web app) leaves the others signed
+    /// in, unless asked to end them all.
+    #[tokio::test]
+    #[ignore = "needs Postgres and Redis: just test-db"]
+    async fn logout_ends_this_session_or_every_one() {
+        use crate::test_app::with_app;
+        use axum::http::Method;
+
+        with_app(Default::default(), |app| async move {
+            let new_session = async || {
+                auth_db::create_session(&app.pool, app.user_id, None, None)
+                    .await
+                    .unwrap()
+                    .id
+                    .to_string()
+            };
+            let me = async |session: &str| {
+                let (status, _) = app.api_as(session, Method::GET, "/v1/user/me", None).await;
+                status
+            };
+            let logout = async |session: &str, path: &str| {
+                let (status, _) = app.api_as(session, Method::POST, path, None).await;
+                assert_eq!(status, StatusCode::NO_CONTENT);
+            };
+            let (web, phone) = (new_session().await, new_session().await);
+            // Both used, so both cached.
+            assert_eq!(me(&web).await, StatusCode::OK);
+            assert_eq!(me(&phone).await, StatusCode::OK);
+
+            logout(&web, "/v1/auth/logout").await;
+            assert_eq!(me(&web).await, StatusCode::UNAUTHORIZED);
+            assert_eq!(me(&phone).await, StatusCode::OK);
+
+            let another = new_session().await;
+            logout(&phone, "/v1/auth/logout?all=true").await;
+            for session in [phone, another, app.session.to_string()] {
+                assert_eq!(me(&session).await, StatusCode::UNAUTHORIZED);
+            }
+        })
+        .await;
     }
 
     #[tokio::test]

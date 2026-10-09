@@ -76,7 +76,7 @@ Rust workspace crates and their dependency direction: `api` → `db` → `shared
 ### Auth model
 
 Two credential types, both resolved by the auth middleware:
-- **Sessions**: UUID tokens in `user_sessions`, cached in Redis under `session:{id}` (logout must invalidate both). A session may do anything.
+- **Sessions**: UUID tokens in `user_sessions`, cached in Redis under `session:{id}` (logout must invalidate both; it ends the calling session, or with `?all=true` every one of the user's). A session may do anything. They last 30 days from login; use doesn't extend them.
 - **API tokens**: long-lived, stored hashed via `auth_db::hash_api_token`; the raw token is shown only once at creation. Each holds scopes, and none implies another: `scrobble` (`/v1/scrobble`, `/v1/now-playing`), `read` (the account's own data: `GET /v1/user/me`, imports, connected accounts) and `write` (changing the account and posting as it: profile, follows, comments, votes, uploads, imports, catalog refreshes). `POST /v1/auth/tokens` defaults to `["scrobble"]` and refuses unknown names and an empty list; a name stored before that check grants nothing.
 
 The middleware never loads the user: both credentials are deleted with it (`ON DELETE CASCADE`), so the session's or token's `user_id` is enough. `last_used_at` (sessions, API tokens, scrobbler credentials) is written at most every 5 minutes, in the background.
