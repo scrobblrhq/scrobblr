@@ -1,7 +1,0 @@
-{
-	auto_https off
-}
-
-:3000 {
-	respond "xff=[{http.request.header.X-Forwarded-For}] cf=[{http.request.header.CF-Connecting-IP}]"
-}
