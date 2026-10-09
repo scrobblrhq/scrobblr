@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE tracks\n        SET mbid = NULL, mb_duration_ms = NULL,\n            mbid_hint = CASE WHEN mbid_hint = mbid THEN NULL ELSE mbid_hint END\n        WHERE id = $1\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1544ea19d381764a23178b7eccad09f18a5be9cb9de6f45de16ea95023f5d337"
+}

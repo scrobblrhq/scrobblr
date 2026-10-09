@@ -97,12 +97,14 @@ fn score_ok(score: Option<i32>, min: i32) -> bool {
 }
 
 /// Searches for a recording by title + artist name. Returns the best match at
-/// or above the score threshold, with its artist credits and releases.
+/// or above the score threshold that isn't in `skip`, with its artist
+/// credits and releases.
 pub async fn search_recording(
     client: &reqwest::Client,
     limiter: &RateLimiter,
     title: &str,
     artist: &str,
+    skip: &[Uuid],
 ) -> ProviderResult<Recording> {
     let query = format!(
         r#"recording:"{}" AND artist:"{}""#,
@@ -122,7 +124,7 @@ pub async fn search_recording(
     Ok(result.and_then(|r| {
         r.recordings
             .into_iter()
-            .find(|rec| score_ok(rec.score, MIN_SCORE))
+            .find(|rec| score_ok(rec.score, MIN_SCORE) && !skip.contains(&rec.id))
     }))
 }
 

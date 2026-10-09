@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT t.id AS track_id, a.name AS artist_name, t.title, t.mbid,\n               t.mb_duration_ms AS \"musicbrainz_ms!\", t.duration_ms AS \"catalog_ms!\",\n               t.deezer_duration_ms AS \"deezer_ms!\", t.scrobble_count\n        FROM tracks t\n        JOIN artists a ON a.id = t.artist_id\n        WHERE t.mb_duration_ms > 0 AND t.duration_ms > 0 AND t.deezer_duration_ms > 0\n          AND (GREATEST(t.mb_duration_ms, t.duration_ms) * 2\n                   >= LEAST(t.mb_duration_ms, t.duration_ms) * 3\n               OR GREATEST(t.mb_duration_ms, t.deezer_duration_ms) * 2\n                   >= LEAST(t.mb_duration_ms, t.deezer_duration_ms) * 3\n               OR GREATEST(t.duration_ms, t.deezer_duration_ms) * 2\n                   >= LEAST(t.duration_ms, t.deezer_duration_ms) * 3)\n        ORDER BY t.scrobble_count DESC, t.id\n        LIMIT $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "track_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "artist_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "mbid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "musicbrainz_ms!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "catalog_ms!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "deezer_ms!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "scrobble_count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "0df8bc8f240bd89cfc0c5b3c2fd6631c89c1b18a5163e81374ce91c075a39b78"
+}

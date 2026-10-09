@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT t.id, t.title, t.mbid, t.duration_ms, t.mb_duration_ms, t.mbid_hint,\n               t.artist_id, a.name AS \"artist_name!\", a.mbid AS \"artist_mbid?\",\n               t.album_id, al.title AS \"album_title?\", al.mbid AS \"album_mbid?\"\n        FROM tracks t\n        JOIN artists a ON a.id = t.artist_id\n        LEFT JOIN albums al ON al.id = t.album_id\n        WHERE t.id = $1\n        ",
+  "query": "\n        SELECT t.id, t.title, t.mbid, t.duration_ms, t.mb_duration_ms, t.mbid_hint,\n               t.artist_id, a.name AS \"artist_name!\", a.mbid AS \"artist_mbid?\",\n               t.album_id, al.title AS \"album_title?\", al.mbid AS \"album_mbid?\",\n               ARRAY(SELECT r.mbid FROM track_mbid_rejections r WHERE r.track_id = t.id)\n                   AS \"rejected_mbids!\"\n        FROM tracks t\n        JOIN artists a ON a.id = t.artist_id\n        LEFT JOIN albums al ON al.id = t.album_id\n        WHERE t.id = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -62,6 +62,11 @@
         "ordinal": 11,
         "name": "album_mbid?",
         "type_info": "Uuid"
+      },
+      {
+        "ordinal": 12,
+        "name": "rejected_mbids!",
+        "type_info": "UuidArray"
       }
     ],
     "parameters": {
@@ -81,8 +86,9 @@
       true,
       true,
       false,
-      true
+      true,
+      null
     ]
   },
-  "hash": "13509db5cc3bdfbeb86d09cb84ba9d03d5ca3aaf87787bd6021895afd8e8544b"
+  "hash": "e867d01b246ad08099c886f20ee4d80ba901f9abeb558329fc7693024f9dfbb5"
 }

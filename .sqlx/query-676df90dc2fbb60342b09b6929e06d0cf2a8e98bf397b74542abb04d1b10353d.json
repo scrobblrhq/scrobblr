@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT mbid, mb_duration_ms, duration_ms, deezer_duration_ms\n        FROM tracks WHERE id = $1\n        FOR UPDATE\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "mbid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "mb_duration_ms",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "duration_ms",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "deezer_duration_ms",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "676df90dc2fbb60342b09b6929e06d0cf2a8e98bf397b74542abb04d1b10353d"
+}

@@ -7,6 +7,7 @@ mod lastfm_import;
 mod rankings;
 #[cfg(test)]
 mod test_support;
+mod tracks;
 mod uploads;
 
 use std::sync::Arc;
@@ -32,10 +33,11 @@ async fn main() -> anyhow::Result<()> {
         Some("help" | "--help" | "-h")
     ) {
         println!(
-            "{USAGE}\n{}\n{}\n{}\n{}",
+            "{USAGE}\n{}\n{}\n{}\n{}\n{}",
             classification::cli::USAGE,
             rankings::cli::USAGE,
             lastfm_import::cli::USAGE,
+            tracks::USAGE,
             uploads::USAGE
         );
         return Ok(());
@@ -70,6 +72,10 @@ async fn main() -> anyhow::Result<()> {
         Some("import") => {
             db::migrate::ensure_current(&db).await?;
             return lastfm_import::cli::run(&db, lastfm_http, &args[1..]).await;
+        }
+        Some("tracks") => {
+            db::migrate::ensure_current(&db).await?;
+            return tracks::run(&db, &args[1..]).await;
         }
         Some("uploads") => {
             db::migrate::ensure_current(&db).await?;

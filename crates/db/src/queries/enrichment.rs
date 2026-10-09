@@ -363,6 +363,8 @@ pub struct TrackCtx {
     pub album_id: Option<i64>,
     pub album_title: Option<String>,
     pub album_mbid: Option<Uuid>,
+    /// Recordings `worker tracks mb-review` took back: never adopted again.
+    pub rejected_mbids: Vec<Uuid>,
 }
 
 pub async fn get_track_ctx(pool: &PgPool, id: i64) -> Result<Option<TrackCtx>, sqlx::Error> {
@@ -371,7 +373,9 @@ pub async fn get_track_ctx(pool: &PgPool, id: i64) -> Result<Option<TrackCtx>, s
         r#"
         SELECT t.id, t.title, t.mbid, t.duration_ms, t.mb_duration_ms, t.mbid_hint,
                t.artist_id, a.name AS "artist_name!", a.mbid AS "artist_mbid?",
-               t.album_id, al.title AS "album_title?", al.mbid AS "album_mbid?"
+               t.album_id, al.title AS "album_title?", al.mbid AS "album_mbid?",
+               ARRAY(SELECT r.mbid FROM track_mbid_rejections r WHERE r.track_id = t.id)
+                   AS "rejected_mbids!"
         FROM tracks t
         JOIN artists a ON a.id = t.artist_id
         LEFT JOIN albums al ON al.id = t.album_id
@@ -708,4 +712,129 @@ pub async fn requeue_deezer_checks(
     .execute(pool)
     .await?;
     Ok(result.rows_affected())
+}
+
+/// A track's three lengths.
+#[derive(Debug)]
+pub struct TrackLengths {
+    pub track_id: i64,
+    pub artist_name: String,
+    pub title: String,
+    pub mbid: Option<Uuid>,
+    pub musicbrainz_ms: i32,
+    pub catalog_ms: i32,
+    pub deezer_ms: i32,
+    pub scrobble_count: i64,
+}
+
+/// Tracks with a MusicBrainz, a catalog and a Deezer length, two of which
+/// differ by 1.5x or more; most scrobbled first.
+pub async fn disputed_lengths(pool: &PgPool, limit: i64) -> Result<Vec<TrackLengths>, sqlx::Error> {
+    sqlx::query_as!(
+        TrackLengths,
+        r#"
+        SELECT t.id AS track_id, a.name AS artist_name, t.title, t.mbid,
+               t.mb_duration_ms AS "musicbrainz_ms!", t.duration_ms AS "catalog_ms!",
+               t.deezer_duration_ms AS "deezer_ms!", t.scrobble_count
+        FROM tracks t
+        JOIN artists a ON a.id = t.artist_id
+        WHERE t.mb_duration_ms > 0 AND t.duration_ms > 0 AND t.deezer_duration_ms > 0
+          AND (GREATEST(t.mb_duration_ms, t.duration_ms) * 2
+                   >= LEAST(t.mb_duration_ms, t.duration_ms) * 3
+               OR GREATEST(t.mb_duration_ms, t.deezer_duration_ms) * 2
+                   >= LEAST(t.mb_duration_ms, t.deezer_duration_ms) * 3
+               OR GREATEST(t.duration_ms, t.deezer_duration_ms) * 2
+                   >= LEAST(t.duration_ms, t.deezer_duration_ms) * 3)
+        ORDER BY t.scrobble_count DESC, t.id
+        LIMIT $1
+        "#,
+        limit,
+    )
+    .fetch_all(pool)
+    .await
+}
+
+/// Takes back a track's MusicBrainz match: records the recording as
+/// rejected, clears the mbid and its length (and the hint, if it named
+/// that recording), queues enrichment to search again, and queues every
+/// day with plays of the track for classification, since its lengths
+/// changed. Does nothing unless the stored MusicBrainz length is still
+/// `seen_ms` (the one the review judged). Returns the days queued.
+pub async fn unlink_musicbrainz(
+    pool: &PgPool,
+    track_id: i64,
+    seen_ms: i32,
+) -> Result<Option<u64>, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    let track = sqlx::query!(
+        r#"
+        SELECT mbid, mb_duration_ms, duration_ms, deezer_duration_ms
+        FROM tracks WHERE id = $1
+        FOR UPDATE
+        "#,
+        track_id,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(track) = track.filter(|t| t.mb_duration_ms == Some(seen_ms)) else {
+        return Ok(None);
+    };
+    if let Some(mbid) = track.mbid {
+        sqlx::query!(
+            r#"
+            INSERT INTO track_mbid_rejections
+                (track_id, mbid, mb_duration_ms, catalog_duration_ms, deezer_duration_ms)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (track_id, mbid) DO NOTHING
+            "#,
+            track_id,
+            mbid,
+            track.mb_duration_ms,
+            track.duration_ms,
+            track.deezer_duration_ms,
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    sqlx::query!(
+        r#"
+        UPDATE tracks
+        SET mbid = NULL, mb_duration_ms = NULL,
+            mbid_hint = CASE WHEN mbid_hint = mbid THEN NULL ELSE mbid_hint END
+        WHERE id = $1
+        "#,
+        track_id,
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!(
+        r#"
+        INSERT INTO enrichment_jobs (entity_type, entity_id, priority)
+        VALUES ('track', $1, $2)
+        ON CONFLICT (entity_type, entity_id) DO UPDATE
+            SET status = 'pending', attempts = 0, next_attempt_at = NOW(),
+                priority = EXCLUDED.priority, force = FALSE, last_error = NULL
+            WHERE enrichment_jobs.status IN ('done', 'failed')
+        "#,
+        track_id,
+        PRIORITY_BACKFILL,
+    )
+    .execute(&mut *tx)
+    .await?;
+    let days = sqlx::query!(
+        r#"
+        INSERT INTO classification_queue (user_id, day, priority)
+        SELECT DISTINCT user_id, (day AT TIME ZONE 'UTC')::date, $2::int
+        FROM scrobbles_daily_by_track
+        WHERE track_id = $1
+        ON CONFLICT (user_id, day) DO NOTHING
+        "#,
+        track_id,
+        crate::queries::classification::PRIORITY_SWEEP,
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    tx.commit().await?;
+    Ok(Some(days))
 }
