@@ -2908,7 +2908,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over 20 uploads an hour for this account or 30 from this address, or over 60 requests a minute from this address"
           },
           "default": {
             "content": {
@@ -3434,7 +3434,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over 20 uploads an hour for this account or 30 from this address, or over 60 requests a minute from this address"
           },
           "default": {
             "content": {
@@ -6621,7 +6621,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over 20 uploads an hour for this account or 30 from this address, or over 60 requests a minute from this address"
           },
           "default": {
             "content": {

@@ -238,6 +238,24 @@ async fn refused_uploads_store_nothing() {
     .await;
 }
 
+/// Refused uploads count too: the limit is on the work, not the result.
+#[tokio::test]
+#[ignore = "needs Postgres and Redis: just test-db"]
+async fn uploads_are_limited_per_account() {
+    with_app(CompatConfig::default(), |app| async move {
+        for _ in 0..crate::limits::UPLOADS_PER_USER {
+            let (status, body) = app.upload("/v1/user/me/avatar", b"junk").await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        }
+        let (status, body) = app.upload("/v1/user/me/avatar", &png()).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+        let (status, body) = app.upload("/v1/artist/1/image", &png()).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+        assert!(app.stored_files().is_empty());
+    })
+    .await;
+}
+
 #[tokio::test]
 #[ignore = "needs Postgres and Redis: just test-db"]
 async fn artwork_is_stored_under_its_kind_and_served_once_promoted() {

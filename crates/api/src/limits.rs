@@ -1,7 +1,8 @@
-//! Limits the native API and the scrobbler-compatible ones share, counted
-//! in Redis: password logins, and the scrobbles an account may submit per
-//! UTC day. Windows are part of the keys, so a key that missed its expiry
-//! still stops counting when its window ends.
+//! Limits counted in Redis: password logins and the scrobbles an account
+//! may submit per UTC day (shared by the native API and the
+//! scrobbler-compatible ones), and image uploads. Windows are part of the
+//! keys, so a key that missed its expiry still stops counting when its
+//! window ends.
 
 use chrono::Utc;
 use fred::interfaces::KeysInterface;
@@ -57,6 +58,41 @@ pub async fn login_attempt(state: &AppState, ip: &str, username: &str) -> ApiRes
 pub async fn login_succeeded(state: &AppState, ip: &str, username: &str) {
     let [_, user_key] = login_keys(ip, username);
     let _ = state.redis.del::<i64, _>(&user_key).await;
+}
+
+const UPLOAD_WINDOW_SECS: i64 = 3600;
+pub const UPLOADS_PER_USER: i64 = 20;
+pub const UPLOADS_PER_IP: i64 = 30;
+
+/// Counts an image upload and says whether it may go ahead: at most
+/// [`UPLOADS_PER_USER`] per account and [`UPLOADS_PER_IP`] per address an
+/// hour, refused ones included. A Redis failure lets it through, like the
+/// global rate limit.
+pub async fn upload_attempt(state: &AppState, user_id: i64, ip: &str) -> bool {
+    let window = Utc::now().timestamp() / UPLOAD_WINDOW_SECS;
+    let limits = [
+        (format!("upload:user:{user_id}:{window}"), UPLOADS_PER_USER),
+        (
+            format!("upload:ip:{}:{window}", network(ip)),
+            UPLOADS_PER_IP,
+        ),
+    ];
+    let mut allowed = true;
+    for (key, limit) in limits {
+        match state.redis.incr::<i64, _>(&key).await {
+            Ok(count) => {
+                if count == 1 {
+                    let _ = state
+                        .redis
+                        .expire::<i64, _>(&key, UPLOAD_WINDOW_SECS, None)
+                        .await;
+                }
+                allowed &= count <= limit;
+            }
+            Err(e) => tracing::warn!("upload limit unavailable: {e}"),
+        }
+    }
+    allowed
 }
 
 /// Scrobbles taken from a user's allowance for today

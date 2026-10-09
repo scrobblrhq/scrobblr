@@ -8,7 +8,7 @@ use fred::interfaces::KeysInterface;
 use std::convert::Infallible;
 use std::net::{IpAddr, SocketAddr};
 
-use crate::{errors::AppError, state::AppState};
+use crate::{errors::AppError, middleware::auth::AuthUser, state::AppState};
 
 /// Fixed-window rate limiter: [`MAX_REQUESTS`] per [`WINDOW_SECS`] per
 /// [`network`].
@@ -45,6 +45,25 @@ pub async fn rate_limit(
         return Err(AppError::RateLimited);
     }
 
+    Ok(next.run(req).await)
+}
+
+/// [`crate::limits::upload_attempt`] for the upload routes, behind
+/// `require_auth`.
+pub async fn upload_limit(
+    State(state): State<AppState>,
+    req: Request,
+    next: Next,
+) -> Result<Response, AppError> {
+    let user_id = req
+        .extensions()
+        .get::<AuthUser>()
+        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("upload limit before auth")))?
+        .id;
+    let ip = request_ip(&req, state.trusted_proxy_hops);
+    if !crate::limits::upload_attempt(&state, user_id, &ip).await {
+        return Err(AppError::RateLimited);
+    }
     Ok(next.run(req).await)
 }
 

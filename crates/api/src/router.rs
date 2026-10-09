@@ -33,10 +33,11 @@ use crate::{
     compat,
     errors::ErrorJson,
     handlers::{auth, community, connected_accounts, imports, scrobbles, tracks, uploads, users},
+    limits,
     middleware::{
         app_signature::require_app_signature,
         auth::{Access, Scope, optional_auth, require_auth},
-        rate_limit::rate_limit,
+        rate_limit::{rate_limit, upload_limit},
     },
     state::AppState,
 };
@@ -203,7 +204,8 @@ pub fn build(state: AppState) -> Router {
         );
 
     // Image uploads: `write` like the routes above, but with a larger body
-    // limit than the default 2 MiB (axum caps multipart at DefaultBodyLimit).
+    // limit than the default 2 MiB (axum caps multipart at DefaultBodyLimit)
+    // and limits of their own.
     let upload_routes = ApiRouter::new()
         .api_route(
             "/v1/user/me/avatar",
@@ -223,6 +225,20 @@ pub fn build(state: AppState) -> Router {
                 uploads::_upload_album_image_doc,
             ),
         )
+        .with_path_items(|mut item| {
+            for (_, op) in iter_operations_mut(item.inner_mut()) {
+                let _ = TransformOperation::new(op).response_with::<429, ErrorJson, _>(|r| {
+                    r.description(&format!(
+                        "Over {} uploads an hour for this account or {} from this address, \
+                         or over 60 requests a minute from this address",
+                        limits::UPLOADS_PER_USER,
+                        limits::UPLOADS_PER_IP
+                    ))
+                });
+            }
+            item
+        })
+        .layer(middleware::from_fn_with_state(state.clone(), upload_limit))
         .layer(DefaultBodyLimit::max(uploads::MAX_UPLOAD_BYTES));
 
     // Credentials and account links: sessions only, so that a leaked API
