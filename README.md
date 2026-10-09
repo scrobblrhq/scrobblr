@@ -18,12 +18,15 @@ scrobblr/
 │   ├── db/       ← SQLx queries (repositories for all entities)
 │   └── worker/   ← Background jobs (cleanup, metadata enrichment and track lengths,
 │                   now-playing republish, scrobble classification, ranking weights)
-│                   and the `migrate` / `classify` / `rank` / `tracks` CLI
+│                   and the `migrate` / `classify` / `rank` / `import` / `tracks` /
+│                   `uploads` CLI
 ├── packages/
 │   └── types/    ← @scrobblr/types — TS types generated from crates/shared via ts-rs
 ├── migrations/    ← numbered plain-SQL, applied in order by `just migrate`
-├── Dockerfile · docker-compose.yml   ← self-host / shared dev backend
-└── .env.example
+├── docs/          ← operations, rankings, uploads, scrobbler clients
+├── scripts/synthetic/   ← synthetic population for benchmarking rankings
+├── Dockerfile · docker-compose.yml   ← the deployment (docs/operations.md)
+└── .env.example · .env.docker.example
 ```
 
 **Stack:** Rust · Axum 0.8 · SQLx 0.8 · PostgreSQL + TimescaleDB · Redis (fred) · Bun + Biome (JS tooling for the types package)
@@ -139,6 +142,8 @@ request.
 
 ## Environment Variables
 
+The main ones; `.env.example` (for `cargo run`) and `.env.docker.example` (for Compose) list and explain them all.
+
 | Variable             | Required | Default                  | Description                         |
 |----------------------|----------|--------------------------|-------------------------------------|
 | `DATABASE_URL`       | ✓        | —                        | PostgreSQL connection string        |
@@ -155,7 +160,7 @@ request.
 | `UPLOAD_PUBLIC_URL`  | —        | `{PUBLIC_BASE_URL}/uploads` | Base URL serving `UPLOAD_DIR`, e.g. a CDN host ([docs/uploads.md](docs/uploads.md)) |
 | `RUST_LOG`           | —        | —                        | Tracing filter (e.g. `api=debug,worker=debug,sqlx=warn`) |
 | `DB_MAX_CONNECTIONS` | —        | `20`                     | Postgres pool size                  |
-| `LASTFM_API_KEY`     | —        | —                        | Enables artist bios (worker)        |
+| `LASTFM_API_KEY`     | —        | —                        | Enables artist bios, history imports and track lengths (worker) |
 
 ---
 
@@ -171,4 +176,4 @@ Jobs are queued in `enrichment_jobs` when new catalog entities are first scrobbl
 - **Artist/album artwork** — last.fm-style, add-only: uploads become candidates that users vote on; the most-liked candidate becomes the displayed image once it reaches 3 likes, and is then protected from enrichment overwrites.
 - **Comments** — public reads, authenticated writes, owner-only deletes on artists and tracks.
 
-Uploaded images are re-encoded to JPEG (EXIF stripped, downscaled, source dimensions capped) and stored under `UPLOAD_DIR`; the database keeps each one's key, and clients get `{UPLOAD_PUBLIC_URL}/{key}`. The API serves them at `/uploads`, or a static server on its own host can: see [docs/uploads.md](docs/uploads.md). Private profiles are excluded from search and listener lists.
+Uploaded images are re-encoded to JPEG (EXIF stripped, downscaled, source dimensions capped) and stored under `UPLOAD_DIR`; the database keeps each one's key, and clients get `{UPLOAD_PUBLIC_URL}/{key}`. The API serves them at `/uploads`: see [docs/uploads.md](docs/uploads.md). Private profiles are excluded from search and listener lists.

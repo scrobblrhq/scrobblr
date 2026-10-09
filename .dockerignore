@@ -10,7 +10,6 @@
 # JS / mobile side — not part of the Rust build
 node_modules
 **/node_modules
-apps
 packages
 dist
 **/dist
