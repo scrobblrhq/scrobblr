@@ -127,6 +127,11 @@
       },
       "AuthResponse": {
         "properties": {
+          "expires_at": {
+            "description": "When the session ends: 30 days after login, however much it's used.",
+            "format": "date-time",
+            "type": "string"
+          },
           "token": {
             "format": "uuid",
             "type": "string"
@@ -142,7 +147,8 @@
         "required": [
           "token",
           "user_id",
-          "username"
+          "username",
+          "expires_at"
         ],
         "type": "object"
       },

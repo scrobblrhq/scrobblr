@@ -65,6 +65,8 @@ pub struct AuthResponse {
     pub token: Uuid,
     pub user_id: i64,
     pub username: String,
+    /// When the session ends: 30 days after login, however much it's used.
+    pub expires_at: chrono::DateTime<Utc>,
 }
 
 /// POST /v1/register
@@ -122,6 +124,7 @@ pub async fn register(
             token: session.id,
             user_id: user.id,
             username: user.username,
+            expires_at: session.expires_at,
         }),
     ))
 }
@@ -201,6 +204,7 @@ pub async fn login(
         token: session.id,
         user_id: user.id,
         username: user.username,
+        expires_at: session.expires_at,
     }))
 }
 
@@ -520,10 +524,15 @@ mod tests {
 
         with_app(Default::default(), |app| async move {
             let login = |password: &str| json!({ "username": app.username, "password": password });
-            let (status, _) = app
+            let (status, body) = app
                 .api(Method::POST, "/v1/auth/login", Some(login(PASSWORD)))
                 .await;
             assert_eq!(status, StatusCode::OK);
+            // What a client keeping the session in a cookie expires it with.
+            let expires_at: chrono::DateTime<Utc> =
+                body["expires_at"].as_str().unwrap().parse().unwrap();
+            let lifetime = expires_at - Utc::now();
+            assert!((lifetime - chrono::TimeDelta::days(30)).abs() < chrono::TimeDelta::minutes(1));
             for _ in 0..limits::LOGIN_ATTEMPTS_PER_USER_AND_IP {
                 let (status, _) = app
                     .api(Method::POST, "/v1/auth/login", Some(login("wrong")))
