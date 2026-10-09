@@ -1,0 +1,27 @@
+# What the origin sees of Cloudflare's edge: CF-Connecting-IP set to the
+# connecting client, whatever it sent, and a response closed after 100 s
+# without data. :81 closes after 20 s, :82 after 10 s.
+{
+	auto_https off
+}
+
+(edge) {
+	reverse_proxy caddy:80 {
+		header_up CF-Connecting-IP {remote_host}
+		transport http {
+			read_timeout {args[0]}
+		}
+	}
+}
+
+:80 {
+	import edge 100s
+}
+
+:81 {
+	import edge 20s
+}
+
+:82 {
+	import edge 10s
+}
