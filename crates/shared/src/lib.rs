@@ -4,6 +4,7 @@ pub mod import;
 pub mod lastfm;
 pub mod media;
 pub mod models;
+pub mod panic;
 pub mod scrobble;
 pub mod spotify;
 pub mod user;

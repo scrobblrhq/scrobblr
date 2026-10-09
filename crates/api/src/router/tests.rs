@@ -441,3 +441,30 @@ async fn tokens_get_only_scopes_the_server_knows() {
     })
     .await;
 }
+
+#[tokio::test]
+async fn a_panicking_handler_answers_500_and_the_router_keeps_serving() {
+    use tower::ServiceExt;
+    use tower_http::catch_panic::CatchPanicLayer;
+
+    async fn buggy() -> &'static str {
+        panic!("handler bug")
+    }
+    let router = axum::Router::new()
+        .route("/panic", axum::routing::get(buggy))
+        .route("/ok", axum::routing::get(|| async { "ok" }))
+        .layer(CatchPanicLayer::custom(super::panic_response));
+    let get = |uri| Request::get(uri).body(Body::empty()).unwrap();
+
+    let response = router.clone().oneshot(get("/panic")).await.unwrap();
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let body = axum::body::to_bytes(response.into_body(), 1024)
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::from_slice::<Value>(&body).unwrap(),
+        json!({ "error": "internal server error" })
+    );
+    let response = router.oneshot(get("/ok")).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}

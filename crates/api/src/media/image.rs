@@ -243,7 +243,8 @@ mod tests {
     }
 
     /// Truncated and corrupted files of every accepted format: each must be
-    /// refused or decoded, never panic (release builds abort on a panic).
+    /// refused or decoded, never panic (a panic would be a 500 for a bad
+    /// upload).
     #[test]
     fn malformed_files_never_panic() {
         let source = gradient(64, 48);

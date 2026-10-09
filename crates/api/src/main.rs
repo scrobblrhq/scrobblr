@@ -21,6 +21,7 @@ async fn main() -> anyhow::Result<()> {
         .with(EnvFilter::from_default_env())
         .with(tracing_subscriber::fmt::layer())
         .init();
+    shared::panic::log_panics();
 
     // Connected-account OAuth tokens are encrypted at rest, so a missing or
     // malformed TOKEN_ENCRYPTION_KEY has to fail here rather than halfway

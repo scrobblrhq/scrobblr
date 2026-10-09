@@ -21,6 +21,7 @@ use std::path::Path;
 use std::sync::Arc;
 use tower::ServiceBuilder;
 use tower_http::{
+    catch_panic::CatchPanicLayer,
     compression::CompressionLayer,
     cors::{Any, CorsLayer},
     services::ServeDir,
@@ -465,6 +466,7 @@ pub fn build(state: AppState) -> Router {
         router = router.nest_service("/uploads", uploads_service(root));
     }
     let router = router
+        .layer(CatchPanicLayer::custom(panic_response))
         .layer(TraceLayer::new_for_http())
         .layer(CompressionLayer::new())
         .layer(
@@ -481,6 +483,18 @@ pub fn build(state: AppState) -> Router {
 }
 
 const BEARER: &str = "bearer";
+
+/// A handler panicked: the panic hook has logged it, the client gets the
+/// usual opaque 500.
+fn panic_response(_: Box<dyn std::any::Any + Send>) -> Response {
+    (
+        HttpStatus::INTERNAL_SERVER_ERROR,
+        axum::Json(crate::errors::ErrorBody {
+            error: "internal server error".into(),
+        }),
+    )
+        .into_response()
+}
 
 /// The global per-address limit can answer 429 to anything.
 fn document_rate_limit(api: &mut OpenApi) {

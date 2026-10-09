@@ -15,7 +15,7 @@ futures-util = "0.3"
 # Web framework
 axum = { version = "0.8", features = ["macros", "json", "multipart"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["cors", "trace", "compression-gzip", "fs", "set-header"] }
+tower-http = { version = "0.6", features = ["catch-panic", "cors", "trace", "compression-gzip", "fs", "set-header"] }
 
 # Docs
 aide = { version = "0.15.1", features = ["axum", "scalar", "axum-extra", "axum-json", "axum-query", "axum-multipart", "macros"] }
@@ -70,5 +70,7 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png",
 opt-level = 3
 lto = true
 codegen-units = 1
-panic = "abort"
+# Unwind (not abort), so a panic ends one request or restarts one worker
+# loop instead of the whole process.
+panic = "unwind"
 strip = true

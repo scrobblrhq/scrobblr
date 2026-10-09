@@ -9,6 +9,7 @@ mod test_support;
 mod uploads;
 
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use fred::interfaces::ClientLike;
 use fred::types::Builder as RedisBuilder;
@@ -22,6 +23,7 @@ async fn main() -> anyhow::Result<()> {
         .with(EnvFilter::from_default_env())
         .with(tracing_subscriber::fmt::layer())
         .init();
+    shared::panic::log_panics();
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     if matches!(
@@ -84,17 +86,20 @@ async fn main() -> anyhow::Result<()> {
 
     // Runs every 5 minutes and purges expired sessions + now_playing rows.
     let db_cleanup = db.clone();
-    let cleanup_handle = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(300));
-        loop {
-            interval.tick().await;
-            match cleanup_expired(&db_cleanup).await {
-                Ok((sessions, now_playing, authorizations)) => {
-                    tracing::info!(
-                        "cleanup: removed {sessions} expired sessions, {now_playing} stale now_playing rows, {authorizations} expired scrobbler authorizations"
-                    );
+    let cleanup_handle = supervise("cleanup", move || {
+        let db = db_cleanup.clone();
+        async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(300));
+            loop {
+                interval.tick().await;
+                match cleanup_expired(&db).await {
+                    Ok((sessions, now_playing, authorizations)) => {
+                        tracing::info!(
+                            "cleanup: removed {sessions} expired sessions, {now_playing} stale now_playing rows, {authorizations} expired scrobbler authorizations"
+                        );
+                    }
+                    Err(e) => tracing::error!("cleanup error: {e}"),
                 }
-                Err(e) => tracing::error!("cleanup error: {e}"),
             }
         }
     });
@@ -106,8 +111,13 @@ async fn main() -> anyhow::Result<()> {
         redis.clone(),
         lastfm_limiter.clone(),
     )?);
-    let enrichment_handle = tokio::spawn(enricher.clone().run());
-    let maintenance_handle = tokio::spawn(enricher.run_maintenance());
+    let enrichment_handle = supervise("enrichment", {
+        let enricher = enricher.clone();
+        move || enricher.clone().run()
+    });
+    let maintenance_handle = supervise("enrichment maintenance", move || {
+        enricher.clone().run_maintenance()
+    });
 
     // Polls connected Spotify accounts and turns their listening history
     // into scrobbles (and live now-playing state, if `redis` is available).
@@ -116,7 +126,9 @@ async fn main() -> anyhow::Result<()> {
     let connected_accounts_poller = Arc::new(
         connected_accounts::ConnectedAccountsPoller::from_env(db.clone(), redis),
     );
-    let connected_accounts_handle = tokio::spawn(connected_accounts_poller.run());
+    let connected_accounts_handle = supervise("connected-accounts poller", move || {
+        connected_accounts_poller.clone().run()
+    });
 
     // Fills track lengths from Last.fm for tracks no source has one for
     // (imported history), so the classifier can label their scrobbles.
@@ -125,32 +137,46 @@ async fn main() -> anyhow::Result<()> {
         lastfm_http.clone(),
         lastfm_limiter.clone(),
     );
-    let lengths_handle = tokio::spawn(async move {
-        match lengths {
-            Some(lengths) => Arc::new(lengths).run().await,
-            None => std::future::pending().await,
+    let lengths = lengths.map(Arc::new);
+    let lengths_handle = supervise("length backfill", move || {
+        let lengths = lengths.clone();
+        async move {
+            match lengths {
+                Some(lengths) => lengths.run().await,
+                None => std::future::pending().await,
+            }
         }
     });
 
     // Runs Last.fm history imports, started from the API or `worker import`.
     let importer = lastfm_import::Importer::from_env(db.clone(), lastfm_http, lastfm_limiter)?;
-    let import_handle = tokio::spawn(async move {
-        match importer {
-            Some(importer) => Arc::new(importer).run().await,
-            None => {
-                tracing::info!("worker: LASTFM_API_KEY not set — Last.fm imports disabled");
-                std::future::pending().await
+    if importer.is_none() {
+        tracing::info!("worker: LASTFM_API_KEY not set — Last.fm imports disabled");
+    }
+    let importer = importer.map(Arc::new);
+    let import_handle = supervise("import", move || {
+        let importer = importer.clone();
+        async move {
+            match importer {
+                Some(importer) => importer.run().await,
+                None => std::future::pending().await,
             }
         }
     });
 
     // Labels scrobbles counted / suspect / duplicate / no_data (shadow mode).
     let classifier = Arc::new(classification::Classifier::from_env(db.clone()).await?);
-    let classification_handle = tokio::spawn(classifier.clone().run());
-    let classification_sweep_handle = tokio::spawn(classifier.run_sweeps());
+    let classification_handle = supervise("classification", {
+        let classifier = classifier.clone();
+        move || classifier.clone().run()
+    });
+    let classification_sweep_handle = supervise("classification sweep", move || {
+        classifier.clone().run_sweeps()
+    });
 
-    // The tasks loop forever; one finishing means it died, which must end
-    // the process with a failure so a supervisor restarts it.
+    // The tasks loop forever and come back after a panic; one finishing
+    // means it stopped for good, which must end the process with a failure
+    // so a supervisor restarts it.
     let died = tokio::select! {
         _ = cleanup_handle => "cleanup",
         _ = enrichment_handle => "enrichment",
@@ -166,6 +192,35 @@ async fn main() -> anyhow::Result<()> {
         }
     };
     anyhow::bail!("{died} task exited unexpectedly")
+}
+
+/// Runs the loop `start` makes on its own task, and a new one after a panic
+/// (logged by the panic hook), waiting 1 s, doubling to 5 min while it keeps
+/// panicking. Finishes when a loop returns.
+fn supervise<F, Fut>(name: &'static str, mut start: F) -> tokio::task::JoinHandle<()>
+where
+    F: FnMut() -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    const MIN_BACKOFF: Duration = Duration::from_secs(1);
+    const MAX_BACKOFF: Duration = Duration::from_secs(300);
+    tokio::spawn(async move {
+        let mut backoff = MIN_BACKOFF;
+        loop {
+            let started = Instant::now();
+            match tokio::spawn(start()).await {
+                Err(e) if e.is_panic() => {
+                    if started.elapsed() > MAX_BACKOFF {
+                        backoff = MIN_BACKOFF;
+                    }
+                    tracing::error!("{name} task panicked, restarting in {backoff:?}");
+                    tokio::time::sleep(backoff).await;
+                    backoff = (backoff * 2).min(MAX_BACKOFF);
+                }
+                _ => return,
+            }
+        }
+    })
 }
 
 const USAGE: &str = "\
@@ -258,4 +313,28 @@ async fn cleanup_expired(db: &sqlx::PgPool) -> Result<(u64, u64, u64), sqlx::Err
     let authorizations = db::queries::scrobblers::delete_expired_authorizations(db).await?;
 
     Ok((sessions, np_result.rows_affected(), authorizations))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn a_panicking_loop_is_restarted_until_it_returns() {
+        let starts = Arc::new(AtomicU32::new(0));
+        let counter = starts.clone();
+        supervise("test", move || {
+            let start = counter.fetch_add(1, Ordering::SeqCst);
+            async move {
+                if start < 2 {
+                    panic!("loop bug");
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(starts.load(Ordering::SeqCst), 3);
+    }
 }

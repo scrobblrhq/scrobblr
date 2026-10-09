@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use axum::extract::FromRef;
 use fred::clients::Client as RedisClient;
@@ -39,15 +39,19 @@ pub struct ClientCache(Mutex<HashMap<ClientIdentity, i32>>);
 impl ClientCache {
     const MAX_ENTRIES: usize = 10_000;
 
+    fn lock(&self) -> MutexGuard<'_, HashMap<ClientIdentity, i32>> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// `None` (logged) if the lookup fails: the scrobble is still worth
     /// recording without it.
     pub async fn id(&self, db: &PgPool, client: &ClientIdentity) -> Option<i32> {
-        if let Some(id) = self.0.lock().unwrap().get(client) {
+        if let Some(id) = self.lock().get(client) {
             return Some(*id);
         }
         match clients_db::resolve_client(db, client).await {
             Ok(id) => {
-                let mut cached = self.0.lock().unwrap();
+                let mut cached = self.lock();
                 if cached.len() >= Self::MAX_ENTRIES {
                     cached.clear();
                 }
