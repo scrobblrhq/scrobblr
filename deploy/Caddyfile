@@ -1,9 +1,36 @@
-# TLS in front of the API and the upload directory, for docker-compose's
-# `caddy` profile (docs/uploads.md). Set API_DOMAIN and UPLOADS_DOMAIN, and
+# TLS in front of the web app, the API and the upload directory, for
+# docker-compose's `caddy` profile (docs/web-integration.md,
+# docs/uploads.md). Set WEB_DOMAIN, API_DOMAIN and UPLOADS_DOMAIN, and
 # UPLOAD_PUBLIC_URL=https://$UPLOADS_DOMAIN for the API and the worker.
 
+{
+	servers {
+		# Behind Cloudflare's proxy, the client is the address Cloudflare
+		# puts in CF-Connecting-IP; any other peer is its own client,
+		# whatever it sends. Cloudflare's ranges, from
+		# https://www.cloudflare.com/ips/ (they rarely change).
+		trusted_proxies static 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32
+		client_ip_headers CF-Connecting-IP
+	}
+}
+
+# That client replaces whatever X-Forwarded-For the request came with, so
+# the API and the web app trust one hop (TRUSTED_PROXY_HOPS=1, XFF_DEPTH=1),
+# with Cloudflare in front or not.
+(forward_client) {
+	header_up X-Forwarded-For {client_ip}
+}
+
+{$WEB_DOMAIN:web.localhost} {
+	reverse_proxy web:3000 {
+		import forward_client
+	}
+}
+
 {$API_DOMAIN:localhost} {
-	reverse_proxy api:8080
+	reverse_proxy api:8080 {
+		import forward_client
+	}
 }
 
 {$UPLOADS_DOMAIN:uploads.localhost} {

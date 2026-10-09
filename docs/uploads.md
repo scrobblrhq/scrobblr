@@ -55,8 +55,9 @@ The static server should do what the API's route does:
 ### Docker Compose with Caddy
 
 `docker-compose.yml` has an optional Caddy service that terminates HTTPS
-for the API and for the uploads host, with certificates from Let's Encrypt.
-Its configuration is `deploy/Caddyfile`. In `.env.docker`:
+for the API and for the uploads host (and the web app,
+[docs/web-integration.md](web-integration.md)), with certificates from
+Let's Encrypt. Its configuration is `deploy/Caddyfile`. In `.env.docker`:
 
 ```bash
 API_DOMAIN=api.example.com
@@ -64,6 +65,7 @@ UPLOADS_DOMAIN=cdn.example.com
 PUBLIC_BASE_URL=https://api.example.com
 UPLOAD_PUBLIC_URL=https://cdn.example.com
 TRUSTED_PROXY_HOPS=1
+API_PORT=127.0.0.1:8080
 ```
 
 ```bash
@@ -149,10 +151,13 @@ never reach your server.
 - A deleted image stays reachable at its old URL until Cloudflare's and
   browsers' cached copies expire. Its URL can't be guessed, but for a
   takedown, purge it (see [Taking an image down](#taking-an-image-down)).
-- Leave the API's hostname unproxied (grey cloud). If you proxy it too,
-  configure Caddy's `trusted_proxies` with Cloudflare's address ranges and
-  set `TRUSTED_PROXY_HOPS=2`. Otherwise rate limits see Cloudflare's
-  addresses instead of your users'.
+- The API's hostname can be proxied too. `deploy/Caddyfile` trusts
+  Cloudflare's address ranges and hands the API each user's address
+  (`CF-Connecting-IP`), so `TRUSTED_PROXY_HOPS=1` either way. A proxy of
+  your own must do the same (nginx: `set_real_ip_from` for each range,
+  `real_ip_header CF-Connecting-IP`, `proxy_set_header X-Forwarded-For
+  $remote_addr`), or rate limits see Cloudflare's addresses instead of your
+  users'.
 
 ## Taking an image down
 

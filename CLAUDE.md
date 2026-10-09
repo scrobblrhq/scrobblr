@@ -196,7 +196,7 @@ Lookups (`find_by_username`, `find_by_email`) are case-insensitive (`lower(col) 
 
 ### Docker
 
-`docker-compose.yml` passes optional settings as `${VAR:-}`, an empty string when unset, so every reader must treat a blank value as unset (`non_empty_env` in the worker, the same filter elsewhere). The image build sees no `*.md` and no `deploy/` (`.dockerignore`): don't `include_str!` one. The optional `caddy` profile terminates HTTPS for the API and an uploads host, serving the `uploads` volume read-only.
+`docker-compose.yml` passes optional settings as `${VAR:-}`, an empty string when unset, so every reader must treat a blank value as unset (`non_empty_env` in the worker, the same filter elsewhere). The image build sees no `*.md` and no `deploy/` (`.dockerignore`): don't `include_str!` one. The optional `caddy` profile terminates HTTPS for the web app (the `web` profile, an image from its own repo), the API and an uploads host, serving the `uploads` volume read-only. It takes the client from `CF-Connecting-IP` when the peer is in Cloudflare's ranges (else the peer) and replaces `X-Forwarded-For` with it, so the API (`TRUSTED_PROXY_HOPS=1`) and the web app (adapter-node `XFF_DEPTH=1`) trust one hop; the web app's server sends the same header to the API (docs/web-integration.md).
 
 ### Types pipeline (Rust → TypeScript)
 
