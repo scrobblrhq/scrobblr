@@ -10,7 +10,7 @@ use crate::live::LiveHub;
 use crate::media::Media;
 use crate::middleware::app_signature::AppKeys;
 use crate::middleware::cors::CorsOrigins;
-use crate::middleware::rate_limit::TrustedProxies;
+use crate::middleware::rate_limit::{RateLimit, TrustedProxies};
 use db::queries::scrobble_clients::{self as clients_db, ClientIdentity};
 
 /// Shared application state injected into every handler via Axum's `State` extractor.
@@ -29,6 +29,8 @@ pub struct AppState {
     pub app_keys: Option<Arc<AppKeys>>,
     /// The reverse proxies whose `X-Forwarded-For` names the client.
     pub proxies: Arc<TrustedProxies>,
+    /// The global per-address request limit.
+    pub rate_limit: RateLimit,
     /// The pages that may call the native API from a browser.
     pub cors: Arc<CorsOrigins>,
     pub clients: Arc<ClientCache>,

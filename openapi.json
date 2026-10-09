@@ -3010,7 +3010,7 @@
                 }
               }
             },
-            "description": "Over 20 uploads an hour for this account or 30 from this address, or over 60 requests a minute from this address"
+            "description": "Over 20 uploads an hour for this account or 30 from this address, or over the request limit for this address"
           },
           "default": {
             "content": {
@@ -3081,7 +3081,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -3170,7 +3170,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -3238,7 +3238,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -3304,7 +3304,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -3405,7 +3405,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -3536,7 +3536,7 @@
                 }
               }
             },
-            "description": "Over 20 uploads an hour for this account or 30 from this address, or over 60 requests a minute from this address"
+            "description": "Over 20 uploads an hour for this account or 30 from this address, or over the request limit for this address"
           },
           "default": {
             "content": {
@@ -3607,7 +3607,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -3691,7 +3691,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -3774,7 +3774,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -3857,7 +3857,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -3985,7 +3985,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -4071,7 +4071,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -4125,7 +4125,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -4209,7 +4209,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -4290,7 +4290,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -4378,7 +4378,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -4447,7 +4447,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -4529,7 +4529,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -4616,7 +4616,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "503": {
             "content": {
@@ -4688,7 +4688,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "503": {
             "content": {
@@ -4800,7 +4800,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "503": {
             "content": {
@@ -4901,7 +4901,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -4990,7 +4990,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -5165,7 +5165,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -5246,7 +5246,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -5332,7 +5332,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -5401,7 +5401,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -5573,7 +5573,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -5660,7 +5660,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -5760,7 +5760,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -5829,7 +5829,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -5910,7 +5910,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -5996,7 +5996,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -6086,7 +6086,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -6149,7 +6149,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -6215,7 +6215,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -6316,7 +6316,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -6399,7 +6399,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -6482,7 +6482,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -6548,7 +6548,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -6633,7 +6633,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -6739,7 +6739,7 @@
                 }
               }
             },
-            "description": "Over 20 uploads an hour for this account or 30 from this address, or over 60 requests a minute from this address"
+            "description": "Over 20 uploads an hour for this account or 30 from this address, or over the request limit for this address"
           },
           "default": {
             "content": {
@@ -6816,7 +6816,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -6907,7 +6907,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -6995,7 +6995,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -7072,7 +7072,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -7153,7 +7153,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -7238,7 +7238,7 @@
                 }
               }
             },
-            "description": "This address already holds 50 streams open, or this signed-in viewer 20; or over 60 requests a minute from this address"
+            "description": "This address already holds 50 streams open, or this signed-in viewer 20; or over the request limit for this address"
           },
           "default": {
             "content": {
@@ -7343,7 +7343,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -7449,7 +7449,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {
@@ -7555,7 +7555,7 @@
                 }
               }
             },
-            "description": "Over 60 requests a minute from this address"
+            "description": "Over the request limit for this address"
           },
           "default": {
             "content": {

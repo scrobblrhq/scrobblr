@@ -118,6 +118,17 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
+    let rate_limit = middleware::rate_limit::RateLimit::from_env()?;
+    if rate_limit.requests == 0 {
+        tracing::warn!("no global per-address request limit (RATE_LIMIT_REQUESTS=0)");
+    } else {
+        tracing::info!(
+            "global limit: {} requests per {} s per address",
+            rate_limit.requests,
+            rate_limit.window_secs
+        );
+    }
+
     let cors = middleware::cors::CorsOrigins::from_env()?;
     match &cors {
         middleware::cors::CorsOrigins::None => {
@@ -144,6 +155,7 @@ async fn main() -> anyhow::Result<()> {
         media,
         app_keys,
         proxies: std::sync::Arc::new(proxies),
+        rate_limit,
         cors: std::sync::Arc::new(cors),
         clients: Default::default(),
         compat,

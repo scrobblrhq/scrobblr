@@ -158,6 +158,8 @@ request.
 | `TRUSTED_PROXY_HOPS` | —        | `0`                      | Proxies whose `X-Forwarded-For` names the client: `1` behind `deploy/Caddyfile` and the web app |
 | `TRUSTED_PROXIES`    | —        | loopback, private networks | The peers `X-Forwarded-For` is believed from |
 | `CORS_ALLOWED_ORIGINS` | —      | none                     | Origins whose pages may call the native API from a browser, or `*` |
+| `RATE_LIMIT_REQUESTS` | —       | `60`                     | Requests per client address per window (`0` turns the global limit off) |
+| `RATE_LIMIT_WINDOW_SECS` | —    | `60`                     | The global limit's window |
 | `UPLOAD_DIR`         | —        | `uploads`                | Directory user-uploaded images are written to |
 | `UPLOAD_PUBLIC_URL`  | —        | `{PUBLIC_BASE_URL}/uploads` | Base URL serving `UPLOAD_DIR`, e.g. a CDN host ([docs/uploads.md](docs/uploads.md)) |
 | `RUST_LOG`           | —        | —                        | Tracing filter (e.g. `api=debug,worker=debug,sqlx=warn`) |

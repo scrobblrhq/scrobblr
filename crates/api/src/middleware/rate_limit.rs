@@ -8,6 +8,7 @@ use fred::interfaces::KeysInterface;
 use ipnet::IpNet;
 use std::convert::Infallible;
 use std::net::{IpAddr, SocketAddr};
+use std::ops::RangeInclusive;
 
 use crate::{errors::AppError, middleware::auth::AuthUser, state::AppState};
 
@@ -73,21 +74,81 @@ impl TrustedProxies {
     }
 }
 
-/// Fixed-window rate limiter: [`MAX_REQUESTS`] per [`WINDOW_SECS`] per
-/// [`network`].
+/// The global per-address limit: `requests` per `window_secs`
+/// (`RATE_LIMIT_REQUESTS`, `RATE_LIMIT_WINDOW_SECS`); 0 requests turns it
+/// off.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RateLimit {
+    pub requests: i64,
+    pub window_secs: i64,
+}
+
+impl Default for RateLimit {
+    fn default() -> Self {
+        Self {
+            requests: 60,
+            window_secs: 60,
+        }
+    }
+}
+
+impl RateLimit {
+    pub fn from_env() -> anyhow::Result<Self> {
+        let var = |name: &str| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
+        Self::parse(
+            var("RATE_LIMIT_REQUESTS").as_deref(),
+            var("RATE_LIMIT_WINDOW_SECS").as_deref(),
+        )
+    }
+
+    pub fn parse(requests: Option<&str>, window_secs: Option<&str>) -> anyhow::Result<Self> {
+        fn number(
+            name: &str,
+            value: Option<&str>,
+            default: i64,
+            range: RangeInclusive<i64>,
+        ) -> anyhow::Result<i64> {
+            let Some(v) = value else { return Ok(default) };
+            v.trim()
+                .parse()
+                .ok()
+                .filter(|n| range.contains(n))
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "{name}={v}: expected a number from {} to {}",
+                        range.start(),
+                        range.end()
+                    )
+                })
+        }
+        let d = Self::default();
+        Ok(Self {
+            requests: number("RATE_LIMIT_REQUESTS", requests, d.requests, 0..=1_000_000)?,
+            window_secs: number(
+                "RATE_LIMIT_WINDOW_SECS",
+                window_secs,
+                d.window_secs,
+                1..=86_400,
+            )?,
+        })
+    }
+}
+
+/// Fixed-window rate limiter: [`RateLimit`] per [`network`].
 /// The window is part of the key, so a key whose expiry was never set
 /// (the process died between the two commands) still stops counting when
 /// the window ends. A Redis failure lets the request through.
-const MAX_REQUESTS: i64 = 60;
-const WINDOW_SECS: i64 = 60;
-
 pub async fn rate_limit(
     State(state): State<AppState>,
     req: Request,
     next: Next,
 ) -> Result<Response, AppError> {
+    let limit = state.rate_limit;
+    if limit.requests == 0 {
+        return Ok(next.run(req).await);
+    }
     let network = network(&request_ip(&req, &state.proxies));
-    let window = chrono::Utc::now().timestamp() / WINDOW_SECS;
+    let window = chrono::Utc::now().timestamp() / limit.window_secs;
     let key = format!("rl:{network}:{window}");
 
     let count: i64 = match state.redis.incr(&key).await {
@@ -100,11 +161,11 @@ pub async fn rate_limit(
     if count == 1 {
         let _ = state
             .redis
-            .expire::<i64, _>(&key, 2 * WINDOW_SECS, None)
+            .expire::<i64, _>(&key, 2 * limit.window_secs, None)
             .await;
     }
 
-    if count > MAX_REQUESTS {
+    if count > limit.requests {
         return Err(AppError::RateLimited);
     }
 
@@ -317,6 +378,17 @@ mod tests {
     }
 
     #[test]
+    fn the_rate_limit_is_parsed_from_settings() {
+        assert_eq!(RateLimit::parse(None, None).unwrap(), RateLimit::default());
+        let set = RateLimit::parse(Some(" 300 "), Some("10")).unwrap();
+        assert_eq!((set.requests, set.window_secs), (300, 10));
+        assert_eq!(RateLimit::parse(Some("0"), None).unwrap().requests, 0);
+        assert!(RateLimit::parse(Some("-1"), None).is_err());
+        assert!(RateLimit::parse(None, Some("0")).is_err());
+        assert!(RateLimit::parse(Some("lots"), None).is_err());
+    }
+
+    #[test]
     fn ipv6_clients_are_counted_by_their_64() {
         assert_eq!(network("203.0.113.7"), "203.0.113.7");
         assert_eq!(network("::ffff:203.0.113.7"), "203.0.113.7");
@@ -365,21 +437,25 @@ mod tests {
                     req.extensions_mut().insert(ConnectInfo(peer));
                     app.send(req)
                 };
+                let RateLimit {
+                    requests,
+                    window_secs,
+                } = RateLimit::default();
                 // All of it in one window.
-                let second = chrono::Utc::now().timestamp() % WINDOW_SECS;
-                if second > WINDOW_SECS - 10 {
-                    let wait = (WINDOW_SECS - second) as u64;
+                let second = chrono::Utc::now().timestamp() % window_secs;
+                if second > window_secs - 10 {
+                    let wait = (window_secs - second) as u64;
                     tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
                 }
 
-                for i in 0..MAX_REQUESTS as u16 {
+                for i in 0..requests as u16 {
                     assert_eq!(get(attacker, client(a, i)).await.0, StatusCode::OK);
                 }
                 let (status, _, _) = get(attacker, client(a, 1000)).await;
                 assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
 
                 // From the proxy, each address it names is a client.
-                for i in 0..=MAX_REQUESTS as u16 {
+                for i in 0..=requests as u16 {
                     assert_eq!(get(proxy, client(b, i)).await.0, StatusCode::OK);
                 }
             },

@@ -232,7 +232,7 @@ pub fn build(state: AppState) -> Router {
                 let _ = TransformOperation::new(op).response_with::<429, ErrorJson, _>(|r| {
                     r.description(&format!(
                         "Over {} uploads an hour for this account or {} from this address, \
-                         or over 60 requests a minute from this address",
+                         or over the request limit for this address",
                         limits::UPLOADS_PER_USER,
                         limits::UPLOADS_PER_IP
                     ))
@@ -530,7 +530,7 @@ fn document_rate_limit(api: &mut OpenApi) {
                 .is_some_and(|r| r.responses.contains_key(&StatusCode::Code(429)));
             if !has_429 {
                 let _ = TransformOperation::new(op).response_with::<429, ErrorJson, _>(|r| {
-                    r.description("Over 60 requests a minute from this address")
+                    r.description("Over the request limit for this address")
                 });
             }
             if let Some(responses) = &mut op.responses {

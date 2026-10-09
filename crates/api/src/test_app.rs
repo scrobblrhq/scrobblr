@@ -134,6 +134,7 @@ where
         ))),
         app_keys: None,
         proxies: Default::default(),
+        rate_limit: Default::default(),
         cors: Default::default(),
         clients: Default::default(),
         compat: Default::default(),

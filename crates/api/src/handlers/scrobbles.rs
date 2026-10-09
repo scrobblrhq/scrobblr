@@ -455,7 +455,7 @@ pub fn _live_now_playing_doc(op: TransformOperation) -> TransformOperation {
         .response_with::<429, ErrorJson, _>(|r| {
             r.description(&format!(
                 "This address already holds {} streams open, or this signed-in viewer {}; \
-                 or over 60 requests a minute from this address",
+                 or over the request limit for this address",
                 crate::live::MAX_STREAMS_PER_ADDRESS,
                 crate::live::MAX_STREAMS_PER_VIEWER
             ))
