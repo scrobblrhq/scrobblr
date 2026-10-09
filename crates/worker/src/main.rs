@@ -4,6 +4,7 @@ mod enrichment;
 #[cfg(test)]
 mod fake_lastfm;
 mod lastfm_import;
+mod rankings;
 #[cfg(test)]
 mod test_support;
 mod uploads;
@@ -31,8 +32,9 @@ async fn main() -> anyhow::Result<()> {
         Some("help" | "--help" | "-h")
     ) {
         println!(
-            "{USAGE}\n{}\n{}\n{}",
+            "{USAGE}\n{}\n{}\n{}\n{}",
             classification::cli::USAGE,
+            rankings::cli::USAGE,
             lastfm_import::cli::USAGE,
             uploads::USAGE
         );
@@ -60,6 +62,10 @@ async fn main() -> anyhow::Result<()> {
         Some("classify") => {
             db::migrate::ensure_current(&db).await?;
             return classification::cli::run(&db, &args[1..]).await;
+        }
+        Some("rank") => {
+            db::migrate::ensure_current(&db).await?;
+            return rankings::cli::run(&db, &args[1..]).await;
         }
         Some("import") => {
             db::migrate::ensure_current(&db).await?;
@@ -174,6 +180,14 @@ async fn main() -> anyhow::Result<()> {
         classifier.clone().run_sweeps()
     });
 
+    // Weighs classified days for global rankings (shadow mode).
+    let weigher = Arc::new(rankings::Weigher::from_env(db.clone()).await?);
+    let rankings_handle = supervise("rankings", {
+        let weigher = weigher.clone();
+        move || weigher.clone().run()
+    });
+    let rankings_sweep_handle = supervise("rankings sweep", move || weigher.clone().run_sweeps());
+
     // The tasks loop forever and come back after a panic; one finishing
     // means it stopped for good, which must end the process with a failure
     // so a supervisor restarts it.
@@ -186,6 +200,8 @@ async fn main() -> anyhow::Result<()> {
         _ = lengths_handle => "length backfill",
         _ = classification_handle => "classification",
         _ = classification_sweep_handle => "classification sweep",
+        _ = rankings_handle => "rankings",
+        _ = rankings_sweep_handle => "rankings sweep",
         _ = tokio::signal::ctrl_c() => {
             tracing::info!("received Ctrl-C, shutting down");
             return Ok(());
