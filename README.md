@@ -106,12 +106,6 @@ lists its commands).
 Interactive API docs are served at [`/docs`](http://localhost:8080/docs) (OpenAPI spec at `/api.json`;
 [`openapi.json`](openapi.json) is its committed snapshot, which `just test` keeps current).
 
-### The web app
-
-The web app (SvelteKit) calls the API from its server with the user's
-session; the browser never calls the API. What it must send and the pages
-it must have: [docs/web-integration.md](docs/web-integration.md).
-
 ### Scrobbling from other apps
 
 Existing scrobblers (Web Scrobbler, Pano Scrobbler, Audioscrobbler 1.2 players,

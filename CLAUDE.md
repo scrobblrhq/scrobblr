@@ -210,7 +210,7 @@ Lookups (`find_by_username`, `find_by_email`) are case-insensitive (`lower(col) 
 
 ### Clients (sibling repos)
 
-The web app (SvelteKit, adapter-node, built separately) is a server-side proxy: the browser talks to `scrobblr.app` only, and its server calls the API at `http://api:8080` with the user's session as bearer (kept in an HttpOnly cookie of its own) and `X-Forwarded-For: getClientAddress()`. Its contract, including the pages the API sends browsers to (`/scrobbler/authorize`, `/connect/{provider}/callback`, `/user/{username}`), is `docs/web-integration.md`: keep it current with API changes it relies on.
+The web app (SvelteKit, its own repo and deployment) is a server-side proxy: its server calls the API with the user's session as bearer and the user's address as the only `X-Forwarded-For` entry. `openapi.json` is its contract. The API sends browsers to pages under `WEB_APP_URL`: `/scrobbler/authorize` (compat browser approval), `/connect/{provider}/callback` (account links) and `/user/{username}` (Last.fm-compatible profile links); renaming one breaks those flows.
 
 `scrobblrhq/extension` (Plasmo) pastes an API token, calls `/v1/now-playing` and `/v1/scrobble` without retrying, and validates the token with `GET /v1/auth/tokens`. `scrobblrhq/mobile` (Flutter): the UI uses the session; the background scrobbler a provisioned `scrobble` token, with an offline queue (500 plays, no age cap) that drops a play on any 4xx except 429. Its Dart models in `lib/api/models.dart` mirror the API **by hand** — update them when API-facing models change (`ProfileResponse.scrobble_breakdown`, `TopArtist`/`TopTrack.unverified_count`, `ScrobbleRich.status` are the latest).
 
