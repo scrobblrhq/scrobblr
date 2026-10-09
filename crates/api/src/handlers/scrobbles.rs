@@ -2,7 +2,7 @@ use super::UsernamePath;
 use crate::{
     errors::{ApiResult, AppError, ErrorJson},
     limits,
-    middleware::auth::AuthUser,
+    middleware::{auth::AuthUser, rate_limit::ClientIp},
     state::AppState,
 };
 use aide::OperationOutput;
@@ -397,6 +397,7 @@ impl<S> OperationOutput for SseStream<S> {
 pub async fn live_now_playing(
     State(state): State<AppState>,
     Path(UsernamePath { username }): Path<UsernamePath>,
+    ClientIp(ip): ClientIp,
     auth_user: Option<Extension<AuthUser>>,
 ) -> ApiResult<SseStream<impl Stream<Item = Result<Event, Infallible>>>> {
     let user = users_db::find_by_username(&state.db, &username)
@@ -407,7 +408,10 @@ pub async fn live_now_playing(
     crate::middleware::visibility::ensure_profile_visible(&state, viewer_id, &user).await?;
 
     // Listening first, so no update falls between it and the current state.
-    let updates = state.live.listen(user.id);
+    let updates = state
+        .live
+        .listen(user.id, &ip, viewer_id)
+        .ok_or(AppError::RateLimited)?;
     let current = match scrobbles_db::get_now_playing(&state.db, user.id).await? {
         Some(rich) => Event::default()
             .json_data(&rich)
@@ -439,6 +443,14 @@ pub fn _live_now_playing_doc(op: TransformOperation) -> TransformOperation {
         .with(event_stream)
         .response_with::<403, ErrorJson, _>(|r| r.description("Profile is private"))
         .response_with::<404, ErrorJson, _>(|r| r.description("User not found"))
+        .response_with::<429, ErrorJson, _>(|r| {
+            r.description(&format!(
+                "This address already holds {} streams open, or this signed-in viewer {}; \
+                 or over 60 requests a minute from this address",
+                crate::live::MAX_STREAMS_PER_ADDRESS,
+                crate::live::MAX_STREAMS_PER_VIEWER
+            ))
+        })
 }
 
 #[cfg(test)]

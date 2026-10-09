@@ -10,9 +10,16 @@ use fred::clients::SubscriberClient;
 use fred::interfaces::{ClientLike, EventInterface, PubsubInterface};
 use tokio::sync::broadcast;
 
+use crate::middleware::rate_limit::network;
+
 const CHANNEL_PREFIX: &str = "now_playing:";
 /// Updates a slow stream may fall behind by; it skips the older ones.
 const BUFFER: usize = 16;
+/// Streams one address may hold open at once (an IPv6 address counts as
+/// its /64), on this API instance.
+pub const MAX_STREAMS_PER_ADDRESS: usize = 50;
+/// Streams one signed-in viewer may hold open at once, from any address.
+pub const MAX_STREAMS_PER_VIEWER: usize = 20;
 
 pub fn channel(user_id: i64) -> String {
     format!("{CHANNEL_PREFIX}{user_id}")
@@ -22,20 +29,32 @@ pub fn channel(user_id: i64) -> String {
 #[derive(Default)]
 pub struct LiveHub {
     listeners: Arc<Mutex<HashMap<i64, broadcast::Sender<String>>>>,
+    open: Arc<Mutex<OpenStreams>>,
+}
+
+#[derive(Default)]
+struct OpenStreams {
+    by_address: HashMap<String, usize>,
+    by_viewer: HashMap<i64, usize>,
 }
 
 impl LiveHub {
-    pub fn listen(&self, user_id: i64) -> Listener {
+    /// A stream of `user_id`'s updates for a viewer at `ip`, signed in as
+    /// `viewer` or not; `None` when the address or the viewer already holds
+    /// as many as it may.
+    pub fn listen(&self, user_id: i64, ip: &str, viewer: Option<i64>) -> Option<Listener> {
+        let slot = Slot::take(&self.open, network(ip), viewer)?;
         let mut listeners = self.listeners.lock().unwrap_or_else(|e| e.into_inner());
         let rx = listeners
             .entry(user_id)
             .or_insert_with(|| broadcast::channel(BUFFER).0)
             .subscribe();
-        Listener {
+        Some(Listener {
             listeners: self.listeners.clone(),
             user_id,
             rx,
-        }
+            _slot: slot,
+        })
     }
 
     fn dispatch(&self, channel: &str, payload: String) {
@@ -56,6 +75,52 @@ pub struct Listener {
     listeners: Arc<Mutex<HashMap<i64, broadcast::Sender<String>>>>,
     user_id: i64,
     rx: broadcast::Receiver<String>,
+    _slot: Slot,
+}
+
+/// One open stream, counted against its address and viewer until dropped.
+struct Slot {
+    open: Arc<Mutex<OpenStreams>>,
+    address: String,
+    viewer: Option<i64>,
+}
+
+impl Slot {
+    fn take(open: &Arc<Mutex<OpenStreams>>, address: String, viewer: Option<i64>) -> Option<Self> {
+        let mut counts = open.lock().unwrap_or_else(|e| e.into_inner());
+        let by_address = counts.by_address.get(&address).copied().unwrap_or(0);
+        let by_viewer = viewer.map_or(0, |v| counts.by_viewer.get(&v).copied().unwrap_or(0));
+        if by_address >= MAX_STREAMS_PER_ADDRESS || by_viewer >= MAX_STREAMS_PER_VIEWER {
+            return None;
+        }
+        *counts.by_address.entry(address.clone()).or_default() += 1;
+        if let Some(viewer) = viewer {
+            *counts.by_viewer.entry(viewer).or_default() += 1;
+        }
+        Some(Self {
+            open: open.clone(),
+            address,
+            viewer,
+        })
+    }
+}
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        let mut counts = self.open.lock().unwrap_or_else(|e| e.into_inner());
+        fn release<K: std::hash::Hash + Eq>(map: &mut HashMap<K, usize>, key: &K) {
+            if let Some(count) = map.get_mut(key) {
+                *count -= 1;
+                if *count == 0 {
+                    map.remove(key);
+                }
+            }
+        }
+        release(&mut counts.by_address, &self.address);
+        if let Some(viewer) = self.viewer {
+            release(&mut counts.by_viewer, &viewer);
+        }
+    }
 }
 
 impl Listener {
@@ -119,9 +184,10 @@ mod tests {
     #[tokio::test]
     async fn updates_reach_the_users_streams_and_closed_streams_are_forgotten() {
         let hub = LiveHub::default();
-        let mut a = hub.listen(1);
-        let mut b = hub.listen(1);
-        let mut other = hub.listen(2);
+        let listen = |user_id| hub.listen(user_id, "203.0.113.1", None).unwrap();
+        let mut a = listen(1);
+        let mut b = listen(1);
+        let mut other = listen(2);
 
         hub.dispatch(&channel(1), "one".into());
         hub.dispatch("now_playing:x", "ignored".into());
@@ -135,6 +201,31 @@ mod tests {
         drop(b);
         drop(other);
         assert!(hub.listeners.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn streams_are_capped_per_address_and_per_viewer_until_closed() {
+        let hub = LiveHub::default();
+        let mut held: Vec<_> = (0..MAX_STREAMS_PER_ADDRESS)
+            .map(|_| hub.listen(1, "2001:db8::1", None).unwrap())
+            .collect();
+        // The same /64, another address in it.
+        assert!(hub.listen(1, "2001:db8::2", None).is_none());
+        assert!(hub.listen(1, "203.0.113.1", None).is_some());
+        held.pop();
+        assert!(hub.listen(1, "2001:db8::2", None).is_some());
+        drop(held);
+
+        let viewer = Some(7);
+        let mut held: Vec<_> = (0..MAX_STREAMS_PER_VIEWER)
+            .map(|i| hub.listen(2, &format!("198.51.100.{i}"), viewer).unwrap())
+            .collect();
+        assert!(hub.listen(2, "198.51.100.200", viewer).is_none());
+        assert!(hub.listen(2, "198.51.100.200", Some(8)).is_some());
+        held.clear();
+        assert!(hub.listen(2, "198.51.100.200", viewer).is_some());
+        let open = hub.open.lock().unwrap();
+        assert!(open.by_viewer.is_empty() && open.by_address.is_empty());
     }
 
     /// Watching a profile used to subscribe the connection every other
