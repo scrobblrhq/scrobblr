@@ -16,8 +16,9 @@ scrobblr/
 │   ├── api/      ← Axum HTTP API (handlers, middleware, router, uploads)
 │   ├── shared/   ← Domain models & password hashing (source of generated TS types)
 │   ├── db/       ← SQLx queries (repositories for all entities)
-│   └── worker/   ← Background jobs (cleanup, metadata enrichment, now-playing republish,
-│                   scrobble classification) and the `migrate` / `classify` CLI
+│   └── worker/   ← Background jobs (cleanup, metadata enrichment and track lengths,
+│                   now-playing republish, scrobble classification, ranking weights)
+│                   and the `migrate` / `classify` / `rank` / `tracks` CLI
 ├── packages/
 │   └── types/    ← @scrobblr/types — TS types generated from crates/shared via ts-rs
 ├── migrations/    ← numbered plain-SQL, applied in order by `just migrate`
@@ -83,7 +84,8 @@ just migrate     # = SQLX_OFFLINE=true cargo run -p worker -- migrate
 cargo run -p api
 
 # 4. (Optional) Run the background worker (enrichment, now-playing republish,
-#    scrobble classification; `cargo run -p worker -- --help` lists its CLI)
+#    scrobble classification, ranking weights; `cargo run -p worker -- --help`
+#    lists its CLI; global rankings: docs/rankings.md)
 cargo run -p worker
 ```
 

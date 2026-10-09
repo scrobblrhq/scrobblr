@@ -226,7 +226,20 @@ Spotify's redirect URI, registered in its dashboard and set in
 
 ### `/user/{username}`
 
-The profile page; the Last.fm-compatible API links there.
+The profile page; the Last.fm-compatible API links there. Its numbers leave
+out the scrobbles the classifier found to be the same listen reported
+again, and say how much of the rest it could verify, so a flood of botted
+plays doesn't pass for listening ([docs/rankings.md](rankings.md)):
+
+- `GET /v1/user/{username}` has `scrobble_breakdown`: `verified` +
+  `unverified` = `scrobble_count`, with `unverified` split into `suspect`
+  (more listening than real time allows), `no_data` (tracks with no known
+  length) and `pending` (not classified yet), and `duplicates` beside them.
+  Show `scrobble_count` as before; show the unverified part next to it
+  when it isn't small.
+- Top artists and tracks have `unverified_count` per entry; recent
+  scrobbles a `status` (`counted`, `suspect`, `no_data`, or `null` until
+  classified), for a mark on suspect plays.
 
 ### Keeping these pages safe
 
