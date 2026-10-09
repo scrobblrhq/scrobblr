@@ -17,7 +17,8 @@ scrobblr/
 │   ├── shared/   ← Domain models & password hashing (source of generated TS types)
 │   ├── db/       ← SQLx queries (repositories for all entities)
 │   └── worker/   ← Background jobs (cleanup, metadata enrichment and track lengths,
-│                   now-playing republish, scrobble classification, ranking weights)
+│                   now-playing republish, scrobble classification, ranking weights
+│                   and precomputed global rankings)
 │                   and the `migrate` / `classify` / `rank` / `import` / `tracks` /
 │                   `uploads` CLI
 ├── packages/

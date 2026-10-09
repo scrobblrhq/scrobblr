@@ -3,8 +3,9 @@
 Scrobblr labels every scrobble (the classifier: `counted`, `suspect`,
 `duplicate`, `no_data`) and weighs it for global rankings. **Shadow mode:**
 no route serves a global ranking yet. The worker computes the weights and
-`worker rank report` compares raw and filtered rankings; nothing else reads
-them. Profiles do read the labels: they leave duplicates out and say how
+keeps each period's ranking precomputed; `worker rank report` compares raw
+and filtered rankings and `worker rank top` prints a stored one; nothing
+else reads them. Profiles do read the labels: they leave duplicates out and say how
 much of a user's listening is verified (below).
 
 ## Profiles
@@ -143,9 +144,53 @@ classified day:
   and 445 MB with its indexes. A covering index on `day` saves 10–20 % of a
   ranking's time for ~150 MB more; the plain one (22 MB) is kept.
 
-A ranking still takes 0.4 to 2.7 s, too slow to compute per request: a
-route that serves rankings should read them from a table the worker
-refreshes on a schedule (open).
+### Precomputed rankings
+
+A ranking still takes 0.4 to 3 s, too slow to compute per request, so the
+worker keeps them precomputed (migration `0022`, the `ranking snapshots`
+loop). For each period, a rolling window of UTC days ending today, today
+included:
+
+| period | days | recomputed |
+| --- | --- | --- |
+| `week` | 7 | every hour |
+| `month` | 30 | every hour |
+| `year` | 365 | every day |
+
+and each also when the UTC day changes (the window moves) or the weights'
+settings do. A refresh sums `ranking_daily` over the period and replaces
+the period's two rows in `ranking_snapshots` (artists, tracks) and their
+first 1,000 positions in `ranking_entries`, in one transaction: listener
+credits, weight and the raw counts beside them, entities without weight
+left out. Readers see the previous snapshot until the new one commits.
+
+A refresh that fails (the database away, the 10-minute statement timeout)
+rolls back: the previous snapshot stays as it was and the period is tried
+again 5 minutes later. Nothing marks a snapshot invalid; a reader judges
+how fresh it is from `computed_at` and `to_day`, and `pending_days` says how
+many user-days of the period were still waiting to be weighed when it ran
+(after new settings, history is reweighed over several sweeps). A route
+would read `db::queries::rankings::snapshot_entries`: a primary-key range
+and a lookup per entry for its name.
+
+Measured on the same kind of population (4,000 users, 60 days, the four
+attacks of [Synthetic scenario](#synthetic-scenario) with `farm=4000`:
+5.10M scrobbles, 154,908 user-days, 3.60M `ranking_daily` rows), same
+setup:
+
+| | week | month | year (all 60 days) |
+| --- | --- | --- | --- |
+| before: `rankings()` per request, artists | 0.47–0.57 s | 1.24–1.41 s | 1.75–1.89 s |
+| before: `rankings()` per request, tracks | 0.83–1.07 s | 1.75–2.09 s | 3.2–3.3 s |
+| refresh, artists | 0.40–0.56 s | 1.07–1.14 s | 1.36–1.55 s |
+| refresh, tracks | 0.55–0.64 s | 1.66–2.20 s | 2.3–2.5 s |
+| after: reading 50 positions | 1.5 ms | 1.5 ms | 1.7 ms |
+
+All six refreshes take about 7 s, about 4 s an hour plus 4 s a day on
+this population, and the snapshots hold 6,000 rows (1.4 MB). Reading all
+1,000 positions takes 16 ms. None of the four attack targets is in the
+stored week ranking. The year's cost grows with the history: it reads
+every `ranking_daily` row of the year.
 
 ## Commands
 
@@ -153,6 +198,8 @@ refreshes on a schedule (open).
 worker rank report [--from DATE | --all] [--to DATE] [--limit N]
 worker rank recompute [--from DATE] [--to DATE] [--user NAME] [--dry-run]
 worker rank backfill [--from DATE] [--to DATE] [--dry-run]
+worker rank refresh [--period week|month|year]
+worker rank top [--period week|month|year] [--kind artist|track] [--limit N]
 worker tracks mb-review [--limit N] [--apply]
 ```
 
@@ -161,7 +208,9 @@ many each reason down-weighted, then the top N artists and tracks by
 listeners and by plays, filtered beside raw (what moved, entered and left),
 then the users ranked by plays and by weight. `recompute` weighs days
 synchronously with the current `RANKING_*` settings; run it with other
-settings on a scratch copy of the database to preview them.
+settings on a scratch copy of the database to preview them. `refresh`
+recomputes the stored rankings now and `top` prints one as a route would
+read it.
 
 ## Track lengths
 
@@ -247,6 +296,9 @@ classifier labelled none of the honest plays suspect.
 - **Scale.** Weighing, like classification, runs in one loop (~120
   user-days a second); the queue takes several workers (`SKIP LOCKED`, the
   per-day lock), but the worker starts one.
+- **Snapshots are recomputed whole.** Nothing is incremental, and a
+  snapshot keeps no earlier positions, so a chart's movement since last
+  week would need snapshots kept by date.
 - **Profile freshness.** A play counts on the profile as soon as it is
   stored and loses its place only when its day is classified (after a 30 s
   settle); top lists subtract duplicates from `scrobble_flags`, one row per

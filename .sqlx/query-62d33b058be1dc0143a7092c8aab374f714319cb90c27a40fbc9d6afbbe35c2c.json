@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO ranking_snapshots\n                (period, kind, from_day, to_day, ruleset_id, ranked, pending_days, took_ms)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n            RETURNING computed_at\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "computed_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Date",
+        "Date",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "62d33b058be1dc0143a7092c8aab374f714319cb90c27a40fbc9d6afbbe35c2c"
+}

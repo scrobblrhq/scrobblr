@@ -200,13 +200,18 @@ async fn main() -> anyhow::Result<()> {
         classifier.clone().run_sweeps()
     });
 
-    // Weighs classified days for global rankings (shadow mode).
+    // Weighs classified days for global rankings and keeps each period's
+    // ranking precomputed (shadow mode).
     let weigher = Arc::new(rankings::Weigher::from_env(db.clone()).await?);
     let rankings_handle = supervise("rankings", {
         let weigher = weigher.clone();
         move || weigher.clone().run()
     });
-    let rankings_sweep_handle = supervise("rankings sweep", move || weigher.clone().run_sweeps());
+    let rankings_sweep_handle = supervise("rankings sweep", {
+        let weigher = weigher.clone();
+        move || weigher.clone().run_sweeps()
+    });
+    let snapshots_handle = supervise("ranking snapshots", move || weigher.clone().run_snapshots());
 
     // The tasks loop forever and come back after a panic; one finishing
     // means it stopped for good, which must end the process with a failure
@@ -223,6 +228,7 @@ async fn main() -> anyhow::Result<()> {
         _ = classification_sweep_handle => "classification sweep",
         _ = rankings_handle => "rankings",
         _ = rankings_sweep_handle => "rankings sweep",
+        _ = snapshots_handle => "ranking snapshots",
         _ = tokio::signal::ctrl_c() => {
             tracing::info!("received Ctrl-C, shutting down");
             return Ok(());

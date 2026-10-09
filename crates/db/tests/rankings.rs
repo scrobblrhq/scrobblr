@@ -3,7 +3,7 @@ mod common;
 use chrono::{DateTime, NaiveDate, TimeDelta, Utc};
 use common::with_db;
 use db::queries::classification::{self as cdb, Ruleset as ClassifierRuleset};
-use db::queries::rankings::{self as rdb, Kind, Ranked, Ruleset};
+use db::queries::rankings::{self as rdb, Kind, Period, Ranked, Ruleset};
 use db::queries::scrobble_clients::{self, ClientIdentity};
 use db::queries::tracks as tracks_db;
 use shared::classification::BudgetParams;
@@ -540,6 +540,110 @@ async fn unclassified_scrobbles_weigh_nothing_until_classified() {
         assert_eq!(outcome.plays, 2);
         assert_eq!(outcome.reasons.get(Reason::Unclassified), 1);
         assert_eq!(outcome.weight, FULL / 2);
+    })
+    .await;
+}
+
+#[tokio::test]
+#[ignore = "needs Postgres: just test-db"]
+async fn snapshots_keep_the_filtered_ranking_and_replace_it() {
+    with_db(true, |pool| async move {
+        let (classifier, weights) = rulesets(&pool).await;
+        let day = days_ago(1);
+        let extension = client(&pool, "scrobblr", "ytmusic", false).await;
+        let play = |user_id, track, n: i64| Scrobble {
+            user_id,
+            track,
+            played_at: at(day, 18 * 3600 + n * 205),
+            length_ms: 200_000,
+            listened_ms: Some(100_500),
+            client_id: Some(extension),
+            import_id: None,
+        };
+        // Band 0 has three fans, Band 1 two, Band 2 one; the farm's five
+        // accounts are a day old and weigh nothing.
+        let mut n = 0;
+        for (band, fans) in [(0, 3), (1, 2), (2, 1)] {
+            let song = track(&pool, &format!("Band {band}"), "Song", 200_000).await;
+            for _ in 0..fans {
+                let fan = user(&pool, &format!("fan{n}"), 100).await;
+                scrobble(&pool, play(fan, song, n)).await;
+                n += 1;
+            }
+        }
+        let farmed = track(&pool, "Farm Target", "Farmed", 200_000).await;
+        for f in 0..5 {
+            let account = user(&pool, &format!("farm{f}"), 1).await;
+            scrobble(&pool, play(account, farmed, f)).await;
+        }
+        classify_and_weigh(&pool, &classifier, &weights).await;
+
+        let today = Utc::now().date_naive();
+        let snapshots = rdb::refresh_snapshots(&pool, &weights, Period::Week, today, 2)
+            .await
+            .unwrap();
+        assert_eq!(snapshots.len(), 2);
+        for s in &snapshots {
+            assert_eq!((s.from_day, s.to_day), (today - TimeDelta::days(6), today));
+            assert_eq!((s.ranked, s.pending_days), (3, 0), "{:?}", s.kind);
+        }
+
+        let names = |entries: &[rdb::Entry]| -> Vec<String> {
+            entries.iter().map(|e| e.name.clone().unwrap()).collect()
+        };
+        let artists = rdb::snapshot_entries(&pool, Period::Week, Kind::Artist, 0, 10)
+            .await
+            .unwrap();
+        assert_eq!(names(&artists), ["Band 0", "Band 1"]);
+        assert_eq!(
+            artists.iter().map(|e| e.position).collect::<Vec<_>>(),
+            [1, 2]
+        );
+        assert_eq!(
+            (artists[0].listeners, artists[0].raw_listeners),
+            (3 * FULL, 3)
+        );
+        // The same order as the ranking computed on the spot.
+        let ranked = rdb::rankings(
+            &pool,
+            Kind::Artist,
+            today - TimeDelta::days(6),
+            today,
+            weights.params.listener_weight(),
+            10,
+        )
+        .await
+        .unwrap();
+        for e in &artists {
+            let r = ranked.iter().find(|r| r.entity_id == e.entity_id).unwrap();
+            assert_eq!(r.rank, e.position as i64);
+            assert_eq!((r.listeners, r.weight), (e.listeners, e.weight));
+        }
+        let tracks = rdb::snapshot_entries(&pool, Period::Week, Kind::Track, 1, 10)
+            .await
+            .unwrap();
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].position, 2);
+        assert_eq!(tracks[0].artist_name.as_deref(), Some("Band 1"));
+
+        // A refresh replaces the period's rows and leaves the others alone.
+        rdb::refresh_snapshots(&pool, &weights, Period::Month, today, 10)
+            .await
+            .unwrap();
+        rdb::refresh_snapshots(&pool, &weights, Period::Week, today, 10)
+            .await
+            .unwrap();
+        let artists = rdb::snapshot_entries(&pool, Period::Week, Kind::Artist, 0, 10)
+            .await
+            .unwrap();
+        assert_eq!(names(&artists), ["Band 0", "Band 1", "Band 2"]);
+        let stored = rdb::snapshots(&pool).await.unwrap();
+        assert_eq!(stored.len(), 4);
+        let entries: i64 = sqlx::query_scalar("SELECT count(*) FROM ranking_entries")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(entries, 12);
     })
     .await;
 }

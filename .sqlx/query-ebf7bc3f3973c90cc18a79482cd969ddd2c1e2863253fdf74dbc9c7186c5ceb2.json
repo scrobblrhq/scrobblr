@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(*)::int AS \"n!\" FROM ranking_queue WHERE day BETWEEN $1 AND $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "n!",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Date",
+        "Date"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ebf7bc3f3973c90cc18a79482cd969ddd2c1e2863253fdf74dbc9c7186c5ceb2"
+}

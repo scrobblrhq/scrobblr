@@ -7,10 +7,12 @@
 //! in `ranking_days` and `ranking_daily`. Days reach `ranking_queue` when
 //! their classification is written and from a sweep that compares stored
 //! days with the classification, so a lost queue entry or new params are
-//! picked up again. Rankings sum `ranking_daily` over a period; nothing
-//! user-facing reads them yet.
+//! picked up again. Rankings sum `ranking_daily` over a period; the worker
+//! keeps each [`Period`]'s in `ranking_snapshots` (migration `0022`).
+//! Nothing user-facing reads them yet.
 
 use std::collections::HashMap;
+use std::time::Instant;
 
 use chrono::{DateTime, NaiveDate, NaiveTime, TimeDelta, Utc};
 use sqlx::{PgConnection, PgExecutor, PgPool};
@@ -473,10 +475,25 @@ pub async fn list_days(
 //  Rankings
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Kind {
     Artist,
     Track,
+}
+
+impl Kind {
+    pub const ALL: [Kind; 2] = [Kind::Artist, Kind::Track];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Kind::Artist => "artist",
+            Kind::Track => "track",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Kind> {
+        Kind::ALL.into_iter().find(|k| k.as_str() == s)
+    }
 }
 
 /// One artist or track in a period: raw (every scrobble, every user who
@@ -578,6 +595,256 @@ pub async fn rankings(
             weight_rank: r.weight_rank,
         })
         .collect())
+}
+
+// ---------------------------------------------------------------------------
+//  Snapshots: each period's ranking, precomputed
+// ---------------------------------------------------------------------------
+
+/// A rolling window of UTC days ending today, today included.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Period {
+    Week,
+    Month,
+    Year,
+}
+
+impl Period {
+    pub const ALL: [Period; 3] = [Period::Week, Period::Month, Period::Year];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Period::Week => "week",
+            Period::Month => "month",
+            Period::Year => "year",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Period> {
+        Period::ALL.into_iter().find(|p| p.as_str() == s)
+    }
+
+    pub fn days(self) -> i64 {
+        match self {
+            Period::Week => 7,
+            Period::Month => 30,
+            Period::Year => 365,
+        }
+    }
+
+    /// The first and last day of the period ending `today`.
+    pub fn range(self, today: NaiveDate) -> (NaiveDate, NaiveDate) {
+        (today - TimeDelta::days(self.days() - 1), today)
+    }
+}
+
+/// A period's stored ranking of artists or tracks.
+#[derive(Debug, Clone)]
+pub struct Snapshot {
+    pub period: Period,
+    pub kind: Kind,
+    pub from_day: NaiveDate,
+    pub to_day: NaiveDate,
+    pub ruleset_id: i32,
+    /// Entities with any weight; the snapshot keeps the first of them.
+    pub ranked: i32,
+    /// User-days of the period still queued for weighing when it ran.
+    pub pending_days: i32,
+    pub computed_at: DateTime<Utc>,
+    pub took_ms: i32,
+}
+
+/// Ranks `period`'s artists and tracks as [`rankings`] orders them
+/// filtered, leaving out entities without weight, and replaces the
+/// period's snapshots with the first `top` of each in one transaction.
+pub async fn refresh_snapshots(
+    pool: &PgPool,
+    ruleset: &Ruleset,
+    period: Period,
+    today: NaiveDate,
+    top: i64,
+) -> Result<Vec<Snapshot>, sqlx::Error> {
+    let (from, to) = period.range(today);
+    let mut tx = pool.begin().await?;
+    sqlx::query("SET LOCAL statement_timeout = '10min'")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('rankings:' || $1, 0))")
+        .bind(period.as_str())
+        .execute(&mut *tx)
+        .await?;
+    let pending_days = sqlx::query_scalar!(
+        r#"SELECT count(*)::int AS "n!" FROM ranking_queue WHERE day BETWEEN $1 AND $2"#,
+        from,
+        to,
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    sqlx::query!(
+        "DELETE FROM ranking_snapshots WHERE period = $1",
+        period.as_str()
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    let mut snapshots = Vec::new();
+    for kind in Kind::ALL {
+        let started = Instant::now();
+        let ranked = sqlx::query_scalar!(
+            r#"
+            WITH per_user AS (
+                SELECT user_id,
+                       CASE WHEN $3 THEN track_id ELSE artist_id END AS entity_id,
+                       sum(plays)::bigint AS plays,
+                       sum(weight)::bigint AS weight
+                FROM ranking_daily
+                WHERE day BETWEEN $1 AND $2
+                GROUP BY 1, 2
+            ), per_entity AS (
+                SELECT entity_id,
+                       count(*)::int AS raw_listeners,
+                       sum(plays)::int AS raw_plays,
+                       sum(LEAST($5::bigint, weight * $5 / $4))::bigint AS listeners,
+                       sum(weight)::bigint AS weight
+                FROM per_user
+                GROUP BY entity_id
+                HAVING sum(weight) > 0
+            ), top AS (
+                SELECT * FROM per_entity
+                ORDER BY listeners DESC, weight DESC, entity_id
+                LIMIT $8
+            ), inserted AS (
+                INSERT INTO ranking_entries
+                    (period, kind, position, entity_id, listeners, weight, raw_listeners, raw_plays)
+                SELECT $6, $7,
+                       row_number() OVER (ORDER BY listeners DESC, weight DESC, entity_id),
+                       entity_id, listeners, weight, raw_listeners, raw_plays
+                FROM top
+            )
+            SELECT count(*)::int AS "ranked!" FROM per_entity
+            "#,
+            from,
+            to,
+            kind == Kind::Track,
+            ruleset.params.listener_weight().max(1),
+            FULL,
+            period.as_str(),
+            kind.as_str(),
+            top,
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        let took_ms = started.elapsed().as_millis().min(i32::MAX as u128) as i32;
+        let computed_at = sqlx::query_scalar!(
+            r#"
+            INSERT INTO ranking_snapshots
+                (period, kind, from_day, to_day, ruleset_id, ranked, pending_days, took_ms)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            RETURNING computed_at
+            "#,
+            period.as_str(),
+            kind.as_str(),
+            from,
+            to,
+            ruleset.id,
+            ranked,
+            pending_days,
+            took_ms,
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        snapshots.push(Snapshot {
+            period,
+            kind,
+            from_day: from,
+            to_day: to,
+            ruleset_id: ruleset.id,
+            ranked,
+            pending_days,
+            computed_at,
+            took_ms,
+        });
+    }
+    tx.commit().await?;
+    Ok(snapshots)
+}
+
+pub async fn snapshots(pool: &PgPool) -> Result<Vec<Snapshot>, sqlx::Error> {
+    let rows = sqlx::query!(
+        r#"
+        SELECT period, kind, from_day, to_day, ruleset_id, ranked, pending_days,
+               computed_at, took_ms
+        FROM ranking_snapshots
+        ORDER BY period, kind
+        "#
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|r| {
+            Some(Snapshot {
+                period: Period::parse(&r.period)?,
+                kind: Kind::parse(&r.kind)?,
+                from_day: r.from_day,
+                to_day: r.to_day,
+                ruleset_id: r.ruleset_id,
+                ranked: r.ranked,
+                pending_days: r.pending_days,
+                computed_at: r.computed_at,
+                took_ms: r.took_ms,
+            })
+        })
+        .collect())
+}
+
+/// One position of a stored ranking.
+#[derive(Debug, Clone)]
+pub struct Entry {
+    pub position: i32,
+    pub entity_id: i64,
+    /// `None` when the entity was deleted since.
+    pub name: Option<String>,
+    /// The track's artist; `None` for artists.
+    pub artist_name: Option<String>,
+    /// Thousandths.
+    pub listeners: i64,
+    pub weight: i64,
+    pub raw_listeners: i32,
+    pub raw_plays: i32,
+}
+
+/// Positions `offset + 1 ..= offset + limit` of a stored ranking, what a
+/// route would serve.
+pub async fn snapshot_entries(
+    pool: &PgPool,
+    period: Period,
+    kind: Kind,
+    offset: i64,
+    limit: i64,
+) -> Result<Vec<Entry>, sqlx::Error> {
+    sqlx::query_as!(
+        Entry,
+        r#"
+        SELECT e.position, e.entity_id,
+               COALESCE(t.title, a.name) AS "name?",
+               ta.name AS "artist_name?",
+               e.listeners, e.weight, e.raw_listeners, e.raw_plays
+        FROM ranking_entries e
+        LEFT JOIN tracks t   ON e.kind = 'track' AND t.id = e.entity_id
+        LEFT JOIN artists ta ON ta.id = t.artist_id
+        LEFT JOIN artists a  ON e.kind = 'artist' AND a.id = e.entity_id
+        WHERE e.period = $1 AND e.kind = $2 AND e.position > $3
+        ORDER BY e.position
+        LIMIT $4
+        "#,
+        period.as_str(),
+        kind.as_str(),
+        offset as i32,
+        limit,
+    )
+    .fetch_all(pool)
+    .await
 }
 
 // ---------------------------------------------------------------------------

@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH per_user AS (\n                SELECT user_id,\n                       CASE WHEN $3 THEN track_id ELSE artist_id END AS entity_id,\n                       sum(plays)::bigint AS plays,\n                       sum(weight)::bigint AS weight\n                FROM ranking_daily\n                WHERE day BETWEEN $1 AND $2\n                GROUP BY 1, 2\n            ), per_entity AS (\n                SELECT entity_id,\n                       count(*)::int AS raw_listeners,\n                       sum(plays)::int AS raw_plays,\n                       sum(LEAST($5::bigint, weight * $5 / $4))::bigint AS listeners,\n                       sum(weight)::bigint AS weight\n                FROM per_user\n                GROUP BY entity_id\n                HAVING sum(weight) > 0\n            ), top AS (\n                SELECT * FROM per_entity\n                ORDER BY listeners DESC, weight DESC, entity_id\n                LIMIT $8\n            ), inserted AS (\n                INSERT INTO ranking_entries\n                    (period, kind, position, entity_id, listeners, weight, raw_listeners, raw_plays)\n                SELECT $6, $7,\n                       row_number() OVER (ORDER BY listeners DESC, weight DESC, entity_id),\n                       entity_id, listeners, weight, raw_listeners, raw_plays\n                FROM top\n            )\n            SELECT count(*)::int AS \"ranked!\" FROM per_entity\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ranked!",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Date",
+        "Date",
+        "Bool",
+        "Int8",
+        "Int8",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "4abfe755d8cc064df6a93c356f8a36f680e212a523ea2468cea511a1d41bb971"
+}

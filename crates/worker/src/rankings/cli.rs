@@ -7,15 +7,19 @@ use anyhow::{Context, bail};
 use chrono::{NaiveDate, TimeDelta, Utc};
 use sqlx::PgPool;
 
-use db::queries::rankings::{self as rdb, DayWeights, Kind, Ranked, Ruleset};
+use db::queries::rankings::{self as rdb, DayWeights, Kind, Period, Ranked, Ruleset};
 use db::queries::users as users_db;
 use shared::ranking::{FULL, RankingParams, Reason};
 
 pub const USAGE: &str = "       worker rank report    [--from DATE | --all] [--to DATE] [--limit N]
        worker rank recompute [--from DATE] [--to DATE] [--user NAME] [--dry-run]
        worker rank backfill  [--from DATE] [--to DATE] [--dry-run]
+       worker rank refresh   [--period week|month|year]
+       worker rank top       [--period week|month|year] [--kind artist|track] [--limit N]
                              report compares raw and filtered rankings, by default over
-                             the last 7 days; recompute and backfill cover all history";
+                             the last 7 days; recompute and backfill cover all history;
+                             refresh recomputes the stored rankings now (the worker does
+                             on a schedule) and top prints one as a route would read it";
 
 #[derive(Debug, Default)]
 struct Options {
@@ -23,6 +27,8 @@ struct Options {
     to: Option<NaiveDate>,
     user: Option<String>,
     limit: Option<i64>,
+    period: Option<Period>,
+    kind: Option<Kind>,
     all: bool,
     dry_run: bool,
 }
@@ -40,6 +46,15 @@ fn parse(args: &[String]) -> anyhow::Result<Options> {
             "--user" => options.user = Some(value()?.clone()),
             "--limit" => {
                 options.limit = Some(value()?.parse().context("--limit: expected a number")?)
+            }
+            "--period" => {
+                let v = value()?;
+                options.period =
+                    Some(Period::parse(v).with_context(|| format!("unknown period `{v}`"))?)
+            }
+            "--kind" => {
+                let v = value()?;
+                options.kind = Some(Kind::parse(v).with_context(|| format!("unknown kind `{v}`"))?)
             }
             "--all" => options.all = true,
             "--dry-run" => options.dry_run = true,
@@ -59,6 +74,8 @@ pub async fn run(db: &PgPool, args: &[String]) -> anyhow::Result<()> {
         "report" => report(db, params, options).await,
         "recompute" => recompute(db, params, options).await,
         "backfill" => backfill(db, params, options).await,
+        "refresh" => refresh(db, params, options).await,
+        "top" => top(db, options).await,
         other => bail!("unknown rank command `{other}` (see `worker --help`)"),
     }
 }
@@ -292,6 +309,75 @@ async fn backfill(db: &PgPool, params: RankingParams, o: Options) -> anyhow::Res
         tx.commit().await?;
         println!("queued {queued} days; the running worker weighs them");
     }
+    Ok(())
+}
+
+async fn refresh(db: &PgPool, params: RankingParams, o: Options) -> anyhow::Result<()> {
+    let rules = ruleset(db, params, true).await?;
+    let today = Utc::now().date_naive();
+    for period in o.period.map_or(Period::ALL.to_vec(), |p| vec![p]) {
+        for s in rdb::refresh_snapshots(db, &rules, period, today, super::SNAPSHOT_TOP).await? {
+            println!(
+                "{:<5} {:<6} {} .. {}  {:>7} ranked  {:>6} days pending  {:>6} ms",
+                period.as_str(),
+                s.kind.as_str(),
+                s.from_day,
+                s.to_day,
+                s.ranked,
+                s.pending_days,
+                s.took_ms
+            );
+        }
+    }
+    Ok(())
+}
+
+async fn top(db: &PgPool, o: Options) -> anyhow::Result<()> {
+    let period = o.period.unwrap_or(Period::Week);
+    let kind = o.kind.unwrap_or(Kind::Artist);
+    let stored = rdb::snapshots(db).await?;
+    let Some(s) = stored.iter().find(|s| s.period == period && s.kind == kind) else {
+        bail!(
+            "no stored {} ranking yet (worker rank refresh)",
+            period.as_str()
+        );
+    };
+    let age = Utc::now() - s.computed_at;
+    println!(
+        "{} {}s, {} .. {}, computed {} min ago in {} ms ({} ranked, {} days were pending)",
+        period.as_str(),
+        kind.as_str(),
+        s.from_day,
+        s.to_day,
+        age.num_minutes(),
+        s.took_ms,
+        s.ranked,
+        s.pending_days
+    );
+    let started = std::time::Instant::now();
+    let entries = rdb::snapshot_entries(db, period, kind, 0, o.limit.unwrap_or(20)).await?;
+    let took = started.elapsed();
+    println!(
+        "   #  {:<40} listeners    weight  raw listeners  raw plays",
+        "name"
+    );
+    for e in &entries {
+        let name = match (&e.artist_name, &e.name) {
+            (Some(artist), Some(name)) => format!("{artist} — {name}"),
+            (None, Some(name)) => name.clone(),
+            (_, None) => format!("(deleted #{})", e.entity_id),
+        };
+        println!(
+            "{:>4}  {:<40} {:>9}  {:>8}  {:>13}  {:>9}",
+            e.position,
+            truncate(&name, 40),
+            plays(e.listeners),
+            plays(e.weight),
+            e.raw_listeners,
+            e.raw_plays
+        );
+    }
+    println!("(read in {:.1} ms)", took.as_secs_f64() * 1000.0);
     Ok(())
 }
 
