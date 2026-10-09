@@ -366,7 +366,7 @@ async fn get_session(state: &AppState, params: &Params) -> LfmResult {
 /// Username and password, where the password may be a scrobbler token
 /// (always) or the account password (when `SCROBBLER_PASSWORD_LOGIN`
 /// allows it). Guarded like `/v1/auth/login`, and then some: attempts are
-/// limited per IP and per username, and a missing account costs the same
+/// limited per IP and per IP and username, and a missing account costs the same
 /// Argon2 time as a wrong password.
 async fn get_mobile_session(state: &AppState, params: &Params, ip: &str) -> LfmResult {
     let (api_key, _) = check_api_key(&state.compat, params, true)?;
@@ -386,7 +386,7 @@ async fn get_mobile_session(state: &AppState, params: &Params, ip: &str) -> LfmR
     }
     match password_login(state, username, password, &api_key).await? {
         Some((name, key)) => {
-            crate::limits::login_succeeded(state, username).await;
+            crate::limits::login_succeeded(state, ip, username).await;
             Ok(session_body(&name, &key))
         }
         None => Err(LfmError::new(

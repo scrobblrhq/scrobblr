@@ -193,7 +193,7 @@ pub async fn login(
     let user = verify_password_login(&state.db, &body.username, &body.password, false)
         .await?
         .ok_or(AppError::InvalidCredentials)?;
-    limits::login_succeeded(&state, &body.username).await;
+    limits::login_succeeded(&state, &ip, &body.username).await;
 
     let session = auth_db::create_session(&state.db, user.id, None, None).await?;
 
@@ -206,11 +206,11 @@ pub async fn login(
 
 pub fn _login_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Log in")
-        .description("Authenticates a user with username and password. Returns a session token to be used as `Bearer` in the `Authorization` header. Attempts are limited per address and per username, together with the scrobbler APIs' password logins; a success resets the username's count.")
+        .description("Authenticates a user with username and password. Returns a session token to be used as `Bearer` in the `Authorization` header. Attempts are limited per address, and per address and username, together with the scrobbler APIs' password logins; a success resets that address's count for the username. Failed attempts from elsewhere never block a username.")
         .tag("Auth")
         .response::<200, Json<AuthResponse>>()
         .response_with::<401, ErrorJson, _>(|r| r.description("Invalid credentials, or missing/invalid first-party app signature"))
-        .response_with::<429, ErrorJson, _>(|r| r.description("More than 20 attempts from this address or 10 for this username in 15 minutes"))
+        .response_with::<429, ErrorJson, _>(|r| r.description("More than 20 attempts from this address, or 10 for this username from this address, in 15 minutes"))
 }
 
 /// POST /v1/logout
@@ -458,9 +458,11 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "needs Postgres and Redis: just test-db"]
-    async fn password_logins_are_limited_per_username() {
+    async fn password_logins_are_limited_per_address_and_username() {
         use crate::test_app::{PASSWORD, with_app};
-        use axum::http::Method;
+        use axum::body::Body;
+        use axum::extract::ConnectInfo;
+        use axum::http::{Method, Request, header};
         use serde_json::json;
 
         with_app(Default::default(), |app| async move {
@@ -469,7 +471,7 @@ mod tests {
                 .api(Method::POST, "/v1/auth/login", Some(login(PASSWORD)))
                 .await;
             assert_eq!(status, StatusCode::OK);
-            for _ in 0..limits::LOGIN_ATTEMPTS_PER_USER {
+            for _ in 0..limits::LOGIN_ATTEMPTS_PER_USER_AND_IP {
                 let (status, _) = app
                     .api(Method::POST, "/v1/auth/login", Some(login("wrong")))
                     .await;
@@ -479,6 +481,18 @@ mod tests {
                 .api(Method::POST, "/v1/auth/login", Some(login(PASSWORD)))
                 .await;
             assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+
+            // The failures above don't lock the owner out elsewhere.
+            let mut req = Request::post("/v1/auth/login")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(login(PASSWORD).to_string()))
+                .unwrap();
+            let octets = rand::random::<[u8; 3]>();
+            let elsewhere =
+                std::net::SocketAddr::from(([10, octets[0], octets[1], octets[2]], 5000));
+            req.extensions_mut().insert(ConnectInfo(elsewhere));
+            let (status, _, body) = app.send(req).await;
+            assert_eq!(status, StatusCode::OK, "{body}");
         })
         .await;
     }

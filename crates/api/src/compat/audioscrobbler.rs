@@ -107,7 +107,7 @@ async fn handshake_reply(state: &AppState, params: &Params, ip: &str) -> ApiResu
             if !first_use(state, auth).await? {
                 return Ok("BADAUTH".into());
             }
-            crate::limits::login_succeeded(state, username).await;
+            crate::limits::login_succeeded(state, ip, username).await;
             found
         }
     };

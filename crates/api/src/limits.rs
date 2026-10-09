@@ -7,32 +7,40 @@ use chrono::Utc;
 use fred::interfaces::KeysInterface;
 
 use crate::errors::ApiResult;
+use crate::middleware::rate_limit::network;
 use crate::state::AppState;
 
 const LOGIN_WINDOW_SECS: i64 = 15 * 60;
-pub const LOGIN_ATTEMPTS_PER_USER: i64 = 10;
+pub const LOGIN_ATTEMPTS_PER_USER_AND_IP: i64 = 10;
 const LOGIN_ATTEMPTS_PER_IP: i64 = 20;
 
 fn login_keys(ip: &str, username: &str) -> [String; 2] {
     let window = Utc::now().timestamp() / LOGIN_WINDOW_SECS;
+    let network = network(ip);
     [
-        format!("login:ip:{ip}:{window}"),
-        format!("login:user:{}:{window}", username.trim().to_lowercase()),
+        format!("login:ip:{network}:{window}"),
+        // The username last, so no choice of it can reach another key.
+        format!(
+            "login:ip-user:{network}:{window}:{}",
+            username.trim().to_lowercase()
+        ),
     ]
 }
 
 /// Counts a password login attempt and says whether it may be checked: at
-/// most [`LOGIN_ATTEMPTS_PER_USER`] per username and
-/// [`LOGIN_ATTEMPTS_PER_IP`] per IP in [`LOGIN_WINDOW_SECS`]. Counted
-/// before checking, so parallel attempts can't slip past, and whether or
-/// not the account exists, so being blocked says nothing about it. A
-/// success resets the username's count ([`login_succeeded`]). Fails
-/// closed: without Redis, no password logins.
+/// most [`LOGIN_ATTEMPTS_PER_IP`] per address and
+/// [`LOGIN_ATTEMPTS_PER_USER_AND_IP`] per address and username in
+/// [`LOGIN_WINDOW_SECS`] (an IPv6 address counts as its /64). There is no
+/// limit per username alone, which anyone could use up to lock its owner
+/// out. Counted before checking, so parallel attempts can't slip past, and
+/// whether or not the account exists, so being blocked says nothing about
+/// it. A success resets that address's count for the username
+/// ([`login_succeeded`]). Fails closed: without Redis, no password logins.
 pub async fn login_attempt(state: &AppState, ip: &str, username: &str) -> ApiResult<bool> {
     let mut allowed = true;
     for (key, limit) in login_keys(ip, username)
         .into_iter()
-        .zip([LOGIN_ATTEMPTS_PER_IP, LOGIN_ATTEMPTS_PER_USER])
+        .zip([LOGIN_ATTEMPTS_PER_IP, LOGIN_ATTEMPTS_PER_USER_AND_IP])
     {
         let count: i64 = state.redis.incr(&key).await?;
         if count == 1 {
@@ -46,8 +54,8 @@ pub async fn login_attempt(state: &AppState, ip: &str, username: &str) -> ApiRes
     Ok(allowed)
 }
 
-pub async fn login_succeeded(state: &AppState, username: &str) {
-    let [_, user_key] = login_keys("", username);
+pub async fn login_succeeded(state: &AppState, ip: &str, username: &str) {
+    let [_, user_key] = login_keys(ip, username);
     let _ = state.redis.del::<i64, _>(&user_key).await;
 }
 

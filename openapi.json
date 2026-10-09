@@ -3776,7 +3776,7 @@
     },
     "/v1/auth/login": {
       "post": {
-        "description": "Authenticates a user with username and password. Returns a session token to be used as `Bearer` in the `Authorization` header. Attempts are limited per address and per username, together with the scrobbler APIs' password logins; a success resets the username's count.",
+        "description": "Authenticates a user with username and password. Returns a session token to be used as `Bearer` in the `Authorization` header. Attempts are limited per address, and per address and username, together with the scrobbler APIs' password logins; a success resets that address's count for the username. Failed attempts from elsewhere never block a username.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -3816,7 +3816,7 @@
                 }
               }
             },
-            "description": "More than 20 attempts from this address or 10 for this username in 15 minutes"
+            "description": "More than 20 attempts from this address, or 10 for this username from this address, in 15 minutes"
           },
           "default": {
             "content": {

@@ -518,7 +518,7 @@ async fn session_keys_are_bound_to_the_api_key_that_got_them() {
     .await;
 }
 
-/// Failed logins are counted per username (and IP), whether or not the
+/// Failed logins are counted per username and IP, whether or not the
 /// account exists; past the limit even the right password is refused.
 /// Without account passwords, only scrobbler tokens log in.
 #[tokio::test]
@@ -542,7 +542,7 @@ async fn password_logins_are_limited_and_tokens_work_without_passwords() {
             .post_form("/2.0/", &pairs(&login("nobody-here", PASSWORD)))
             .await;
         assert_eq!(error(&body), 4);
-        for _ in 0..crate::limits::LOGIN_ATTEMPTS_PER_USER {
+        for _ in 0..crate::limits::LOGIN_ATTEMPTS_PER_USER_AND_IP {
             let (_, body) = app
                 .post_form("/2.0/", &pairs(&login(&app.username, "wrong")))
                 .await;
