@@ -1,0 +1,60 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH flagged AS (\n            SELECT track_id,\n                   count(*) FILTER (WHERE status = 'duplicate') AS duplicates,\n                   count(*) FILTER (WHERE status IN ('suspect', 'no_data')) AS unverified\n            FROM scrobble_flags\n            WHERE user_id = $1\n              AND (day::timestamp AT TIME ZONE 'UTC') >= $2\n            GROUP BY track_id\n        ), plays AS (\n            SELECT track_id, artist_id, SUM(play_count)::BIGINT AS play_count\n            FROM scrobbles_daily_by_track\n            WHERE user_id = $1\n              AND day    >= $2\n            GROUP BY track_id, artist_id\n        )\n        SELECT\n            p.track_id                                      AS \"track_id!\",\n            t.title                                         AS track_title,\n            p.artist_id                                     AS \"artist_id!\",\n            a.name                                          AS artist_name,\n            al.image_url                                    AS album_image,\n            (p.play_count - COALESCE(fl.duplicates, 0))::BIGINT AS \"play_count!\",\n            COALESCE(fl.unverified, 0)::BIGINT              AS \"unverified_count!\"\n        FROM plays p\n        JOIN tracks  t  ON t.id  = p.track_id\n        JOIN artists a  ON a.id  = p.artist_id\n        LEFT JOIN albums al ON al.id = t.album_id\n        LEFT JOIN flagged fl ON fl.track_id = p.track_id\n        WHERE p.play_count > COALESCE(fl.duplicates, 0)\n        ORDER BY \"play_count!\" DESC, p.track_id\n        LIMIT $3\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "track_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "track_title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "artist_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "artist_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "album_image",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "play_count!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "unverified_count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Timestamptz",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      false,
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "c62f1df89104e4a5a82c40daf9504bd46ea41f73387bb3da0c2ccbf0f4012967"
+}

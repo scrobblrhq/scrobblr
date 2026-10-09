@@ -397,7 +397,8 @@ pub async fn artist_top_tracks(
                t.artist_id     AS "artist_id!",
                a.name          AS "artist_name!",
                al.image_url    AS "album_image?",
-               s.play_count    AS "play_count!"
+               s.play_count    AS "play_count!",
+               NULL::BIGINT    AS "unverified_count?"
         FROM (
             SELECT track_id, SUM(play_count)::BIGINT AS play_count
             FROM scrobbles_daily_by_track

@@ -46,6 +46,27 @@ pub struct UserProfile {
     pub created_at: DateTime<Utc>,
 }
 
+/// How a profile's `scrobble_count` divides by what the classifier made of
+/// it: plays it found plausible, and plays it couldn't vouch for, so a flood
+/// of botted plays doesn't pass for listening. The duplicates it found (the
+/// same listen reported again) are in no count but their own.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct ScrobbleBreakdown {
+    /// Labelled `counted`.
+    pub verified: i64,
+    /// `suspect + no_data + pending`; `verified + unverified` is
+    /// `scrobble_count`.
+    pub unverified: i64,
+    /// Over the listening time real time allows.
+    pub suspect: i64,
+    /// Of tracks with no known length, so unchecked.
+    pub no_data: i64,
+    /// Not classified yet (usually the last minute's).
+    pub pending: i64,
+    pub duplicates: i64,
+}
+
 impl From<User> for UserProfile {
     fn from(u: User) -> Self {
         Self {
@@ -159,7 +180,7 @@ pub struct Scrobble {
 }
 
 /// Rich scrobble for API responses (joined data)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, JsonSchema, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
 #[ts(export)]
 pub struct ScrobbleRich {
     pub id: i64,
@@ -174,6 +195,34 @@ pub struct ScrobbleRich {
     #[serde(serialize_with = "crate::media::serialize_opt_url")]
     pub album_image: Option<String>,
     pub duration_ms: Option<i32>,
+    /// What the classifier made of it; `null` until it is classified.
+    pub status: Option<ScrobbleLabel>,
+}
+
+/// A scrobble's label as profiles show it. The classifier's duplicates (the
+/// same listen reported again) are left out of profiles altogether.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum ScrobbleLabel {
+    /// A plausible listen.
+    Counted,
+    /// Over the listening time real time allows (the classifier's budget).
+    Suspect,
+    /// Of a track with no known length, so its listening couldn't be checked.
+    NoData,
+}
+
+impl ScrobbleLabel {
+    /// From a stored label; `None` for `duplicate` and anything unknown.
+    pub fn from_status(status: &str) -> Option<Self> {
+        match status {
+            "counted" => Some(Self::Counted),
+            "suspect" => Some(Self::Suspect),
+            "no_data" => Some(Self::NoData),
+            _ => None,
+        }
+    }
 }
 
 /// NowPlaying
@@ -230,7 +279,11 @@ pub struct TopArtist {
     pub artist_name: String,
     #[serde(serialize_with = "crate::media::serialize_opt_url")]
     pub image_url: Option<String>,
+    /// Plays in the period, duplicates left out.
     pub play_count: i64,
+    /// Of `play_count`, the plays the classifier labelled `suspect` or
+    /// `no_data`; plays not classified yet are in neither.
+    pub unverified_count: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
@@ -242,7 +295,10 @@ pub struct TopTrack {
     pub artist_name: String,
     #[serde(serialize_with = "crate::media::serialize_opt_url")]
     pub album_image: Option<String>,
+    /// Plays in the period, duplicates left out.
     pub play_count: i64,
+    /// In a user's top tracks, as for [`TopArtist`]; `null` elsewhere.
+    pub unverified_count: Option<i64>,
 }
 
 /// A user who listens to a given artist or track, with their play count.
@@ -262,6 +318,7 @@ pub struct TopListener {
 #[ts(export)]
 pub struct ActivityDay {
     pub day: DateTime<Utc>,
+    /// Duplicates left out.
     pub scrobble_count: i64,
 }
 
@@ -576,6 +633,7 @@ mod tests {
                 album_title: None,
                 album_image: image(),
                 duration_ms: None,
+                status: Some(ScrobbleLabel::Counted),
             })
             .unwrap(),
             serde_json::to_value(TopArtist {
@@ -583,6 +641,7 @@ mod tests {
                 artist_name: "a".into(),
                 image_url: image(),
                 play_count: 1,
+                unverified_count: 0,
             })
             .unwrap(),
             serde_json::to_value(TopTrack {
@@ -592,6 +651,7 @@ mod tests {
                 artist_name: "a".into(),
                 album_image: image(),
                 play_count: 1,
+                unverified_count: None,
             })
             .unwrap(),
             serde_json::to_value(TopListener {

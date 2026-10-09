@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT s.id, s.played_at, s.source, s.track_id, t.title AS track_title,\n               s.artist_id, a.name AS artist_name, s.album_id,\n               al.title AS \"album_title?\", al.image_url AS \"album_image?\", s.duration_ms\n        FROM scrobbles s\n        JOIN tracks  t  ON t.id = s.track_id\n        JOIN artists a  ON a.id = s.artist_id\n        LEFT JOIN albums al ON al.id = s.album_id\n        WHERE s.user_id = $1\n          AND ($2::timestamptz IS NULL OR s.played_at >= $2)\n          AND ($3::timestamptz IS NULL OR s.played_at <= $3)\n        ORDER BY s.played_at DESC, s.id DESC\n        LIMIT $4 OFFSET $5\n        ",
+  "query": "\n        SELECT s.id, s.played_at, s.source, s.track_id, t.title AS track_title,\n               s.artist_id, a.name AS artist_name, s.album_id,\n               al.title AS \"album_title?\", al.image_url AS \"album_image?\", s.duration_ms,\n               CASE WHEN d.user_id IS NULL OR s.id > d.max_scrobble_id THEN NULL\n                    ELSE COALESCE(f.status::text, 'counted') END AS status\n        FROM scrobbles s\n        JOIN tracks  t  ON t.id = s.track_id\n        JOIN artists a  ON a.id = s.artist_id\n        LEFT JOIN albums al ON al.id = s.album_id\n        LEFT JOIN scrobble_flags f\n               ON f.scrobble_id = s.id AND f.played_at = s.played_at\n        LEFT JOIN scrobble_classification_days d\n               ON d.user_id = s.user_id AND d.day = (s.played_at AT TIME ZONE 'UTC')::date\n        WHERE s.user_id = $1\n          AND ($2::timestamptz IS NULL OR s.played_at >= $2)\n          AND ($3::timestamptz IS NULL OR s.played_at <= $3)\n          AND f.status IS DISTINCT FROM 'duplicate'\n        ORDER BY s.played_at DESC, s.id DESC\n        LIMIT $4 OFFSET $5\n        ",
   "describe": {
     "columns": [
       {
@@ -57,6 +57,11 @@
         "ordinal": 10,
         "name": "duration_ms",
         "type_info": "Int4"
+      },
+      {
+        "ordinal": 11,
+        "name": "status",
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -79,8 +84,9 @@
       true,
       false,
       true,
-      true
+      true,
+      null
     ]
   },
-  "hash": "e0e4093147c573517a24fed991579c6f3e83a7da68640fdab1bf390cdaf6df92"
+  "hash": "edc6dcdbd97f735ca112953942e992201bb47262f8f027dd19e3679b1945bc8b"
 }

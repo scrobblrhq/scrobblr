@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            a.day                                                AS \"day!\",\n            (a.scrobble_count - COALESCE(d.duplicate, 0))::BIGINT AS \"scrobble_count!\"\n        FROM user_activity_daily a\n        LEFT JOIN scrobble_classification_days d\n               ON d.user_id = a.user_id AND d.day = (a.day AT TIME ZONE 'UTC')::date\n        WHERE a.user_id = $1\n          AND a.day    >= $2\n          AND a.scrobble_count > COALESCE(d.duplicate, 0)\n        ORDER BY a.day\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "day!",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 1,
+        "name": "scrobble_count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      true,
+      null
+    ]
+  },
+  "hash": "58dd08cb09fcd00c0c59290fc16d211af0ca79d986ce5a39c9bbbdb00068304e"
+}

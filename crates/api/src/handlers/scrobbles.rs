@@ -253,7 +253,7 @@ pub async fn recent_scrobbles(
 
 pub fn _recent_scrobbles_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Get recent scrobbles")
-        .description("Returns the most recent scrobbles for a user, ordered by `played_at` descending. Maximum 200 per request. Supports cursor-based pagination via the `before` timestamp. Returns 403 for private profiles.")
+        .description("Returns the most recent scrobbles for a user, ordered by `played_at` descending, each with its `status` (`counted`, `suspect`, `no_data`, or `null` until classified). Duplicates (the same listen reported again) are left out. Maximum 200 per request. Supports cursor-based pagination via the `before` timestamp. Returns 403 for private profiles.")
         .tag("Scrobbles")
         .response_with::<200, Json<Vec<ScrobbleRich>>, _>(|r| r.description("Recent scrobbles, newest first"))
         .response_with::<403, ErrorJson, _>(|r| r.description("Profile is private"))
@@ -302,7 +302,7 @@ pub async fn top_artists(
 
 pub fn _top_artists_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Get top artists")
-        .description("Returns the most scrobbled artists for a user in a given period. Supported periods: `7days`, `1month`, `3months`, `6months`, `1year`, `overall` (default). Maximum 50 results.")
+        .description("Returns the most scrobbled artists for a user in a given period, duplicates left out; `unverified_count` is how many of the plays the classifier labelled `suspect` or `no_data`. Supported periods: `7days`, `1month`, `3months`, `6months`, `1year`, `overall` (default). Maximum 50 results.")
         .tag("Scrobbles")
         .response_with::<200, Json<Vec<TopArtist>>, _>(|r| r.description("Ranked list of top artists with scrobble counts"))
         .response_with::<403, ErrorJson, _>(|r| r.description("Profile is private"))
@@ -332,7 +332,7 @@ pub async fn top_tracks(
 
 pub fn _top_tracks_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Get top tracks")
-        .description("Returns the most scrobbled tracks for a user in a given period. Supported periods: `7days`, `1month`, `3months`, `6months`, `1year`, `overall` (default). Maximum 50 results.")
+        .description("Returns the most scrobbled tracks for a user in a given period, duplicates left out; `unverified_count` is how many of the plays the classifier labelled `suspect` or `no_data`. Supported periods: `7days`, `1month`, `3months`, `6months`, `1year`, `overall` (default). Maximum 50 results.")
         .tag("Scrobbles")
         .response_with::<200, Json<Vec<TopTrack>>, _>(|r| r.description("Ranked list of top tracks with scrobble counts"))
         .response_with::<403, ErrorJson, _>(|r| r.description("Profile is private"))
@@ -359,7 +359,7 @@ pub async fn activity_heatmap(
 
 pub fn _activity_heatmap_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Get activity heatmap")
-        .description("Returns daily scrobble counts for the past 365 days, suitable for rendering a GitHub-style activity heatmap. Each entry contains a day (UTC midnight) and a scrobble count; days without scrobbles are left out.")
+        .description("Returns daily scrobble counts for the past 365 days, suitable for rendering a GitHub-style activity heatmap. Each entry contains a day (UTC midnight) and a scrobble count, duplicates left out; days without scrobbles are left out.")
         .tag("Scrobbles")
         .response_with::<200, Json<Vec<ActivityDay>>, _>(|r| r.description("Days with scrobbles in the past year, oldest first"))
         .response_with::<403, ErrorJson, _>(|r| r.description("Profile is private"))

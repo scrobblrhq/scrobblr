@@ -3,7 +3,9 @@ use sqlx::PgPool;
 use thiserror::Error;
 
 use crate::queries::{classification as classification_db, tracks as tracks_db};
-use shared::models::{ActivityDay, NowPlayingRich, ScrobbleRich, TopArtist, TopTrack};
+use shared::models::{
+    ActivityDay, NowPlayingRich, ScrobbleLabel, ScrobbleRich, TopArtist, TopTrack,
+};
 use shared::scrobble::{
     self as scrobble_logic, DUPLICATE_WINDOW, ScrobbleInput, ScrobbleValidationError,
 };
@@ -186,7 +188,7 @@ pub async fn upsert_now_playing(pool: &PgPool, np: &UpsertNowPlaying) -> Result<
 }
 
 /// Returns the most recent scrobbles for a user, enriched with track, artist,
-/// and album metadata.
+/// and album metadata and their label. Duplicates are left out.
 ///
 /// Results are ordered newest-first. Pass `before` to paginate backwards
 /// through history (keyset pagination). If `before` is `None`, results start
@@ -214,13 +216,20 @@ pub async fn get_recent_scrobbles(
             s.album_id,
             al.title         AS "album_title?",
             al.image_url     AS "album_image?",
-            s.duration_ms
+            s.duration_ms,
+            CASE WHEN d.user_id IS NULL OR s.id > d.max_scrobble_id THEN NULL
+                 ELSE COALESCE(f.status::text, 'counted') END AS status
         FROM scrobbles s
         JOIN tracks  t  ON t.id = s.track_id
         JOIN artists a  ON a.id = s.artist_id
         LEFT JOIN albums al ON al.id = s.album_id
+        LEFT JOIN scrobble_flags f
+               ON f.scrobble_id = s.id AND f.played_at = s.played_at
+        LEFT JOIN scrobble_classification_days d
+               ON d.user_id = s.user_id AND d.day = (s.played_at AT TIME ZONE 'UTC')::date
         WHERE s.user_id    = $1
           AND s.played_at  < $2
+          AND f.status IS DISTINCT FROM 'duplicate'
         ORDER BY s.played_at DESC
         LIMIT $3
         "#,
@@ -245,6 +254,7 @@ pub async fn get_recent_scrobbles(
             album_title: r.album_title,
             album_image: r.album_image,
             duration_ms: r.duration_ms,
+            status: r.status.as_deref().and_then(ScrobbleLabel::from_status),
         })
         .collect();
 
@@ -252,7 +262,8 @@ pub async fn get_recent_scrobbles(
 }
 
 /// One page of a user's scrobbles in `[from, to]`, newest first, by offset
-/// (Last.fm's `user.getRecentTracks` pages that way).
+/// (Last.fm's `user.getRecentTracks` pages that way). Duplicates are left
+/// out.
 pub async fn recent_scrobbles_page(
     pool: &PgPool,
     user_id: i64,
@@ -261,19 +272,25 @@ pub async fn recent_scrobbles_page(
     limit: i64,
     offset: i64,
 ) -> Result<Vec<ScrobbleRich>, sqlx::Error> {
-    sqlx::query_as!(
-        ScrobbleRich,
+    let rows = sqlx::query!(
         r#"
         SELECT s.id, s.played_at, s.source, s.track_id, t.title AS track_title,
                s.artist_id, a.name AS artist_name, s.album_id,
-               al.title AS "album_title?", al.image_url AS "album_image?", s.duration_ms
+               al.title AS "album_title?", al.image_url AS "album_image?", s.duration_ms,
+               CASE WHEN d.user_id IS NULL OR s.id > d.max_scrobble_id THEN NULL
+                    ELSE COALESCE(f.status::text, 'counted') END AS status
         FROM scrobbles s
         JOIN tracks  t  ON t.id = s.track_id
         JOIN artists a  ON a.id = s.artist_id
         LEFT JOIN albums al ON al.id = s.album_id
+        LEFT JOIN scrobble_flags f
+               ON f.scrobble_id = s.id AND f.played_at = s.played_at
+        LEFT JOIN scrobble_classification_days d
+               ON d.user_id = s.user_id AND d.day = (s.played_at AT TIME ZONE 'UTC')::date
         WHERE s.user_id = $1
           AND ($2::timestamptz IS NULL OR s.played_at >= $2)
           AND ($3::timestamptz IS NULL OR s.played_at <= $3)
+          AND f.status IS DISTINCT FROM 'duplicate'
         ORDER BY s.played_at DESC, s.id DESC
         LIMIT $4 OFFSET $5
         "#,
@@ -284,9 +301,27 @@ pub async fn recent_scrobbles_page(
         offset,
     )
     .fetch_all(pool)
-    .await
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| ScrobbleRich {
+            id: r.id,
+            played_at: r.played_at,
+            source: r.source,
+            track_id: r.track_id,
+            track_title: r.track_title,
+            artist_id: r.artist_id,
+            artist_name: r.artist_name,
+            album_id: r.album_id,
+            album_title: r.album_title,
+            album_image: r.album_image,
+            duration_ms: r.duration_ms,
+            status: r.status.as_deref().and_then(ScrobbleLabel::from_status),
+        })
+        .collect())
 }
 
+/// A user's scrobbles in `[from, to]`, duplicates left out.
 pub async fn count_scrobbles(
     pool: &PgPool,
     user_id: i64,
@@ -295,10 +330,14 @@ pub async fn count_scrobbles(
 ) -> Result<i64, sqlx::Error> {
     sqlx::query_scalar!(
         r#"
-        SELECT count(*) AS "count!" FROM scrobbles
-        WHERE user_id = $1
-          AND ($2::timestamptz IS NULL OR played_at >= $2)
-          AND ($3::timestamptz IS NULL OR played_at <= $3)
+        SELECT (SELECT count(*) FROM scrobbles
+                WHERE user_id = $1
+                  AND ($2::timestamptz IS NULL OR played_at >= $2)
+                  AND ($3::timestamptz IS NULL OR played_at <= $3))
+             - (SELECT count(*) FROM scrobble_flags
+                WHERE user_id = $1 AND status = 'duplicate'
+                  AND ($2::timestamptz IS NULL OR played_at >= $2)
+                  AND ($3::timestamptz IS NULL OR played_at <= $3)) AS "count!"
         "#,
         user_id,
         from,
@@ -309,11 +348,13 @@ pub async fn count_scrobbles(
 }
 
 /// Returns the top artists for a user within the given time window, ordered by
-/// total play count descending.
+/// total play count descending, duplicates left out.
 ///
 /// Reads from the `scrobbles_daily_by_artist` continuous aggregate, so this
 /// query is effectively a materialized view scan — only rows past the
-/// watermark (about the last day) are read raw.
+/// watermark (about the last day) are read raw. The classifier's flags (only
+/// the scrobbles it didn't count) take out duplicates and say how many plays
+/// are unverified.
 ///
 /// `since` should be aligned to a day boundary to maximise aggregate cache hits.
 pub async fn get_top_artists(
@@ -324,17 +365,33 @@ pub async fn get_top_artists(
 ) -> Result<Vec<TopArtist>, sqlx::Error> {
     let rows = sqlx::query!(
         r#"
+        WITH flagged AS (
+            SELECT t.artist_id,
+                   count(*) FILTER (WHERE f.status = 'duplicate') AS duplicates,
+                   count(*) FILTER (WHERE f.status IN ('suspect', 'no_data')) AS unverified
+            FROM scrobble_flags f
+            JOIN tracks t ON t.id = f.track_id
+            WHERE f.user_id = $1
+              AND (f.day::timestamp AT TIME ZONE 'UTC') >= $2
+            GROUP BY t.artist_id
+        ), plays AS (
+            SELECT artist_id, SUM(play_count)::BIGINT AS play_count
+            FROM scrobbles_daily_by_artist
+            WHERE user_id = $1
+              AND day    >= $2
+            GROUP BY artist_id
+        )
         SELECT
-            s.artist_id                                 AS "artist_id!",
-            a.name                                      AS artist_name,
+            p.artist_id                                     AS "artist_id!",
+            a.name                                          AS artist_name,
             a.image_url,
-            COALESCE(SUM(s.play_count), 0)::BIGINT      AS "play_count!"
-        FROM scrobbles_daily_by_artist s
-        JOIN artists a ON a.id = s.artist_id
-        WHERE s.user_id = $1
-          AND s.day    >= $2
-        GROUP BY s.artist_id, a.name, a.image_url
-        ORDER BY "play_count!" DESC
+            (p.play_count - COALESCE(fl.duplicates, 0))::BIGINT AS "play_count!",
+            COALESCE(fl.unverified, 0)::BIGINT              AS "unverified_count!"
+        FROM plays p
+        JOIN artists a ON a.id = p.artist_id
+        LEFT JOIN flagged fl ON fl.artist_id = p.artist_id
+        WHERE p.play_count > COALESCE(fl.duplicates, 0)
+        ORDER BY "play_count!" DESC, p.artist_id
         LIMIT $3
         "#,
         user_id,
@@ -351,6 +408,7 @@ pub async fn get_top_artists(
             artist_name: row.artist_name,
             image_url: row.image_url,
             play_count: row.play_count,
+            unverified_count: row.unverified_count,
         })
         .collect();
 
@@ -358,11 +416,12 @@ pub async fn get_top_artists(
 }
 
 /// Returns the top tracks for a user within the given time window, ordered by
-/// total play count descending.
+/// total play count descending, duplicates left out.
 ///
-/// Reads from the `scrobbles_daily_by_track` continuous aggregate. Album art
-/// is resolved via the track's `album_id` rather than the scrobble's, since
-/// the aggregate does not store `album_id` at the track level.
+/// Reads from the `scrobbles_daily_by_track` continuous aggregate and the
+/// classifier's flags, like [`get_top_artists`]. Album art is resolved via
+/// the track's `album_id` rather than the scrobble's, since the aggregate
+/// does not store `album_id` at the track level.
 ///
 /// `since` should be aligned to a day boundary to maximise aggregate cache hits.
 pub async fn get_top_tracks(
@@ -373,21 +432,36 @@ pub async fn get_top_tracks(
 ) -> Result<Vec<TopTrack>, sqlx::Error> {
     let rows = sqlx::query!(
         r#"
+        WITH flagged AS (
+            SELECT track_id,
+                   count(*) FILTER (WHERE status = 'duplicate') AS duplicates,
+                   count(*) FILTER (WHERE status IN ('suspect', 'no_data')) AS unverified
+            FROM scrobble_flags
+            WHERE user_id = $1
+              AND (day::timestamp AT TIME ZONE 'UTC') >= $2
+            GROUP BY track_id
+        ), plays AS (
+            SELECT track_id, artist_id, SUM(play_count)::BIGINT AS play_count
+            FROM scrobbles_daily_by_track
+            WHERE user_id = $1
+              AND day    >= $2
+            GROUP BY track_id, artist_id
+        )
         SELECT
-            s.track_id                                  AS "track_id!",
-            t.title                                     AS track_title,
-            s.artist_id                                 AS "artist_id!",
-            a.name                                      AS artist_name,
-            al.image_url                                AS album_image,
-            COALESCE(SUM(s.play_count), 0)::BIGINT      AS "play_count!"
-        FROM scrobbles_daily_by_track s
-        JOIN tracks  t  ON t.id  = s.track_id
-        JOIN artists a  ON a.id  = s.artist_id
+            p.track_id                                      AS "track_id!",
+            t.title                                         AS track_title,
+            p.artist_id                                     AS "artist_id!",
+            a.name                                          AS artist_name,
+            al.image_url                                    AS album_image,
+            (p.play_count - COALESCE(fl.duplicates, 0))::BIGINT AS "play_count!",
+            COALESCE(fl.unverified, 0)::BIGINT              AS "unverified_count!"
+        FROM plays p
+        JOIN tracks  t  ON t.id  = p.track_id
+        JOIN artists a  ON a.id  = p.artist_id
         LEFT JOIN albums al ON al.id = t.album_id
-        WHERE s.user_id = $1
-          AND s.day    >= $2
-        GROUP BY s.track_id, t.title, s.artist_id, a.name, al.image_url
-        ORDER BY "play_count!" DESC
+        LEFT JOIN flagged fl ON fl.track_id = p.track_id
+        WHERE p.play_count > COALESCE(fl.duplicates, 0)
+        ORDER BY "play_count!" DESC, p.track_id
         LIMIT $3
         "#,
         user_id,
@@ -406,6 +480,7 @@ pub async fn get_top_tracks(
             artist_name: row.artist_name,
             album_image: row.album_image,
             play_count: row.play_count,
+            unverified_count: Some(row.unverified_count),
         })
         .collect();
 
@@ -413,10 +488,10 @@ pub async fn get_top_tracks(
 }
 
 /// Returns the daily scrobble counts for a user starting from `since`, ordered
-/// chronologically.
+/// chronologically, duplicates left out.
 ///
 /// Intended for rendering activity heatmaps on user profiles. Reads from the
-/// `user_activity_daily` continuous aggregate.
+/// `user_activity_daily` continuous aggregate and the classified days.
 pub async fn get_activity_heatmap(
     pool: &PgPool,
     user_id: i64,
@@ -426,12 +501,15 @@ pub async fn get_activity_heatmap(
         ActivityDay,
         r#"
         SELECT
-            day             AS "day!",
-            scrobble_count  AS "scrobble_count!"
-        FROM user_activity_daily
-        WHERE user_id = $1
-          AND day    >= $2
-        ORDER BY day
+            a.day                                                AS "day!",
+            (a.scrobble_count - COALESCE(d.duplicate, 0))::BIGINT AS "scrobble_count!"
+        FROM user_activity_daily a
+        LEFT JOIN scrobble_classification_days d
+               ON d.user_id = a.user_id AND d.day = (a.day AT TIME ZONE 'UTC')::date
+        WHERE a.user_id = $1
+          AND a.day    >= $2
+          AND a.scrobble_count > COALESCE(d.duplicate, 0)
+        ORDER BY a.day
         "#,
         user_id,
         since,

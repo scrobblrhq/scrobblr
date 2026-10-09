@@ -15,13 +15,16 @@ use crate::{
     state::AppState,
 };
 use db::queries::users as users_db;
-use shared::models::UserProfile;
+use shared::models::{ScrobbleBreakdown, UserProfile};
 
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct ProfileResponse {
     #[serde(flatten)]
     pub profile: UserProfile,
     pub is_following: Option<bool>, // None if not authenticated
+    /// `scrobble_count` (duplicates left out) by what the classifier made
+    /// of it.
+    pub scrobble_breakdown: ScrobbleBreakdown,
 }
 
 /// GET /v1/user/:username
@@ -37,16 +40,18 @@ pub async fn get_profile(
     let viewer_id = auth_user.map(|Extension(a)| a.id);
     let is_following =
         crate::middleware::visibility::ensure_profile_visible(&state, viewer_id, &user).await?;
+    let scrobble_breakdown = users_db::scrobble_breakdown(&state.db, user.id).await?;
 
     Ok(Json(ProfileResponse {
         profile: user.into(),
         is_following,
+        scrobble_breakdown,
     }))
 }
 
 pub fn _get_profile_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Get user profile")
-        .description("Returns the public profile for a user. If the viewer is authenticated, also includes `is_following`. Private profiles return 403 to non-owners.")
+        .description("Returns the public profile for a user. If the viewer is authenticated, also includes `is_following`. `scrobble_count` leaves out the scrobbles the classifier found to be the same listen reported again (duplicates); `scrobble_breakdown` divides it into verified plays and unverified ones (over the listening time real time allows, of tracks with no known length, or not classified yet). Private profiles return 403 to non-owners.")
         .tag("Users")
         .response::<200, Json<ProfileResponse>>()
         .response_with::<403, ErrorJson, _>(|r| r.description("Profile is private"))
@@ -67,16 +72,18 @@ pub async fn get_own_profile(
     let user = users_db::find_by_id(&state.db, auth_user.id)
         .await?
         .ok_or(AppError::NotFound)?;
+    let scrobble_breakdown = users_db::scrobble_breakdown(&state.db, user.id).await?;
 
     Ok(Json(ProfileResponse {
         profile: user.into(),
         is_following: None, // you can't follow yourself
+        scrobble_breakdown,
     }))
 }
 
 pub fn _get_own_profile_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Get my own profile")
-        .description("Alias for fetching the authenticated user's own profile, regardless of privacy settings.")
+        .description("Alias for fetching the authenticated user's own profile, regardless of privacy settings, with the same `scrobble_breakdown`.")
         .tag("Users")
         .response::<200, Json<ProfileResponse>>()
         .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))

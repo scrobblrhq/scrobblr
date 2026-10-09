@@ -1,6 +1,6 @@
 use sqlx::PgPool;
 
-use shared::models::User;
+use shared::models::{ScrobbleBreakdown, User};
 
 pub async fn find_by_id(pool: &PgPool, id: i64) -> Result<Option<User>, sqlx::Error> {
     sqlx::query_as!(
@@ -247,4 +247,39 @@ pub async fn update_profile(
     .await?;
     tx.commit().await?;
     Ok((user, previous_image))
+}
+
+/// How the user's `scrobble_count` (which leaves classified duplicates out)
+/// divides by label, from the totals the classification keeps
+/// (`user_label_totals`).
+pub async fn scrobble_breakdown(
+    pool: &PgPool,
+    user_id: i64,
+) -> Result<ScrobbleBreakdown, sqlx::Error> {
+    let r = sqlx::query!(
+        r#"
+        SELECT u.scrobble_count,
+               COALESCE(t.classified, 0) AS "classified!", COALESCE(t.counted, 0) AS "counted!",
+               COALESCE(t.suspect, 0) AS "suspect!", COALESCE(t.duplicate, 0) AS "duplicate!",
+               COALESCE(t.no_data, 0) AS "no_data!"
+        FROM users u
+        LEFT JOIN user_label_totals t ON t.user_id = u.id
+        WHERE u.id = $1
+        "#,
+        user_id,
+    )
+    .fetch_optional(pool)
+    .await?;
+    let Some(r) = r else {
+        return Ok(ScrobbleBreakdown::default());
+    };
+    let pending = (r.scrobble_count + r.duplicate - r.classified).max(0);
+    Ok(ScrobbleBreakdown {
+        verified: r.counted,
+        unverified: r.suspect + r.no_data + pending,
+        suspect: r.suspect,
+        no_data: r.no_data,
+        pending,
+        duplicates: r.duplicate,
+    })
 }

@@ -1,0 +1,48 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH flagged AS (\n            SELECT t.artist_id,\n                   count(*) FILTER (WHERE f.status = 'duplicate') AS duplicates,\n                   count(*) FILTER (WHERE f.status IN ('suspect', 'no_data')) AS unverified\n            FROM scrobble_flags f\n            JOIN tracks t ON t.id = f.track_id\n            WHERE f.user_id = $1\n              AND (f.day::timestamp AT TIME ZONE 'UTC') >= $2\n            GROUP BY t.artist_id\n        ), plays AS (\n            SELECT artist_id, SUM(play_count)::BIGINT AS play_count\n            FROM scrobbles_daily_by_artist\n            WHERE user_id = $1\n              AND day    >= $2\n            GROUP BY artist_id\n        )\n        SELECT\n            p.artist_id                                     AS \"artist_id!\",\n            a.name                                          AS artist_name,\n            a.image_url,\n            (p.play_count - COALESCE(fl.duplicates, 0))::BIGINT AS \"play_count!\",\n            COALESCE(fl.unverified, 0)::BIGINT              AS \"unverified_count!\"\n        FROM plays p\n        JOIN artists a ON a.id = p.artist_id\n        LEFT JOIN flagged fl ON fl.artist_id = p.artist_id\n        WHERE p.play_count > COALESCE(fl.duplicates, 0)\n        ORDER BY \"play_count!\" DESC, p.artist_id\n        LIMIT $3\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "artist_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "artist_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "image_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "play_count!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "unverified_count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Timestamptz",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "4ba9aebfee0bbdecd61f7885b9872492ce03444dcbc1d3e20a698b66517037d6"
+}
