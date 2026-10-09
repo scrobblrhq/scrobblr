@@ -1,0 +1,87 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH per_user AS (\n            SELECT user_id,\n                   CASE WHEN $3 THEN track_id ELSE artist_id END AS entity_id,\n                   sum(plays)::bigint AS plays,\n                   sum(weight)::bigint AS weight\n            FROM ranking_daily\n            WHERE day BETWEEN $1 AND $2\n            GROUP BY 1, 2\n        ), per_entity AS (\n            SELECT entity_id,\n                   count(*) AS raw_listeners,\n                   sum(plays)::bigint AS raw_plays,\n                   sum(LEAST($5::bigint, weight * $5 / $4))::bigint AS listeners,\n                   sum(weight)::bigint AS weight\n            FROM per_user\n            GROUP BY entity_id\n        ), ranked AS (\n            SELECT *,\n                   row_number() OVER (ORDER BY raw_listeners DESC, raw_plays DESC, entity_id) AS raw_rank,\n                   row_number() OVER (ORDER BY listeners DESC, weight DESC, entity_id) AS rank,\n                   row_number() OVER (ORDER BY raw_plays DESC, raw_listeners DESC, entity_id) AS raw_play_rank,\n                   row_number() OVER (ORDER BY weight DESC, listeners DESC, entity_id) AS weight_rank\n            FROM per_entity\n        )\n        SELECT r.entity_id AS \"entity_id!\",\n               COALESCE(t.title, a.name) AS \"name!\",\n               ta.name AS \"artist_name?\",\n               r.raw_listeners AS \"raw_listeners!\", r.raw_plays AS \"raw_plays!\",\n               r.listeners AS \"listeners!\", r.weight AS \"weight!\",\n               r.raw_rank AS \"raw_rank!\", r.rank AS \"rank!\",\n               r.raw_play_rank AS \"raw_play_rank!\", r.weight_rank AS \"weight_rank!\"\n        FROM ranked r\n        LEFT JOIN tracks t   ON $3 AND t.id = r.entity_id\n        LEFT JOIN artists ta ON ta.id = t.artist_id\n        LEFT JOIN artists a  ON NOT $3 AND a.id = r.entity_id\n        WHERE r.raw_rank <= $6 OR r.rank <= $6 OR r.raw_play_rank <= $6 OR r.weight_rank <= $6\n        ORDER BY r.rank\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "entity_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "artist_name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "raw_listeners!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "raw_plays!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "listeners!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "weight!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "raw_rank!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "rank!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "raw_play_rank!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "weight_rank!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Date",
+        "Date",
+        "Bool",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      false,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "d66ece2c7ba23e4769845e251b1a1e73f800108b16a53c31e5d8547a607897f8"
+}

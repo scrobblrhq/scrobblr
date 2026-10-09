@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO ranking_rulesets (fingerprint, params)\n        VALUES ($1, jsonb_build_object(\n            'weights_version',  $2::int,\n            'unknown_client',   $3::bigint / 1000.0,\n            'no_listened',      $4::bigint / 1000.0,\n            'no_data',          $5::bigint / 1000.0,\n            'imported',         $6::bigint / 1000.0,\n            'min_account_days', $7::bigint,\n            'track_daily_cap',  $8::bigint,\n            'artist_daily_cap', $9::bigint,\n            'known_clients',    $10::text[]))\n        ON CONFLICT (fingerprint) DO UPDATE SET fingerprint = EXCLUDED.fingerprint\n        RETURNING id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "eb983fda346aaf37defa7bb3a97a7aa8ac315fbfdb2a8bbe1406e0f8033b7f9e"
+}

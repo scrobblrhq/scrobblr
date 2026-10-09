@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            (SELECT count(*) FROM scrobble_classification_days WHERE day BETWEEN $2 AND $3) AS \"classified!\",\n            (SELECT count(*) FROM ranking_days WHERE day BETWEEN $2 AND $3) AS \"weighed!\",\n            (SELECT count(*) FROM ranking_days r\n             JOIN scrobble_classification_days d USING (user_id, day)\n             WHERE r.day BETWEEN $2 AND $3 AND r.ruleset_id = $1\n               AND r.classified_at = d.classified_at) AS \"current!\",\n            (SELECT count(*) FROM ranking_queue WHERE day BETWEEN $2 AND $3) AS \"queued!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "classified!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "weighed!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "current!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "queued!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Date",
+        "Date"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "59a49a5baf63aac78cf8eb4f9a3176a0f90ae53ce6c066b5cb5a848ccf10b9b4"
+}

@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT min(day) AS \"from\", max(day) AS \"to\" FROM ranking_days",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "from",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 1,
+        "name": "to",
+        "type_info": "Date"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "1d904d0024ded046251012a5e5fde55e8ee1f7e57016c67609323b9d7acad7c1"
+}

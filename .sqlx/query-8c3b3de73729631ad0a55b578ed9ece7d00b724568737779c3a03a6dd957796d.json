@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO ranking_daily (user_id, day, track_id, artist_id, plays, weight)\n        SELECT $1, $2, t.track_id, t.artist_id, t.plays, t.weight\n        FROM UNNEST($3::bigint[], $4::bigint[], $5::int[], $6::int[])\n             AS t(track_id, artist_id, plays, weight)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Date",
+        "Int8Array",
+        "Int8Array",
+        "Int4Array",
+        "Int4Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8c3b3de73729631ad0a55b578ed9ece7d00b724568737779c3a03a6dd957796d"
+}

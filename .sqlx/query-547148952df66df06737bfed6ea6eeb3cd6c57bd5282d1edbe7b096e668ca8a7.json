@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM ranking_daily WHERE user_id = $1 AND day = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Date"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "547148952df66df06737bfed6ea6eeb3cd6c57bd5282d1edbe7b096e668ca8a7"
+}

@@ -1,0 +1,96 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT s.id, s.played_at, s.track_id, s.artist_id, s.duration_ms, s.listened_ms,\n               s.import_id IS NOT NULL AS \"imported!\",\n               t.duration_ms AS catalog_duration_ms, t.mb_duration_ms,\n               c.protocol AS \"protocol?\", c.name AS \"client_name?\", c.verified AS \"verified?\",\n               f.status::text AS \"flag?\"\n        FROM scrobbles s\n        JOIN tracks t ON t.id = s.track_id\n        LEFT JOIN scrobble_clients c ON c.id = s.client_id\n        LEFT JOIN scrobble_flags f ON f.scrobble_id = s.id AND f.played_at = s.played_at\n        WHERE s.user_id = $1 AND s.played_at >= $2 AND s.played_at < $3\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "played_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "track_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "artist_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "duration_ms",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "listened_ms",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "imported!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "catalog_duration_ms",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 8,
+        "name": "mb_duration_ms",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 9,
+        "name": "protocol?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "client_name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "verified?",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 12,
+        "name": "flag?",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      null,
+      true,
+      true,
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "5360ececbd69a3c1b5d6add1715e407eef76e6a6d1a205a8996af036e5077294"
+}

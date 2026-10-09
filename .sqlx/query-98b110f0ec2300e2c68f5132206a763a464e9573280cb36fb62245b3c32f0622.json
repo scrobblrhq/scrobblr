@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO ranking_days\n            (user_id, day, ruleset_id, classified_at, plays, weighted, weight,\n             unclassified, suspect, duplicate, no_data, imported, new_account,\n             short_listen, no_listened, unknown_client, track_cap, artist_cap)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)\n        ON CONFLICT (user_id, day) DO UPDATE\n            SET ruleset_id     = EXCLUDED.ruleset_id,\n                classified_at  = EXCLUDED.classified_at,\n                plays          = EXCLUDED.plays,\n                weighted       = EXCLUDED.weighted,\n                weight         = EXCLUDED.weight,\n                unclassified   = EXCLUDED.unclassified,\n                suspect        = EXCLUDED.suspect,\n                duplicate      = EXCLUDED.duplicate,\n                no_data        = EXCLUDED.no_data,\n                imported       = EXCLUDED.imported,\n                new_account    = EXCLUDED.new_account,\n                short_listen   = EXCLUDED.short_listen,\n                no_listened    = EXCLUDED.no_listened,\n                unknown_client = EXCLUDED.unknown_client,\n                track_cap      = EXCLUDED.track_cap,\n                artist_cap     = EXCLUDED.artist_cap,\n                computed_at    = NOW()\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Date",
+        "Int4",
+        "Timestamptz",
+        "Int4",
+        "Int4",
+        "Int8",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "98b110f0ec2300e2c68f5132206a763a464e9573280cb36fb62245b3c32f0622"
+}

@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH classified AS (\n            SELECT user_id, day, classified_at FROM scrobble_classification_days\n            WHERE ($2::date IS NULL OR day >= $2) AND ($3::date IS NULL OR day <= $3)\n        ), weighed AS (\n            SELECT user_id, day, ruleset_id, classified_at FROM ranking_days\n            WHERE ($2::date IS NULL OR day >= $2) AND ($3::date IS NULL OR day <= $3)\n        ), stale AS (\n            SELECT user_id, day\n            FROM classified c\n            FULL JOIN weighed w USING (user_id, day)\n            WHERE c.user_id IS NULL\n               OR w.user_id IS NULL\n               OR w.ruleset_id <> $1\n               OR w.classified_at <> c.classified_at\n        )\n        INSERT INTO ranking_queue (user_id, day)\n        SELECT s.user_id, s.day\n        FROM stale s\n        WHERE NOT EXISTS (\n            SELECT 1 FROM ranking_queue q WHERE q.user_id = s.user_id AND q.day = s.day\n        )\n        ORDER BY s.day DESC\n        LIMIT $4\n        ON CONFLICT (user_id, day) DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Date",
+        "Date",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "035f114ff2b587f99a9061e1b03403b9038a533a0a5389a60c5283285ad70f70"
+}

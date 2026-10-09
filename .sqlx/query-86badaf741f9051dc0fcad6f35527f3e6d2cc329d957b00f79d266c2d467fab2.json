@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT d.classified_at, d.max_scrobble_id,\n               (u.created_at AT TIME ZONE 'UTC')::date AS \"created!\"\n        FROM scrobble_classification_days d\n        JOIN users u ON u.id = d.user_id\n        WHERE d.user_id = $1 AND d.day = $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "classified_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 1,
+        "name": "max_scrobble_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "created!",
+        "type_info": "Date"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Date"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "86badaf741f9051dc0fcad6f35527f3e6d2cc329d957b00f79d266c2d467fab2"
+}

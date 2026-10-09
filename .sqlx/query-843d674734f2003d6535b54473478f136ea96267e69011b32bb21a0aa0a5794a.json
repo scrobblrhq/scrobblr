@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        DELETE FROM ranking_queue\n        WHERE (user_id, day) IN (\n            SELECT user_id, day FROM ranking_queue\n            ORDER BY enqueued_at\n            LIMIT $1\n            FOR UPDATE SKIP LOCKED\n        )\n        RETURNING user_id, day\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "day",
+        "type_info": "Date"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "843d674734f2003d6535b54473478f136ea96267e69011b32bb21a0aa0a5794a"
+}

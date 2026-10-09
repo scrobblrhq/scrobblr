@@ -1,0 +1,132 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH per_user AS (\n            SELECT user_id,\n                   sum(plays)::bigint AS plays, sum(weighted)::bigint AS weighted,\n                   sum(weight)::bigint AS weight,\n                   sum(unclassified)::bigint AS unclassified, sum(suspect)::bigint AS suspect,\n                   sum(duplicate)::bigint AS duplicate, sum(no_data)::bigint AS no_data,\n                   sum(imported)::bigint AS imported, sum(new_account)::bigint AS new_account,\n                   sum(short_listen)::bigint AS short_listen, sum(no_listened)::bigint AS no_listened,\n                   sum(unknown_client)::bigint AS unknown_client, sum(track_cap)::bigint AS track_cap,\n                   sum(artist_cap)::bigint AS artist_cap\n            FROM ranking_days\n            WHERE day BETWEEN $1 AND $2\n            GROUP BY user_id\n        ), ranked AS (\n            SELECT *,\n                   row_number() OVER (ORDER BY plays DESC, user_id) AS raw_rank,\n                   row_number() OVER (ORDER BY weight DESC, user_id) AS rank,\n                   count(*) OVER () AS users\n            FROM per_user\n        )\n        SELECT r.user_id AS \"user_id!\", u.username, r.users AS \"users!\",\n               r.plays AS \"plays!\", r.weighted AS \"weighted!\", r.weight AS \"weight!\",\n               r.unclassified AS \"unclassified!\", r.suspect AS \"suspect!\",\n               r.duplicate AS \"duplicate!\", r.no_data AS \"no_data!\",\n               r.imported AS \"imported!\", r.new_account AS \"new_account!\",\n               r.short_listen AS \"short_listen!\", r.no_listened AS \"no_listened!\",\n               r.unknown_client AS \"unknown_client!\", r.track_cap AS \"track_cap!\",\n               r.artist_cap AS \"artist_cap!\",\n               r.raw_rank AS \"raw_rank!\", r.rank AS \"rank!\"\n        FROM ranked r\n        JOIN users u ON u.id = r.user_id\n        WHERE r.raw_rank <= $3 OR r.rank <= $3\n        ORDER BY r.raw_rank\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "username",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "users!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "plays!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "weighted!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "weight!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "unclassified!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "suspect!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "duplicate!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "no_data!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "imported!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "new_account!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "short_listen!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 13,
+        "name": "no_listened!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 14,
+        "name": "unknown_client!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 15,
+        "name": "track_cap!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 16,
+        "name": "artist_cap!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 17,
+        "name": "raw_rank!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 18,
+        "name": "rank!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Date",
+        "Date",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "4bf633596e8ffcbefdd57e13d617ae6ffe1b8faa27d7033dbfe0e16d218dfaba"
+}

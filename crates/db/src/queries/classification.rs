@@ -13,6 +13,7 @@ use std::collections::{BTreeMap, HashMap};
 use chrono::{DateTime, NaiveDate, NaiveTime, TimeDelta, Utc};
 use sqlx::{PgConnection, PgPool};
 
+use crate::queries::rankings;
 use shared::classification::{self as rules, BudgetParams, Label, Play, Status};
 
 /// Queue priorities; higher runs first.
@@ -66,7 +67,7 @@ pub struct DayOutcome {
     pub changes: BTreeMap<(Option<Status>, Status), i64>,
 }
 
-fn parse_status(s: &str) -> Status {
+pub(crate) fn parse_status(s: &str) -> Status {
     match s {
         "suspect" => Status::Suspect,
         "duplicate" => Status::Duplicate,
@@ -329,6 +330,8 @@ pub async fn classify_user_day(
         return Ok(outcome);
     }
 
+    // The day's ranking weights are made from its labels.
+    rankings::enqueue_day(&mut *tx, user_id, day).await?;
     if labels.is_empty() {
         sqlx::query!(
             "DELETE FROM scrobble_classification_days WHERE user_id = $1 AND day = $2",

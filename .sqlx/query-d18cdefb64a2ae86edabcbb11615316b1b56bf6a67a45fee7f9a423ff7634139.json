@@ -1,0 +1,101 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT COALESCE(sum(plays), 0)::bigint AS \"plays!\", COALESCE(sum(weighted), 0)::bigint AS \"weighted!\",\n               COALESCE(sum(weight), 0)::bigint AS \"weight!\",\n               COALESCE(sum(unclassified), 0)::bigint AS \"unclassified!\", COALESCE(sum(suspect), 0)::bigint AS \"suspect!\",\n               COALESCE(sum(duplicate), 0)::bigint AS \"duplicate!\", COALESCE(sum(no_data), 0)::bigint AS \"no_data!\",\n               COALESCE(sum(imported), 0)::bigint AS \"imported!\", COALESCE(sum(new_account), 0)::bigint AS \"new_account!\",\n               COALESCE(sum(short_listen), 0)::bigint AS \"short_listen!\", COALESCE(sum(no_listened), 0)::bigint AS \"no_listened!\",\n               COALESCE(sum(unknown_client), 0)::bigint AS \"unknown_client!\", COALESCE(sum(track_cap), 0)::bigint AS \"track_cap!\",\n               COALESCE(sum(artist_cap), 0)::bigint AS \"artist_cap!\"\n        FROM ranking_days\n        WHERE day BETWEEN $1 AND $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "plays!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "weighted!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "weight!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "unclassified!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "suspect!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "duplicate!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "no_data!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "imported!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "new_account!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "short_listen!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "no_listened!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "unknown_client!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "track_cap!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 13,
+        "name": "artist_cap!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Date",
+        "Date"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "d18cdefb64a2ae86edabcbb11615316b1b56bf6a67a45fee7f9a423ff7634139"
+}

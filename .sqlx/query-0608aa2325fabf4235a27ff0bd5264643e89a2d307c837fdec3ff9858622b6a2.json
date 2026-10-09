@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT user_id AS \"user_id!\", day AS \"day!\"\n        FROM (\n            SELECT user_id, day FROM scrobble_classification_days\n            UNION\n            SELECT user_id, day FROM ranking_days\n        ) days\n        WHERE ($1::bigint IS NULL OR user_id = $1)\n          AND ($2::date IS NULL OR day >= $2)\n          AND ($3::date IS NULL OR day <= $3)\n        ORDER BY user_id, day\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "day!",
+        "type_info": "Date"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Date",
+        "Date"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "0608aa2325fabf4235a27ff0bd5264643e89a2d307c837fdec3ff9858622b6a2"
+}
