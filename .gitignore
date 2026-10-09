@@ -50,3 +50,7 @@ devenv.local.yaml
 uploads/
 .claude/settings.json
 .mcp.json
+
+# Cloudflare Tunnel credentials (deploy/cloudflared/config.yml)
+deploy/cloudflared/*.json
+deploy/cloudflared/*.pem

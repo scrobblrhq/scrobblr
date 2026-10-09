@@ -1,0 +1,67 @@
+# Behind a Cloudflare Tunnel (docs/tunnel-deploy.md), on top of
+# docker-compose.yml with the `caddy` profile:
+#
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.tunnel.yml
+#   COMPOSE_PROFILES=caddy
+#
+# cloudflared connects out to Cloudflare and hands every request to Caddy,
+# which serves plain HTTP; nothing is published on the host. Caddy believes
+# CF-Connecting-IP from cloudflared's fixed address only, and replaces
+# X-Forwarded-For with that client. The API keeps believing X-Forwarded-For
+# from private addresses (TRUSTED_PROXIES' default): with no port published,
+# only Caddy, the web app, the other containers and the host reach it.
+
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:2026.10.0
+    command: ["tunnel", "--config", "/etc/cloudflared/config.yml", "run"]
+    volumes:
+      - ./deploy/cloudflared:/etc/cloudflared:ro
+    networks:
+      tunnel:
+        ipv4_address: ${TUNNEL_SUBNET_PREFIX:-10.213.0}.2
+    healthcheck:
+      test: ["CMD", "cloudflared", "tunnel", "--metrics", "127.0.0.1:2000", "ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      caddy:
+        condition: service_started
+    restart: unless-stopped
+
+  caddy:
+    environment:
+      CADDY_SCHEME: http://
+      CADDY_TRUSTED_PROXIES: ${TUNNEL_SUBNET_PREFIX:-10.213.0}.2
+    ports: !reset []
+    networks:
+      default:
+      # Fixed too, or it may take cloudflared's address first.
+      tunnel:
+        ipv4_address: ${TUNNEL_SUBNET_PREFIX:-10.213.0}.3
+
+  api:
+    ports: !reset []
+    environment:
+      TRUSTED_PROXY_HOPS: "1"
+      PUBLIC_BASE_URL: https://${API_DOMAIN:?Set API_DOMAIN}
+      UPLOAD_PUBLIC_URL: https://${UPLOADS_DOMAIN:?Set UPLOADS_DOMAIN}
+      WEB_APP_URL: https://${WEB_DOMAIN:?Set WEB_DOMAIN}
+
+  worker:
+    environment:
+      PUBLIC_BASE_URL: https://${API_DOMAIN}
+      UPLOAD_PUBLIC_URL: https://${UPLOADS_DOMAIN}
+
+  web:
+    environment:
+      ORIGIN: https://${WEB_DOMAIN}
+
+networks:
+  # cloudflared and Caddy only.
+  tunnel:
+    ipam:
+      config:
+        - subnet: ${TUNNEL_SUBNET_PREFIX:-10.213.0}.0/29
