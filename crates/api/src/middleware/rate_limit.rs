@@ -6,11 +6,12 @@ use axum::{
 };
 use fred::interfaces::KeysInterface;
 use std::convert::Infallible;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 
 use crate::{errors::AppError, state::AppState};
 
-/// Fixed-window rate limiter: [`MAX_REQUESTS`] per [`WINDOW_SECS`] per IP.
+/// Fixed-window rate limiter: [`MAX_REQUESTS`] per [`WINDOW_SECS`] per
+/// [`network`].
 /// The window is part of the key, so a key whose expiry was never set
 /// (the process died between the two commands) still stops counting when
 /// the window ends. A Redis failure lets the request through.
@@ -22,9 +23,9 @@ pub async fn rate_limit(
     req: Request,
     next: Next,
 ) -> Result<Response, AppError> {
-    let ip = request_ip(&req, state.trusted_proxy_hops);
+    let network = network(&request_ip(&req, state.trusted_proxy_hops));
     let window = chrono::Utc::now().timestamp() / WINDOW_SECS;
-    let key = format!("rl:{ip}:{window}");
+    let key = format!("rl:{network}:{window}");
 
     let count: i64 = match state.redis.incr(&key).await {
         Ok(count) => count,
@@ -60,6 +61,21 @@ pub fn client_ip_of(
         .get::<ConnectInfo<SocketAddr>>()
         .map(|ConnectInfo(addr)| *addr);
     client_ip(headers, peer, trusted_proxy_hops)
+}
+
+/// What per-address limits count `ip` as: itself, or for IPv6 its /64,
+/// which a single client usually controls whole.
+pub fn network(ip: &str) -> String {
+    match ip.parse::<IpAddr>() {
+        Ok(IpAddr::V6(v6)) => match v6.to_ipv4_mapped() {
+            Some(v4) => v4.to_string(),
+            None => {
+                let [a, b, c, d, ..] = v6.segments();
+                format!("{a:x}:{b:x}:{c:x}:{d:x}::/64")
+            }
+        },
+        _ => ip.to_string(),
+    }
 }
 
 /// The client's address, as [`client_ip`] finds it, for handlers.
@@ -128,6 +144,19 @@ mod tests {
             "203.0.113.7"
         );
         assert_eq!(client_ip(&HeaderMap::new(), None, 0), "unknown");
+    }
+
+    #[test]
+    fn ipv6_clients_are_counted_by_their_64() {
+        assert_eq!(network("203.0.113.7"), "203.0.113.7");
+        assert_eq!(network("::ffff:203.0.113.7"), "203.0.113.7");
+        assert_eq!(
+            network("2001:db8:1:2:aaaa::1"),
+            network("2001:db8:1:2:bbbb:cccc:dddd:eeee")
+        );
+        assert_eq!(network("2001:db8:1:2::1"), "2001:db8:1:2::/64");
+        assert_ne!(network("2001:db8:1:2::1"), network("2001:db8:1:3::1"));
+        assert_eq!(network("unknown"), "unknown");
     }
 
     #[test]
