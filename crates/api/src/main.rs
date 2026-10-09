@@ -104,13 +104,19 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
-    let trusted_proxy_hops = match std::env::var("TRUSTED_PROXY_HOPS") {
-        Ok(v) if !v.trim().is_empty() => v
-            .trim()
-            .parse()
-            .map_err(|e| anyhow::anyhow!("TRUSTED_PROXY_HOPS={v}: {e}"))?,
-        _ => 0,
-    };
+    let proxies = middleware::rate_limit::TrustedProxies::from_env()?;
+    if proxies.hops == 0 {
+        tracing::info!(
+            "limits count the connecting address, X-Forwarded-For is ignored (TRUSTED_PROXY_HOPS=0)"
+        );
+    } else {
+        let networks: Vec<String> = proxies.networks.iter().map(|n| n.to_string()).collect();
+        tracing::info!(
+            "limits count the client X-Forwarded-For names (TRUSTED_PROXY_HOPS={}) when the peer is in {}",
+            proxies.hops,
+            networks.join(", ")
+        );
+    }
 
     // Axum
     let state = state::AppState {
@@ -119,7 +125,7 @@ async fn main() -> anyhow::Result<()> {
         public_base_url: public_base_url.trim_end_matches('/').into(),
         media,
         app_keys,
-        trusted_proxy_hops,
+        proxies: std::sync::Arc::new(proxies),
         clients: Default::default(),
         compat,
         live,

@@ -49,6 +49,16 @@ where
     F: FnOnce(TestApp) -> Fut,
     Fut: Future<Output = ()>,
 {
+    with_custom_app(|state| state.compat = Arc::new(config), test).await
+}
+
+/// [`with_app`], with the state `customize` makes of the default one.
+pub async fn with_custom_app<C, F, Fut>(customize: C, test: F)
+where
+    C: FnOnce(&mut AppState),
+    F: FnOnce(TestApp) -> Fut,
+    Fut: Future<Output = ()>,
+{
     dotenvy::dotenv().ok();
     let _ = tracing_subscriber::fmt().with_test_writer().try_init();
     // SAFETY: tests in this crate share a process; every one sets this same
@@ -113,7 +123,7 @@ where
     // Process-wide: every test sets the same value.
     shared::media::set_public_url(UPLOADS_URL.into());
     let uploads = std::env::temp_dir().join(name.clone());
-    let state = AppState {
+    let mut state = AppState {
         db: pool.clone(),
         redis,
         public_base_url: BASE_URL.into(),
@@ -121,11 +131,12 @@ where
             LocalStorage::open(uploads.clone()).unwrap(),
         ))),
         app_keys: None,
-        trusted_proxy_hops: 0,
+        proxies: Default::default(),
         clients: Default::default(),
-        compat: Arc::new(config),
+        compat: Default::default(),
         live,
     };
+    customize(&mut state);
     let octets = rand::random::<[u8; 3]>();
     let app = TestApp {
         router: crate::router::build(state),

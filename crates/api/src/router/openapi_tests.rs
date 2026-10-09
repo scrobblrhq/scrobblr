@@ -26,7 +26,7 @@ async fn spec() -> Value {
             LocalStorage::open(std::env::temp_dir().join("scrobblr_openapi_tests")).unwrap(),
         ))),
         app_keys: None,
-        trusted_proxy_hops: 0,
+        proxies: Default::default(),
         clients: Default::default(),
         compat: Default::default(),
         live: Default::default(),

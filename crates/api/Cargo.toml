@@ -54,4 +54,5 @@ chrono = { workspace = true }
 rand = { workspace = true }
 hex = { workspace = true }
 form_urlencoded = { workspace = true }
+ipnet = { workspace = true }
 image = { workspace = true }

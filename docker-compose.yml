@@ -78,6 +78,7 @@ services:
       BIND_ADDR: 0.0.0.0:8080
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
       TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-0}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
       UPLOAD_DIR: /data/uploads
       UPLOAD_PUBLIC_URL: ${UPLOAD_PUBLIC_URL:-}
       RUST_LOG: ${RUST_LOG:-info,sqlx=warn,tower_http=warn}

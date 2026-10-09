@@ -178,11 +178,7 @@ pub async fn read_request(req: Request) -> ApiResult<(axum::http::request::Parts
 }
 
 pub fn request_ip(state: &AppState, parts: &axum::http::request::Parts) -> String {
-    crate::middleware::rate_limit::client_ip_of(
-        &parts.extensions,
-        &parts.headers,
-        state.trusted_proxy_hops,
-    )
+    crate::middleware::rate_limit::client_ip_of(&parts.extensions, &parts.headers, &state.proxies)
 }
 
 /// A random secret like Last.fm's session keys: 32 hex characters.

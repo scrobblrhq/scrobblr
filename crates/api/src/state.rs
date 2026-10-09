@@ -9,6 +9,7 @@ use crate::compat::CompatConfig;
 use crate::live::LiveHub;
 use crate::media::Media;
 use crate::middleware::app_signature::AppKeys;
+use crate::middleware::rate_limit::TrustedProxies;
 use db::queries::scrobble_clients::{self as clients_db, ClientIdentity};
 
 /// Shared application state injected into every handler via Axum's `State` extractor.
@@ -22,9 +23,8 @@ pub struct AppState {
     /// `None` when `AUTH_APP_KEYS` is unset, which leaves the auth
     /// endpoints open to any client.
     pub app_keys: Option<Arc<AppKeys>>,
-    /// Reverse proxies in front of the API (`TRUSTED_PROXY_HOPS`), whose
-    /// `X-Forwarded-For` entries name the client; 0 trusts none.
-    pub trusted_proxy_hops: usize,
+    /// The reverse proxies whose `X-Forwarded-For` names the client.
+    pub proxies: Arc<TrustedProxies>,
     pub clients: Arc<ClientCache>,
     /// The scrobbler-compatible APIs' settings.
     pub compat: Arc<CompatConfig>,
