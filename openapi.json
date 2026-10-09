@@ -428,6 +428,32 @@
         ],
         "type": "object"
       },
+      "FinishConnectRequest": {
+        "properties": {
+          "code": {
+            "description": "Spotify's `code`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "description": "The `state` the provider sent back.",
+            "type": "string"
+          },
+          "token": {
+            "description": "Last.fm's `token`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "type": "object"
+      },
       "FriendsResponse": {
         "properties": {
           "followers": {
@@ -512,23 +538,6 @@
           "cancelled"
         ],
         "type": "string"
-      },
-      "LastfmCallbackQuery": {
-        "properties": {
-          "state": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "token": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        },
-        "type": "object"
       },
       "LoginRequest": {
         "properties": {
@@ -1237,29 +1246,6 @@
             "format": "int64",
             "type": [
               "integer",
-              "null"
-            ]
-          }
-        },
-        "type": "object"
-      },
-      "SpotifyCallbackQuery": {
-        "properties": {
-          "code": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "error": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "state": {
-            "type": [
-              "string",
               "null"
             ]
           }
@@ -4385,187 +4371,6 @@
         ]
       }
     },
-    "/v1/connect/lastfm/callback": {
-      "get": {
-        "description": "Last.fm redirects here after the user grants access. Exchanges the token for a session and links the Last.fm account it names to whichever user started the flow (identified via the `state` CSRF token, not request auth). A linked account is what lets that user import its history.",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "state",
-            "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "style": "form"
-          },
-          {
-            "in": "query",
-            "name": "token",
-            "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "style": "form"
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConnectResult"
-                }
-              }
-            },
-            "description": ""
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            },
-            "description": "Missing/invalid token or state, or Last.fm rejected the token"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            },
-            "description": "That Last.fm account is already linked to another Scrobblr user"
-          },
-          "429": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            },
-            "description": "Over 60 requests a minute from this address"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            },
-            "description": "An error, as `{ \"error\": message }`"
-          }
-        },
-        "summary": "Last.fm auth callback",
-        "tags": [
-          "Connected accounts"
-        ]
-      }
-    },
-    "/v1/connect/spotify/callback": {
-      "get": {
-        "description": "Spotify redirects here after the user grants or denies access. Exchanges the authorization code for tokens and links the account to whichever user started the flow (identified via the `state` CSRF token, not request auth).",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "code",
-            "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "style": "form"
-          },
-          {
-            "in": "query",
-            "name": "error",
-            "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "style": "form"
-          },
-          {
-            "in": "query",
-            "name": "state",
-            "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "style": "form"
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConnectResult"
-                }
-              }
-            },
-            "description": ""
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            },
-            "description": "Missing/invalid code or state, the user denied access, or Spotify rejected the exchange"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            },
-            "description": "That Spotify account is already linked to another Scrobblr user"
-          },
-          "429": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            },
-            "description": "Over 60 requests a minute from this address"
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            },
-            "description": "An error, as `{ \"error\": message }`"
-          }
-        },
-        "summary": "Spotify OAuth callback",
-        "tags": [
-          "Connected accounts"
-        ]
-      }
-    },
     "/v1/connect/{provider}": {
       "delete": {
         "description": "Removes a connected third-party account. The worker stops polling it immediately; a fresh OAuth flow is required to relink.",
@@ -4648,7 +4453,7 @@
         ]
       },
       "get": {
-        "description": "Returns the provider's authorize URL the client should redirect the user to in order to link their account: `spotify` (auto-scrobbling) or `lastfm` (proves ownership of the Last.fm account before importing its history).",
+        "description": "Returns the provider's authorize URL to send the user's browser to: `spotify` (auto-scrobbling) or `lastfm` (proves ownership of the Last.fm account before importing its history). The provider sends the browser back to the web app's `/connect/{provider}/callback` (Spotify: to `SPOTIFY_REDIRECT_URI`), which finishes the link with `POST /v1/connect/{provider}/callback` and the same user's session within 10 minutes.",
         "parameters": [
           {
             "description": "`spotify` or `lastfm`.",
@@ -4721,6 +4526,190 @@
                 }
               }
             },
+            "description": "The provider isn't configured on this server, or (Last.fm) it has no web app to come back to (`WEB_APP_URL`)"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Start linking an account",
+        "tags": [
+          "Connected accounts"
+        ]
+      }
+    },
+    "/v1/connect/{provider}/callback": {
+      "get": {
+        "description": "For a provider whose redirect URI is this API's (`SPOTIFY_REDIRECT_URI` pointing here): sends the browser on to `{WEB_APP_URL}/connect/{provider}/callback` with the provider's query, where the web app finishes the link with `POST /v1/connect/{provider}/callback`. Links nothing itself.",
+        "parameters": [
+          {
+            "description": "`spotify` or `lastfm`.",
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "description": "`spotify` or `lastfm`.",
+              "type": "string"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "303": {
+            "description": "To `{WEB_APP_URL}/connect/{provider}/callback?{query}`"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unsupported provider"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over 60 requests a minute from this address"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "This server has no web app (`WEB_APP_URL`)"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "summary": "Forward a provider's callback to the web app",
+        "tags": [
+          "Connected accounts"
+        ]
+      },
+      "post": {
+        "description": "For the web app's page the provider sends the browser back to (`/connect/{provider}/callback`): the `state` from its query, and Spotify's `code` or Last.fm's `token`. The session must be that of the user who started the link with `GET /v1/connect/{provider}`, so a page can't have someone else's browser link their account to another user's. A linked Spotify account is polled for scrobbles; a linked Last.fm account is what lets the user import its history.",
+        "parameters": [
+          {
+            "description": "`spotify` or `lastfm`.",
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "description": "`spotify` or `lastfm`.",
+              "type": "string"
+            },
+            "style": "simple"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FinishConnectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectResult"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A missing `code` or `token`; a `state` that's unknown, expired, used, or another user's; or the provider rejected the grant"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No credential, or an invalid or expired one"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Needs a session: API tokens can't do this"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "That account is already linked to another Scrobblr user"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over 60 requests a minute from this address"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
             "description": "The provider isn't configured on this server"
           },
           "default": {
@@ -4739,7 +4728,7 @@
             "bearer": []
           }
         ],
-        "summary": "Start a connected-account OAuth flow",
+        "summary": "Finish linking an account",
         "tags": [
           "Connected accounts"
         ]

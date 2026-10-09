@@ -93,7 +93,8 @@ database migrated by hand before the runner existed can be adopted with
 
 Users import their own Last.fm account through the API: they connect it
 (`GET /v1/connect/lastfm`, which needs `LASTFM_API_KEY`,
-`LASTFM_SHARED_SECRET` and `TOKEN_ENCRYPTION_KEY`), then
+`LASTFM_SHARED_SECRET`, `TOKEN_ENCRYPTION_KEY` and the web app, `WEB_APP_URL`,
+where Last.fm sends them back), then
 `POST /v1/import/lastfm`, and follow its progress at `GET /v1/imports/{id}`.
 The worker runs the import, fills in track lengths and classifies the
 imported scrobbles. Operators can also import any account for an existing

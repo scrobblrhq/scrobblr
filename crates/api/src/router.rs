@@ -247,12 +247,20 @@ pub fn build(state: AppState) -> Router {
     // token can't mint a credential (or link an account that scrobbles)
     // that outlives its revocation, nor revoke the user's others.
     let session_routes = ApiRouter::new()
-        // Connected accounts (Spotify, Last.fm)
+        // Connected accounts (Spotify, Last.fm), started and finished by the
+        // same session.
         .api_route(
             "/v1/connect/{provider}",
             get_with(
                 connected_accounts::connect_provider,
                 connected_accounts::_connect_provider_doc,
+            ),
+        )
+        .api_route(
+            "/v1/connect/{provider}/callback",
+            post_with(
+                connected_accounts::finish_connect,
+                connected_accounts::_finish_connect_doc,
             ),
         )
         // API tokens
@@ -336,20 +344,13 @@ pub fn build(state: AppState) -> Router {
 
     // Public routes
     let public = ApiRouter::new()
-        // Connected accounts: the provider redirects here with no Scrobblr
-        // session, so these callbacks must be public (see handler doc comments).
+        // Connected accounts: a provider whose redirect URI is the API's
+        // sends the browser here, without a session, on to the web app.
         .api_route(
-            "/v1/connect/spotify/callback",
+            "/v1/connect/{provider}/callback",
             get_with(
-                connected_accounts::spotify_callback,
-                connected_accounts::_spotify_callback_doc,
-            ),
-        )
-        .api_route(
-            "/v1/connect/lastfm/callback",
-            get_with(
-                connected_accounts::lastfm_callback,
-                connected_accounts::_lastfm_callback_doc,
+                connected_accounts::forward_callback,
+                connected_accounts::_forward_callback_doc,
             ),
         )
         // Catalog

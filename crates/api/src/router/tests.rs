@@ -79,6 +79,7 @@ const ROUTES: &[(&str, &str, Access)] = &[
     ("POST", "/v1/artist/{id}/image", Access::Scope(Scope::Write)),
     ("POST", "/v1/album/{id}/image", Access::Scope(Scope::Write)),
     ("GET", "/v1/connect/{provider}", Access::Session),
+    ("POST", "/v1/connect/{provider}/callback", Access::Session),
     ("POST", "/v1/auth/tokens", Access::Session),
     ("DELETE", "/v1/auth/tokens/{id}", Access::Session),
     ("POST", "/v1/auth/logout", Access::Session),

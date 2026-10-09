@@ -31,6 +31,7 @@ pub const BASE_URL: &str = "https://scrobblr.test";
 pub struct TestApp {
     pub router: Router,
     pub pool: PgPool,
+    pub redis: fred::clients::Client,
     /// The client address requests come from, unless they name their own.
     pub ip: SocketAddr,
     pub user_id: i64,
@@ -141,6 +142,7 @@ where
     customize(&mut state);
     let octets = rand::random::<[u8; 3]>();
     let app = TestApp {
+        redis: state.redis.clone(),
         router: crate::router::build(state),
         pool: pool.clone(),
         ip: SocketAddr::from(([10, octets[0], octets[1], octets[2]], 40_000)),
