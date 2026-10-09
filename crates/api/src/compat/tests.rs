@@ -9,7 +9,7 @@ use chrono::{TimeDelta, Utc};
 use serde_json::{Value, json};
 
 use super::CompatConfig;
-use crate::test_app::{BASE_URL, PASSWORD, TestApp, with_app};
+use crate::test_app::{BASE_URL, PASSWORD, TestApp, with_app, with_custom_app};
 use db::queries::auth as auth_db;
 use shared::lastfm::md5_hex;
 
@@ -258,11 +258,9 @@ async fn pano_scrobbler_logs_in_scrobbles_and_retries_without_duplicates() {
 #[tokio::test]
 #[ignore = "needs Postgres and Redis: just test-db"]
 async fn desktop_authorization_through_the_browser_with_xml_answers() {
-    let config = CompatConfig {
-        web_app_url: Some("https://web.test".into()),
-        ..Default::default()
-    };
-    with_app(config, |app| async move {
+    let web =
+        |state: &mut crate::state::AppState| state.web_app_url = Some("https://web.test".into());
+    with_custom_app(web, |app| async move {
         let (key, secret) = ("0123456789abcdef0123456789abcdef", "packager-secret");
         let get_token = documented_signed(&[("method", "auth.getToken"), ("api_key", key)], secret);
         let query = form(&pairs(&get_token));

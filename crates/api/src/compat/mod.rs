@@ -61,9 +61,6 @@ pub struct CompatConfig {
     /// Scrobbles a user may submit per UTC day (`SCROBBLER_DAILY_LIMIT`),
     /// through these APIs and the native one together.
     pub daily_limit: i64,
-    /// The web app's origin (`WEB_APP_URL`), where users approve Last.fm
-    /// clients in the browser.
-    pub web_app_url: Option<String>,
 }
 
 impl Default for CompatConfig {
@@ -73,7 +70,6 @@ impl Default for CompatConfig {
             strict_api_keys: false,
             password_login: true,
             daily_limit: DEFAULT_DAILY_LIMIT,
-            web_app_url: None,
         }
     }
 }
@@ -114,7 +110,6 @@ impl CompatConfig {
             strict_api_keys: flag("SCROBBLER_STRICT_API_KEYS", false)?,
             password_login: flag("SCROBBLER_PASSWORD_LOGIN", !attested_login)?,
             daily_limit,
-            web_app_url: var("WEB_APP_URL").map(|v| v.trim().trim_end_matches('/').to_string()),
         })
     }
 }

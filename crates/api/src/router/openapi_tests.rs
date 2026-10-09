@@ -22,6 +22,7 @@ async fn spec() -> Value {
             .unwrap(),
         redis: fred::types::Builder::default_centralized().build().unwrap(),
         public_base_url: "https://scrobblr.example".into(),
+        web_app_url: None,
         media: Arc::new(Media::new(Storage::Local(
             LocalStorage::open(std::env::temp_dir().join("scrobblr_openapi_tests")).unwrap(),
         ))),

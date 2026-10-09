@@ -140,6 +140,7 @@ async fn main() -> anyhow::Result<()> {
         db,
         redis,
         public_base_url: public_base_url.trim_end_matches('/').into(),
+        web_app_url: non_empty_env("WEB_APP_URL").map(|v| v.trim().trim_end_matches('/').into()),
         media,
         app_keys,
         proxies: std::sync::Arc::new(proxies),

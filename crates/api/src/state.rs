@@ -20,6 +20,9 @@ pub struct AppState {
     pub redis: RedisClient,
     /// External base URL clients reach the API on (`PUBLIC_BASE_URL`).
     pub public_base_url: Arc<str>,
+    /// The web app's origin (`WEB_APP_URL`), where users sign in to approve
+    /// scrobblers and link accounts in the browser.
+    pub web_app_url: Option<Arc<str>>,
     pub media: Arc<Media>,
     /// `None` when `AUTH_APP_KEYS` is unset, which leaves the auth
     /// endpoints open to any client.

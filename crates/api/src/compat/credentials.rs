@@ -37,7 +37,7 @@ pub async fn browser_authorization(
     State(state): State<AppState>,
     RawQuery(query): RawQuery,
 ) -> Response {
-    match &state.compat.web_app_url {
+    match &state.web_app_url {
         Some(web) => Redirect::to(&format!(
             "{web}/scrobbler/authorize?{}",
             query.unwrap_or_default()

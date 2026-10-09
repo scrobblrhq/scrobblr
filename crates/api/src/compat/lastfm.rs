@@ -657,7 +657,7 @@ async fn visible_user(state: &AppState, params: &Params) -> Result<User, LfmErro
 }
 
 fn profile_url(state: &AppState, username: &str) -> String {
-    match &state.compat.web_app_url {
+    match &state.web_app_url {
         Some(web) => format!("{web}/user/{username}"),
         None => format!("{}/v1/user/{username}", state.public_base_url),
     }

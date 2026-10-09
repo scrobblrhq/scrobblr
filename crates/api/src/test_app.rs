@@ -127,6 +127,7 @@ where
         db: pool.clone(),
         redis,
         public_base_url: BASE_URL.into(),
+        web_app_url: None,
         media: Arc::new(Media::new(Storage::Local(
             LocalStorage::open(uploads.clone()).unwrap(),
         ))),
