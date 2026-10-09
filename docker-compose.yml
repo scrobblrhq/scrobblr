@@ -1,14 +1,12 @@
 # Scrobblr backend: Postgres (TimescaleDB), Redis, the migrations, the API
 # and the worker. No reverse proxy: whoever deploys puts their own in front.
+# Starting, updating, backups and what the proxy must do: docs/operations.md.
 #
-#   cp .env.docker.example .env.docker
-#   docker compose --env-file .env.docker up -d --build
+#   cp .env.docker.example .env      # on a server; see the file's header
+#   docker compose up -d --build
 #
-# The API is then on http://localhost:8080 (docs at /docs, spec at /api.json).
+# The API is then on http://127.0.0.1:8080 (docs at /docs, spec at /api.json).
 # Uploaded images are on the `uploads` volume, served by the API at /uploads.
-#
-# Pass --env-file: without it Compose reads the repo's .env, which is for
-# `cargo run` on the host.
 
 name: scrobblr
 
@@ -95,7 +93,9 @@ services:
       SCROBBLER_STRICT_API_KEYS: ${SCROBBLER_STRICT_API_KEYS:-}
       SCROBBLER_DAILY_LIMIT: ${SCROBBLER_DAILY_LIMIT:-}
     ports:
-      - "${API_PORT:-8080}:8080"
+      # Only the host itself (a proxy on it) by default; API_BIND opens it
+      # to an interface a proxy on another machine reaches.
+      - "${API_BIND:-127.0.0.1}:${API_PORT:-8080}:8080"
     volumes:
       - uploads:/data/uploads
     depends_on:
@@ -104,7 +104,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/api.json > /dev/null || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health > /dev/null || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5

@@ -86,30 +86,5 @@ URL can't be guessed, so only someone who had it can see that copy.
 
 ## Backups
 
-Back up the uploads with the database. Without them, the keys the database
-holds point at nothing. Files never change once written, so incremental
-tools (restic, rsync, rclone) only copy new ones, and `.tmp/` can be left
-out. Dump the database **first**: files are written before a row refers to
-them, so the copy that follows has every file the dump needs.
-
-With Compose:
-
-```bash
-docker compose exec -T db pg_dump -Fc -U scrobblr scrobblr > scrobblr.dump
-docker run --rm -v scrobblr_uploads:/uploads:ro -v "$PWD":/backup alpine \
-  tar czf /backup/uploads.tar.gz -C /uploads .
-```
-
-To restore onto empty volumes, start only the database, load the dump the
-way TimescaleDB requires, unpack the uploads and give them back to the API's
-user, then start the rest:
-
-```bash
-docker compose up -d --wait db
-docker compose exec -T db psql -U scrobblr -d scrobblr -c "SELECT timescaledb_pre_restore();"
-docker compose exec -T db pg_restore -U scrobblr -d scrobblr < scrobblr.dump
-docker compose exec -T db psql -U scrobblr -d scrobblr -c "SELECT timescaledb_post_restore();"
-docker run --rm -v scrobblr_uploads:/uploads -v "$PWD":/backup alpine \
-  sh -c 'tar xzf /backup/uploads.tar.gz -C /uploads && chown -R 10001:10001 /uploads'
-docker compose up -d
-```
+Back them up with the database, which holds their keys:
+[operations.md](operations.md#backup-and-restore).

@@ -216,7 +216,7 @@ The web app (SvelteKit, its own repo and deployment) is a server-side proxy: its
 
 ### Docker
 
-`docker-compose.yml` passes optional settings as `${VAR:-}`, an empty string when unset, so every reader must treat a blank value as unset (`non_empty_env` in the worker, the same filter elsewhere). The image build sees no `*.md` and no `scripts/` (`.dockerignore`): don't `include_str!` one.
+`docker-compose.yml` is the production setup (one host, managed by hand: `git pull`, `up -d --build`; docs/operations.md covers start/update/backup/restore and what a reverse proxy in front must do). It runs `db`, `redis`, the one-shot `migrate`, `api` and `worker`, and no proxy: the API is published on `${API_BIND:-127.0.0.1}:${API_PORT:-8080}`. It passes optional settings as `${VAR:-}`, an empty string when unset, so every reader must treat a blank value as unset (`non_empty_env` in the worker, the same filter elsewhere). The image build sees no `*.md` and no `scripts/` (`.dockerignore`): don't `include_str!` one.
 
 ### Types pipeline (Rust → TypeScript)
 

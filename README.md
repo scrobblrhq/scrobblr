@@ -43,20 +43,21 @@ Either [devenv](https://devenv.sh) (recommended — provides everything below, i
 
 ## Getting started
 
-### With Docker (self-host / shared dev backend)
+### With Docker
 
-The quickest way to run the whole backend (Postgres + TimescaleDB, Redis, API,
-worker) — and the recommended way for web/mobile devs to get a backend without
-the Rust toolchain:
+The whole backend (Postgres + TimescaleDB, Redis, API, worker), as deployed,
+without the Rust toolchain:
 
 ```bash
 cp .env.docker.example .env.docker   # then edit the passwords
 docker compose --env-file .env.docker up -d --build
 ```
 
-The API comes up on http://localhost:8080 (docs at `/docs`). A one-shot
+The API comes up on http://127.0.0.1:8080 (docs at `/docs`). A one-shot
 `migrate` service applies pending migrations before the API and worker start.
-Point the web app / mobile app at this origin.
+On a server the settings go in `.env` and the commands need no `--env-file`.
+Updating, backups and running behind a reverse proxy:
+[docs/operations.md](docs/operations.md).
 
 ### With devenv
 
