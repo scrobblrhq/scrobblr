@@ -24,6 +24,13 @@ x-backup-postgres: &backup-postgres
   PGPASSWORD: ${POSTGRES_PASSWORD:-scrobblr}
   PGDATABASE: ${POSTGRES_DB:-scrobblr}
 
+# Docker keeps container logs forever by default; these rotate them.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "5"
+
 x-backup-build: &backup-build
   context: ./backup
   args:
@@ -46,6 +53,7 @@ services:
       timeout: 5s
       retries: 10
     restart: unless-stopped
+    logging: *logging
 
   redis:
     image: redis:7-alpine
@@ -58,6 +66,7 @@ services:
       timeout: 5s
       retries: 10
     restart: unless-stopped
+    logging: *logging
 
   # One-shot: applies pending migrations (embedded in the binary) before the
   # API and worker start. They refuse to run against an outdated schema.
@@ -74,6 +83,7 @@ services:
       db:
         condition: service_healthy
     restart: "no"
+    logging: *logging
 
   api:
     build:
@@ -130,6 +140,7 @@ services:
       retries: 5
       start_period: 30s
     restart: unless-stopped
+    logging: *logging
 
   worker:
     # Reuses the image built by the `api` service (never pull from a registry).
@@ -179,6 +190,7 @@ services:
       retries: 3
       start_period: 60s
     restart: unless-stopped
+    logging: *logging
 
 
   # Backs up the database and the uploads daily into BACKUP_DIR, keeps
@@ -213,6 +225,7 @@ services:
       # The first backup runs at startup and may take a while.
       start_period: 1h
     restart: unless-stopped
+    logging: *logging
 
   # Not started by `up`: `docker compose run --rm restore NAME [--replace]`
   # with the api, worker and backup stopped (docs/operations.md).
@@ -230,6 +243,7 @@ services:
       db:
         condition: service_healthy
     restart: "no"
+    logging: *logging
 
 volumes:
   db-data:
