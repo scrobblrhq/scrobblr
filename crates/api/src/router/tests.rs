@@ -1,7 +1,7 @@
 //! Which credential reaches which authenticated route: a session all of
 //! them, an API token those its scopes cover, and no API token what takes a
-//! session. `#[ignore]`d: they need Postgres (a throwaway database per
-//! test) and Redis (`just test-db`).
+//! session; and which routes take none. `#[ignore]`d: they need Postgres (a
+//! throwaway database per test) and Redis (`just test-db`).
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -100,6 +100,33 @@ const ROUTES: &[(&str, &str, Access)] = &[
     ("GET", "/v1/auth/tokens", Access::Any),
 ];
 
+/// Every route that answers without a credential (some say more to one).
+/// A route in neither list fails the test.
+const PUBLIC: &[(&str, &str)] = &[
+    ("POST", "/v1/auth/register"),
+    ("POST", "/v1/auth/login"),
+    ("GET", "/v1/connect/{provider}/callback"),
+    ("GET", "/v1/track/{id}"),
+    ("GET", "/v1/artist/{id}"),
+    ("GET", "/v1/artist/{id}/top-tracks"),
+    ("GET", "/v1/artist/{id}/listeners"),
+    ("GET", "/v1/track/{id}/listeners"),
+    ("GET", "/v1/artist/{id}/comments"),
+    ("GET", "/v1/track/{id}/comments"),
+    ("GET", "/v1/search"),
+    ("GET", "/v1/rankings/artists"),
+    ("GET", "/v1/rankings/tracks"),
+    ("GET", "/v1/user/{username}"),
+    ("GET", "/v1/user/{username}/friends"),
+    ("GET", "/v1/artist/{id}/images"),
+    ("GET", "/v1/album/{id}/images"),
+    ("GET", "/v1/user/{username}/recent"),
+    ("GET", "/v1/user/{username}/live"),
+    ("GET", "/v1/user/{username}/top-artists"),
+    ("GET", "/v1/user/{username}/top-tracks"),
+    ("GET", "/v1/user/{username}/heatmap"),
+];
+
 /// Calls `path`, its `{params}` filled with `1`, without a body, from a
 /// client address of its own (hundreds of calls would hit the rate limit).
 async fn call(
@@ -162,8 +189,10 @@ async fn every_authenticated_route_takes_the_access_listed() {
         let spec: Value = serde_json::from_str(&spec).unwrap();
 
         // The documented routes that refuse a call without credentials are
-        // exactly the listed ones, and document the 403 of their access.
+        // exactly the listed ones, and document the 403 of their access;
+        // the others are exactly the public ones.
         let mut authenticated = Vec::new();
+        let mut public = Vec::new();
         for (path, item) in spec["paths"].as_object().unwrap() {
             for (method, operation) in item.as_object().unwrap() {
                 if !["get", "put", "post", "delete", "patch"].contains(&method.as_str()) {
@@ -180,6 +209,8 @@ async fn every_authenticated_route_takes_the_access_listed() {
                 let (status, _) = call(&app, None, &method, path).await;
                 if status == StatusCode::UNAUTHORIZED {
                     authenticated.push((method.clone(), path.clone()));
+                } else {
+                    public.push((method.clone(), path.clone()));
                 }
                 let Some((_, _, access)) = ROUTES
                     .iter()
@@ -205,6 +236,13 @@ async fn every_authenticated_route_takes_the_access_listed() {
             .collect();
         listed.sort();
         assert_eq!(authenticated, listed);
+        public.sort();
+        let mut listed: Vec<(String, String)> = PUBLIC
+            .iter()
+            .map(|(method, path)| (method.to_string(), path.to_string()))
+            .collect();
+        listed.sort();
+        assert_eq!(public, listed);
 
         // Then each credential against each route: refused (403, saying
         // why) exactly where its scopes don't reach. A name the server

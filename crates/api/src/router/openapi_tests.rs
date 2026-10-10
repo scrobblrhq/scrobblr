@@ -35,6 +35,7 @@ pub(super) fn offline_state() -> AppState {
         compat: Default::default(),
         live: Default::default(),
         monitoring: Default::default(),
+        rankings: Default::default(),
     }
 }
 

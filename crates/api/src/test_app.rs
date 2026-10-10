@@ -141,6 +141,7 @@ where
         compat: Default::default(),
         live,
         monitoring: Default::default(),
+        rankings: Default::default(),
     };
     customize(&mut state);
     let octets = rand::random::<[u8; 3]>();

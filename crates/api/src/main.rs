@@ -160,6 +160,12 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("/metrics enabled for requests bearing METRICS_TOKEN");
     }
 
+    let rankings = handlers::rankings::RankingConfig::from_env()?;
+    tracing::info!(
+        "global rankings leave out entries with fewer than {} listeners",
+        rankings.min_listeners
+    );
+
     // Axum
     let state = state::AppState {
         db,
@@ -176,6 +182,7 @@ async fn main() -> anyhow::Result<()> {
         compat,
         live,
         monitoring: std::sync::Arc::new(monitoring),
+        rankings,
     };
     let app = router::build(state);
 

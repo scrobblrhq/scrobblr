@@ -28,7 +28,9 @@ use tower_http::{
 use crate::{
     compat,
     errors::ErrorJson,
-    handlers::{auth, community, connected_accounts, imports, scrobbles, tracks, uploads, users},
+    handlers::{
+        auth, community, connected_accounts, imports, rankings, scrobbles, tracks, uploads, users,
+    },
     limits,
     middleware::{
         app_signature::require_app_signature,
@@ -392,7 +394,16 @@ pub fn build(state: AppState) -> Router {
                 community::_list_track_comments_doc,
             ),
         )
-        .api_route("/v1/search", get_with(tracks::search, tracks::_search_doc));
+        .api_route("/v1/search", get_with(tracks::search, tracks::_search_doc))
+        // Global rankings: the same for everyone, cacheable by any proxy.
+        .api_route(
+            "/v1/rankings/artists",
+            get_with(rankings::artist_ranking, rankings::_artist_ranking_doc),
+        )
+        .api_route(
+            "/v1/rankings/tracks",
+            get_with(rankings::track_ranking, rankings::_track_ranking_doc),
+        );
 
     let optional_authed_users = ApiRouter::new()
         // User profiles

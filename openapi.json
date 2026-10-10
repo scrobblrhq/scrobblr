@@ -126,6 +126,64 @@
         ],
         "type": "object"
       },
+      "ArtistRanking": {
+        "description": "A page of the global artist ranking.",
+        "properties": {
+          "computed_at": {
+            "description": "When the server computed it. Week and month rankings are recomputed\n every hour, the year's every day, and each when the UTC day changes.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/RankedArtist"
+            },
+            "type": "array"
+          },
+          "from": {
+            "description": "The first UTC day the ranking covers.",
+            "format": "date",
+            "type": "string"
+          },
+          "limit": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "offset": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "period": {
+            "$ref": "#/components/schemas/RankingPeriod"
+          },
+          "stale": {
+            "description": "Its recomputation is overdue by more than 15 minutes: this is the\n last ranking the server managed to compute.",
+            "type": "boolean"
+          },
+          "to": {
+            "description": "The last UTC day it covers (included): the day it was computed.",
+            "format": "date",
+            "type": "string"
+          },
+          "total": {
+            "description": "Positions this ranking has; a page past them is empty.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "period",
+          "from",
+          "to",
+          "computed_at",
+          "stale",
+          "total",
+          "offset",
+          "limit",
+          "entries"
+        ],
+        "type": "object"
+      },
       "AuthResponse": {
         "properties": {
           "expires_at": {
@@ -789,6 +847,149 @@
         "required": [
           "provider"
         ],
+        "type": "object"
+      },
+      "RankedArtist": {
+        "description": "An artist's place in a global ranking.",
+        "properties": {
+          "artist_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "artist_name": {
+            "type": "string"
+          },
+          "image_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "listeners": {
+            "description": "Listeners in the period, rounded, the ranking's order: each account\n counts once at most, and less when its plays don't look like real\n listening.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "plays": {
+            "description": "Plays in the period, rounded, each weighed by how surely it was a\n real listen.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "position": {
+            "description": "1 for the first.",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "position",
+          "artist_id",
+          "artist_name",
+          "listeners",
+          "plays"
+        ],
+        "type": "object"
+      },
+      "RankedTrack": {
+        "description": "A track's place in a global ranking.",
+        "properties": {
+          "album_image": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "artist_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "artist_name": {
+            "type": "string"
+          },
+          "listeners": {
+            "description": "As in [`RankedArtist`].",
+            "format": "int64",
+            "type": "integer"
+          },
+          "plays": {
+            "description": "As in [`RankedArtist`].",
+            "format": "int64",
+            "type": "integer"
+          },
+          "position": {
+            "description": "1 for the first.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "track_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "track_title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "position",
+          "track_id",
+          "track_title",
+          "artist_id",
+          "artist_name",
+          "listeners",
+          "plays"
+        ],
+        "type": "object"
+      },
+      "RankingPeriod": {
+        "description": "A global ranking's period: a rolling window of UTC days ending today,\n today included.",
+        "oneOf": [
+          {
+            "const": "week",
+            "description": "7 days.",
+            "type": "string"
+          },
+          {
+            "const": "month",
+            "description": "30 days.",
+            "type": "string"
+          },
+          {
+            "const": "year",
+            "description": "365 days.",
+            "type": "string"
+          }
+        ]
+      },
+      "RankingQuery": {
+        "properties": {
+          "limit": {
+            "description": "Entries per page: 50 by default, 200 at most.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "offset": {
+            "description": "Positions to skip, 0 by default: `offset=50` starts at position 51.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "period": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RankingPeriod"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`week` (the default), `month` or `year`."
+          }
+        },
         "type": "object"
       },
       "RecentQuery": {
@@ -1563,6 +1764,64 @@
           "name",
           "role",
           "position"
+        ],
+        "type": "object"
+      },
+      "TrackRanking": {
+        "description": "A page of the global track ranking.",
+        "properties": {
+          "computed_at": {
+            "description": "When the server computed it. Week and month rankings are recomputed\n every hour, the year's every day, and each when the UTC day changes.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/RankedTrack"
+            },
+            "type": "array"
+          },
+          "from": {
+            "description": "The first UTC day the ranking covers.",
+            "format": "date",
+            "type": "string"
+          },
+          "limit": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "offset": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "period": {
+            "$ref": "#/components/schemas/RankingPeriod"
+          },
+          "stale": {
+            "description": "Its recomputation is overdue by more than 15 minutes: this is the\n last ranking the server managed to compute.",
+            "type": "boolean"
+          },
+          "to": {
+            "description": "The last UTC day it covers (included): the day it was computed.",
+            "format": "date",
+            "type": "string"
+          },
+          "total": {
+            "description": "Positions this ranking has; a page past them is empty.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "period",
+          "from",
+          "to",
+          "computed_at",
+          "stale",
+          "total",
+          "offset",
+          "limit",
+          "entries"
         ],
         "type": "object"
       },
@@ -5421,6 +5680,318 @@
         "summary": "Update now playing",
         "tags": [
           "Scrobbling"
+        ]
+      }
+    },
+    "/v1/rankings/artists": {
+      "get": {
+        "description": "The most listened artists of the last week, month or year (rolling UTC days ending today), ranked by listeners, then by plays. Each account counts once at most, and less when its plays don't look like real listening; plays are weighed the same way. No account is named, and artists with fewer listeners than the server's minimum (5 unless configured) are left out, so the ranking may be shorter than 1,000 positions.\n\nThe server recomputes week and month rankings every hour and the year's every day: a page says when its ranking was computed (`computed_at`) and which days it covers (`from`, `to`). When a recomputation is overdue, the last ranking is still served, with `stale: true`; before the first one, 404.\n\nPages carry an `ETag` and may be cached for 5 minutes; send the tag back in `If-None-Match` to get a 304 while the ranking hasn't changed.",
+        "parameters": [
+          {
+            "description": "Entries per page: 50 by default, 200 at most.",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Entries per page: 50 by default, 200 at most.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "Positions to skip, 0 by default: `offset=50` starts at position 51.",
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "description": "Positions to skip, 0 by default: `offset=50` starts at position 51.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "`week` (the default), `month` or `year`.",
+            "in": "query",
+            "name": "period",
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/RankingPeriod"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`week` (the default), `month` or `year`."
+            },
+            "style": "form"
+          },
+          {
+            "description": "The `ETag` of a page fetched before: 304 if the ranking hasn't changed since",
+            "in": "header",
+            "name": "If-None-Match",
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtistRanking"
+                }
+              }
+            },
+            "description": "A page of the ranking",
+            "headers": {
+              "Cache-Control": {
+                "description": "`public, max-age=300, stale-while-revalidate=300`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              },
+              "ETag": {
+                "description": "The ranking's version, for `If-None-Match`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified since the `ETag` in `If-None-Match`",
+            "headers": {
+              "Cache-Control": {
+                "description": "`public, max-age=300, stale-while-revalidate=300`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              },
+              "ETag": {
+                "description": "The ranking's version, for `If-None-Match`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown period or negative offset"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The server hasn't computed a ranking for this period yet"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "summary": "Global artist ranking",
+        "tags": [
+          "Rankings"
+        ]
+      }
+    },
+    "/v1/rankings/tracks": {
+      "get": {
+        "description": "The most listened tracks of the last week, month or year (rolling UTC days ending today), ranked by listeners, then by plays. Each account counts once at most, and less when its plays don't look like real listening; plays are weighed the same way. No account is named, and tracks with fewer listeners than the server's minimum (5 unless configured) are left out, so the ranking may be shorter than 1,000 positions.\n\nThe server recomputes week and month rankings every hour and the year's every day: a page says when its ranking was computed (`computed_at`) and which days it covers (`from`, `to`). When a recomputation is overdue, the last ranking is still served, with `stale: true`; before the first one, 404.\n\nPages carry an `ETag` and may be cached for 5 minutes; send the tag back in `If-None-Match` to get a 304 while the ranking hasn't changed.",
+        "parameters": [
+          {
+            "description": "Entries per page: 50 by default, 200 at most.",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Entries per page: 50 by default, 200 at most.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "Positions to skip, 0 by default: `offset=50` starts at position 51.",
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "description": "Positions to skip, 0 by default: `offset=50` starts at position 51.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "`week` (the default), `month` or `year`.",
+            "in": "query",
+            "name": "period",
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/RankingPeriod"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`week` (the default), `month` or `year`."
+            },
+            "style": "form"
+          },
+          {
+            "description": "The `ETag` of a page fetched before: 304 if the ranking hasn't changed since",
+            "in": "header",
+            "name": "If-None-Match",
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackRanking"
+                }
+              }
+            },
+            "description": "A page of the ranking",
+            "headers": {
+              "Cache-Control": {
+                "description": "`public, max-age=300, stale-while-revalidate=300`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              },
+              "ETag": {
+                "description": "The ranking's version, for `If-None-Match`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified since the `ETag` in `If-None-Match`",
+            "headers": {
+              "Cache-Control": {
+                "description": "`public, max-age=300, stale-while-revalidate=300`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              },
+              "ETag": {
+                "description": "The ranking's version, for `If-None-Match`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown period or negative offset"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The server hasn't computed a ranking for this period yet"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "summary": "Global track ranking",
+        "tags": [
+          "Rankings"
         ]
       }
     },
