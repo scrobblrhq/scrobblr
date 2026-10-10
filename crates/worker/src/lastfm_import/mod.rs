@@ -19,6 +19,7 @@ use chrono::{DateTime, TimeDelta, Utc};
 use sqlx::PgPool;
 
 use crate::enrichment::ratelimit::RateLimiter;
+use crate::heartbeat::Beat;
 use db::queries::{
     classification as classification_db, connected_accounts as connected_accounts_db,
     imports as imports_db, scrobbles as scrobbles_db,
@@ -107,23 +108,31 @@ impl Importer {
         Ok(Some(Self::new(db, client, limiter, max_scrobbles)))
     }
 
-    pub async fn run(self: Arc<Self>) {
+    pub async fn run(self: Arc<Self>, beat: Beat) {
         loop {
             match imports_db::claim_next(&self.db, LEASE_SECS).await {
                 Ok(Some(job)) => {
                     let id = job.id;
                     match self.process(job, SLICE_PAGES).await {
-                        Ok(end) => tracing::debug!(import_id = id, "import: slice ended: {end:?}"),
+                        Ok(end) => {
+                            tracing::debug!(import_id = id, "import: slice ended: {end:?}");
+                            beat.ok().await;
+                        }
                         // The lease expires and the job is retried.
-                        Err(e) => tracing::error!(import_id = id, "import: database error: {e}"),
+                        Err(e) => {
+                            tracing::error!(import_id = id, "import: database error: {e}");
+                            beat.failed(e).await;
+                        }
                     }
                 }
                 Ok(None) => {
                     self.checkpoint_leftovers().await;
+                    beat.ok().await;
                     tokio::time::sleep(POLL_INTERVAL).await;
                 }
                 Err(e) => {
                     tracing::error!("import: failed to claim a job: {e}");
+                    beat.failed(e).await;
                     tokio::time::sleep(POLL_INTERVAL).await;
                 }
             }

@@ -37,6 +37,7 @@ use db::queries::enrichment as edb;
 use db::queries::scrobbles as edb_scrobbles;
 use shared::scrobble::normalize_name;
 
+use crate::heartbeat::Beat;
 use providers::musicbrainz::{self as mb, parse_mb_date};
 use providers::{ProviderError, ProviderResult, coverart, deezer, lastfm};
 use ratelimit::RateLimiter;
@@ -149,18 +150,20 @@ impl Enricher {
     /// Main loop: claim due jobs and process them sequentially (throughput is
     /// bounded by the MusicBrainz rate limit anyway, so parallelism inside
     /// one worker buys nothing).
-    pub async fn run(self: Arc<Self>) {
+    pub async fn run(self: Arc<Self>, beat: Beat) {
         loop {
             let jobs = match edb::claim_due_jobs(&self.db, CLAIM_BATCH).await {
                 Ok(jobs) => jobs,
                 Err(e) => {
                     tracing::error!("enrichment: failed to claim jobs: {e}");
+                    beat.failed(e).await;
                     tokio::time::sleep(POLL_INTERVAL).await;
                     continue;
                 }
             };
 
             if jobs.is_empty() {
+                beat.ok().await;
                 tokio::time::sleep(POLL_INTERVAL).await;
                 continue;
             }
@@ -168,6 +171,7 @@ impl Enricher {
             for job in jobs {
                 self.process(&job).await;
             }
+            beat.ok().await;
         }
     }
 
@@ -175,36 +179,53 @@ impl Enricher {
     /// every tick, and every 6 h enqueues backfill (never-enriched entities)
     /// plus the re-sweep of stale incomplete ones. First tick fires at
     /// startup so a pre-existing catalog starts filling immediately.
-    pub async fn run_maintenance(self: Arc<Self>) {
+    pub async fn run_maintenance(self: Arc<Self>, beat: Beat) {
         let mut interval = tokio::time::interval(Duration::from_secs(30 * 60));
         let mut tick: u64 = 0;
         loop {
             interval.tick().await;
+            let mut failure = None;
 
             match edb::reset_stuck_jobs(&self.db, STUCK_AFTER_MINS).await {
                 Ok(0) => {}
                 Ok(n) => tracing::warn!("enrichment: reset {n} stuck jobs"),
-                Err(e) => tracing::error!("enrichment: stuck-job sweep failed: {e}"),
+                Err(e) => {
+                    tracing::error!("enrichment: stuck-job sweep failed: {e}");
+                    failure = Some(e.to_string());
+                }
             }
 
             if tick.is_multiple_of(12) {
                 match edb::enqueue_backfill(&self.db, BACKFILL_PER_TABLE).await {
                     Ok(n) if n > 0 => tracing::info!("enrichment: backfill enqueued {n} jobs"),
                     Ok(_) => {}
-                    Err(e) => tracing::error!("enrichment: backfill failed: {e}"),
+                    Err(e) => {
+                        tracing::error!("enrichment: backfill failed: {e}");
+                        failure = Some(e.to_string());
+                    }
                 }
                 match edb::enqueue_incomplete_resweep(&self.db, RESWEEP_PER_TABLE).await {
                     Ok(n) if n > 0 => tracing::info!("enrichment: re-sweep enqueued {n} jobs"),
                     Ok(_) => {}
-                    Err(e) => tracing::error!("enrichment: re-sweep failed: {e}"),
+                    Err(e) => {
+                        tracing::error!("enrichment: re-sweep failed: {e}");
+                        failure = Some(e.to_string());
+                    }
                 }
                 match edb::delete_done_jobs(&self.db, DONE_JOBS_KEPT_DAYS).await {
                     Ok(n) if n > 0 => tracing::info!("enrichment: deleted {n} finished jobs"),
                     Ok(_) => {}
-                    Err(e) => tracing::error!("enrichment: deleting finished jobs failed: {e}"),
+                    Err(e) => {
+                        tracing::error!("enrichment: deleting finished jobs failed: {e}");
+                        failure = Some(e.to_string());
+                    }
                 }
             }
             tick += 1;
+            match failure {
+                Some(e) => beat.failed(e).await,
+                None => beat.ok().await,
+            }
         }
     }
 

@@ -19,6 +19,7 @@ use shared::{
 };
 use sqlx::PgPool;
 
+use crate::heartbeat::Beat;
 use crate::non_empty_env;
 
 const BATCH_SIZE: i64 = 25;
@@ -63,11 +64,12 @@ impl ConnectedAccountsPoller {
     /// interval. A no-op (returns immediately, logging once) if Spotify
     /// OAuth credentials aren't configured — lets the rest of the worker
     /// run fine in environments that haven't set this up yet.
-    pub async fn run(self: Arc<Self>) {
+    pub async fn run(self: Arc<Self>, beat: Beat) {
         if self.spotify_client_id.is_none() || self.spotify_client_secret.is_none() {
             tracing::info!(
                 "worker: SPOTIFY_CLIENT_ID/SPOTIFY_CLIENT_SECRET not set — connected-accounts polling disabled"
             );
+            beat.disable().await;
             // Park instead of returning: main treats a finished task as fatal.
             return std::future::pending().await;
         }
@@ -75,6 +77,7 @@ impl ConnectedAccountsPoller {
         // would fail on decrypt. Bail loudly once instead of once per tick.
         if let Err(e) = shared::crypto::check_key() {
             tracing::error!("worker: connected-accounts polling disabled — {e}");
+            beat.disable().await;
             return std::future::pending().await;
         }
 
@@ -95,9 +98,11 @@ impl ConnectedAccountsPoller {
                             );
                         }
                     }
+                    beat.ok().await;
                 }
                 Err(e) => {
-                    tracing::error!("connected_accounts: failed to list accounts to poll: {e}")
+                    tracing::error!("connected_accounts: failed to list accounts to poll: {e}");
+                    beat.failed(e).await;
                 }
             }
         }

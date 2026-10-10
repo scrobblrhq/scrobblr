@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO worker_heartbeats (loop_name, interval_secs, started_at)\n        SELECT name, secs, NOW() FROM unnest($1::text[], $2::int[]) AS l (name, secs)\n        ON CONFLICT (loop_name) DO UPDATE\n        SET interval_secs = EXCLUDED.interval_secs, started_at = EXCLUDED.started_at\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Int4Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "89d5a39904722e5ab642f6db943e7b967b2e8c3d550da874377f95f61b17a6be"
+}

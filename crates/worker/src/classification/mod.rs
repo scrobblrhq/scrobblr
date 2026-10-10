@@ -15,6 +15,7 @@ use std::time::Duration;
 
 use sqlx::PgPool;
 
+use crate::heartbeat::Beat;
 use db::queries::classification::{self as cdb, Ruleset};
 use shared::classification::{BudgetParams, Status};
 
@@ -70,21 +71,24 @@ impl Classifier {
         Ok(Self { db, ruleset })
     }
 
-    pub async fn run(self: Arc<Self>) {
+    pub async fn run(self: Arc<Self>, beat: Beat) {
         loop {
             let days = match cdb::claim_due(&self.db, CLAIM_BATCH).await {
                 Ok(days) => days,
                 Err(e) => {
                     tracing::error!("classification: failed to claim days: {e}");
+                    beat.failed(e).await;
                     tokio::time::sleep(POLL_INTERVAL).await;
                     continue;
                 }
             };
             if days.is_empty() {
+                beat.ok().await;
                 tokio::time::sleep(POLL_INTERVAL).await;
                 continue;
             }
 
+            let mut failure = None;
             for day in days {
                 match cdb::classify_user_day(&self.db, &self.ruleset, day.user_id, day.day, false)
                     .await
@@ -105,6 +109,7 @@ impl Classifier {
                     Err(e) => {
                         tracing::error!(user_id = day.user_id, day = %day.day,
                             "classification failed, retrying later: {e}");
+                        failure = Some(e.to_string());
                         if let Err(e) =
                             cdb::requeue(&self.db, day, cdb::PRIORITY_INGEST, RETRY_DELAY_SECS)
                                 .await
@@ -114,19 +119,29 @@ impl Classifier {
                     }
                 }
             }
+            match failure {
+                Some(e) => beat.failed(e).await,
+                None => beat.ok().await,
+            }
         }
     }
 
     /// First tick fires at startup, so history predating the classifier (or
     /// the current thresholds) starts filling in immediately.
-    pub async fn run_sweeps(self: Arc<Self>) {
+    pub async fn run_sweeps(self: Arc<Self>, beat: Beat) {
         let mut interval = tokio::time::interval(SWEEP_INTERVAL);
         loop {
             interval.tick().await;
             match self.sweep().await {
-                Ok(0) => {}
-                Ok(n) => tracing::info!("classification: sweep queued {n} days"),
-                Err(e) => tracing::error!("classification: sweep failed: {e}"),
+                Ok(0) => beat.ok().await,
+                Ok(n) => {
+                    tracing::info!("classification: sweep queued {n} days");
+                    beat.ok().await;
+                }
+                Err(e) => {
+                    tracing::error!("classification: sweep failed: {e}");
+                    beat.failed(e).await;
+                }
             }
         }
     }

@@ -3,6 +3,7 @@ mod connected_accounts;
 mod enrichment;
 #[cfg(test)]
 mod fake_lastfm;
+mod heartbeat;
 mod lastfm_import;
 mod rankings;
 #[cfg(test)]
@@ -90,11 +91,12 @@ async fn main() -> anyhow::Result<()> {
     // refresh — enrichment (the worker's real job) must still run.
     let redis = connect_redis().await;
 
+    heartbeat::register(&db).await?;
     tracing::info!("worker: starting background loops");
 
     // Runs every 5 minutes and purges expired sessions + now_playing rows.
     let db_cleanup = db.clone();
-    let cleanup_handle = supervise("cleanup", move || {
+    let cleanup_handle = supervise(&db, "cleanup", move |beat| {
         let db = db_cleanup.clone();
         async move {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(300));
@@ -105,8 +107,12 @@ async fn main() -> anyhow::Result<()> {
                         tracing::info!(
                             "cleanup: removed {sessions} expired sessions, {now_playing} stale now_playing rows, {authorizations} expired scrobbler authorizations"
                         );
+                        beat.ok().await;
                     }
-                    Err(e) => tracing::error!("cleanup error: {e}"),
+                    Err(e) => {
+                        tracing::error!("cleanup error: {e}");
+                        beat.failed(e).await;
+                    }
                 }
             }
         }
@@ -124,12 +130,12 @@ async fn main() -> anyhow::Result<()> {
         lastfm_limiter.clone(),
         deezer_limiter.clone(),
     )?);
-    let enrichment_handle = supervise("enrichment", {
+    let enrichment_handle = supervise(&db, "enrichment", {
         let enricher = enricher.clone();
-        move || enricher.clone().run()
+        move |beat| enricher.clone().run(beat)
     });
-    let maintenance_handle = supervise("enrichment maintenance", move || {
-        enricher.clone().run_maintenance()
+    let maintenance_handle = supervise(&db, "enrichment maintenance", move |beat| {
+        enricher.clone().run_maintenance(beat)
     });
 
     // Polls connected Spotify accounts and turns their listening history
@@ -139,8 +145,8 @@ async fn main() -> anyhow::Result<()> {
     let connected_accounts_poller = Arc::new(
         connected_accounts::ConnectedAccountsPoller::from_env(db.clone(), redis),
     );
-    let connected_accounts_handle = supervise("connected-accounts poller", move || {
-        connected_accounts_poller.clone().run()
+    let connected_accounts_handle = supervise(&db, "connected-accounts poller", move |beat| {
+        connected_accounts_poller.clone().run(beat)
     });
 
     // Fills track lengths from Last.fm for tracks no source has one for
@@ -151,12 +157,15 @@ async fn main() -> anyhow::Result<()> {
         lastfm_limiter.clone(),
     );
     let lengths = lengths.map(Arc::new);
-    let lengths_handle = supervise("length backfill", move || {
+    let lengths_handle = supervise(&db, "length backfill", move |beat| {
         let lengths = lengths.clone();
         async move {
             match lengths {
-                Some(lengths) => lengths.run().await,
-                None => std::future::pending().await,
+                Some(lengths) => lengths.run(beat).await,
+                None => {
+                    beat.disable().await;
+                    std::future::pending().await
+                }
             }
         }
     });
@@ -168,7 +177,9 @@ async fn main() -> anyhow::Result<()> {
         lastfm_http.clone(),
         deezer_limiter,
     ));
-    let deezer_lengths_handle = supervise("deezer lengths", move || deezer_lengths.clone().run());
+    let deezer_lengths_handle = supervise(&db, "deezer lengths", move |beat| {
+        deezer_lengths.clone().run(beat)
+    });
 
     // Runs Last.fm history imports, started from the API or `worker import`.
     let importer = lastfm_import::Importer::from_env(db.clone(), lastfm_http, lastfm_limiter)?;
@@ -176,38 +187,43 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("worker: LASTFM_API_KEY not set — Last.fm imports disabled");
     }
     let importer = importer.map(Arc::new);
-    let import_handle = supervise("import", move || {
+    let import_handle = supervise(&db, "import", move |beat| {
         let importer = importer.clone();
         async move {
             match importer {
-                Some(importer) => importer.run().await,
-                None => std::future::pending().await,
+                Some(importer) => importer.run(beat).await,
+                None => {
+                    beat.disable().await;
+                    std::future::pending().await
+                }
             }
         }
     });
 
     // Labels scrobbles counted / suspect / duplicate / no_data (shadow mode).
     let classifier = Arc::new(classification::Classifier::from_env(db.clone()).await?);
-    let classification_handle = supervise("classification", {
+    let classification_handle = supervise(&db, "classification", {
         let classifier = classifier.clone();
-        move || classifier.clone().run()
+        move |beat| classifier.clone().run(beat)
     });
-    let classification_sweep_handle = supervise("classification sweep", move || {
-        classifier.clone().run_sweeps()
+    let classification_sweep_handle = supervise(&db, "classification sweep", move |beat| {
+        classifier.clone().run_sweeps(beat)
     });
 
     // Weighs classified days for global rankings and keeps each period's
     // ranking precomputed (shadow mode).
     let weigher = Arc::new(rankings::Weigher::from_env(db.clone()).await?);
-    let rankings_handle = supervise("rankings", {
+    let rankings_handle = supervise(&db, "rankings", {
         let weigher = weigher.clone();
-        move || weigher.clone().run()
+        move |beat| weigher.clone().run(beat)
     });
-    let rankings_sweep_handle = supervise("rankings sweep", {
+    let rankings_sweep_handle = supervise(&db, "rankings sweep", {
         let weigher = weigher.clone();
-        move || weigher.clone().run_sweeps()
+        move |beat| weigher.clone().run_sweeps(beat)
     });
-    let snapshots_handle = supervise("ranking snapshots", move || weigher.clone().run_snapshots());
+    let snapshots_handle = supervise(&db, "ranking snapshots", move |beat| {
+        weigher.clone().run_snapshots(beat)
+    });
 
     // The tasks loop forever and come back after a panic; one finishing
     // means it stopped for good, which must end the process with a failure
@@ -235,19 +251,25 @@ async fn main() -> anyhow::Result<()> {
 
 /// Runs the loop `start` makes on its own task, and a new one after a panic
 /// (logged by the panic hook), waiting 1 s, doubling to 5 min while it keeps
-/// panicking. Finishes when a loop returns.
-fn supervise<F, Fut>(name: &'static str, mut start: F) -> tokio::task::JoinHandle<()>
+/// panicking. Finishes when a loop returns. The loop reports its runs to
+/// the heartbeat it is given; `name` must be in [`heartbeat::LOOPS`].
+fn supervise<F, Fut>(
+    db: &sqlx::PgPool,
+    name: &'static str,
+    mut start: F,
+) -> tokio::task::JoinHandle<()>
 where
-    F: FnMut() -> Fut + Send + 'static,
+    F: FnMut(heartbeat::Beat) -> Fut + Send + 'static,
     Fut: Future<Output = ()> + Send + 'static,
 {
     const MIN_BACKOFF: Duration = Duration::from_secs(1);
     const MAX_BACKOFF: Duration = Duration::from_secs(300);
+    let beat = heartbeat::Beat::new(db.clone(), name);
     tokio::spawn(async move {
         let mut backoff = MIN_BACKOFF;
         loop {
             let started = Instant::now();
-            match tokio::spawn(start()).await {
+            match tokio::spawn(start(beat.clone())).await {
                 Err(e) if e.is_panic() => {
                     if started.elapsed() > MAX_BACKOFF {
                         backoff = MIN_BACKOFF;
@@ -364,7 +386,10 @@ mod tests {
     async fn a_panicking_loop_is_restarted_until_it_returns() {
         let starts = Arc::new(AtomicU32::new(0));
         let counter = starts.clone();
-        supervise("test", move || {
+        let db = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://127.0.0.1:1/unused")
+            .unwrap();
+        supervise(&db, "cleanup", move |_| {
             let start = counter.fetch_add(1, Ordering::SeqCst);
             async move {
                 if start < 2 {

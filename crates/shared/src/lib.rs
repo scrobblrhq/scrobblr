@@ -5,6 +5,7 @@ pub mod lastfm;
 pub mod logging;
 pub mod media;
 pub mod models;
+pub mod monitoring;
 pub mod panic;
 pub mod ranking;
 pub mod scrobble;

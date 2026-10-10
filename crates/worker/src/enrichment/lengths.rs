@@ -18,6 +18,7 @@ use sqlx::PgPool;
 
 use super::providers::deezer;
 use super::ratelimit::RateLimiter;
+use crate::heartbeat::Beat;
 use db::queries::enrichment as edb;
 use shared::lastfm::LastfmClient;
 
@@ -55,7 +56,7 @@ impl LengthBackfill {
         LastfmClient::from_env(http).map(|client| Self::new(db, client, limiter, PACE))
     }
 
-    pub async fn run(self: Arc<Self>) {
+    pub async fn run(self: Arc<Self>, beat: Beat) {
         let mut last_recheck: Option<Instant> = None;
         let mut failures = 0u32;
         loop {
@@ -70,12 +71,19 @@ impl LengthBackfill {
                 last_recheck = Some(Instant::now());
             }
             match self.step(BATCH).await {
-                Ok(0) => tokio::time::sleep(IDLE).await,
-                Ok(_) => failures = 0,
+                Ok(0) => {
+                    beat.ok_then_wait(IDLE).await;
+                    tokio::time::sleep(IDLE).await
+                }
+                Ok(_) => {
+                    failures = 0;
+                    beat.ok().await;
+                }
                 Err(e) => {
                     failures += 1;
                     let delay = Duration::from_secs((30u64 << failures.min(6)).min(1800));
                     tracing::warn!("lengths: {e}; pausing {}s", delay.as_secs());
+                    report_pause(&beat, &e, delay).await;
                     tokio::time::sleep(delay).await;
                 }
             }
@@ -143,7 +151,7 @@ impl DeezerLengths {
         Self::new(db, http, limiter, DEEZER_PACE, deezer::BASE)
     }
 
-    pub async fn run(self: Arc<Self>) {
+    pub async fn run(self: Arc<Self>, beat: Beat) {
         let mut last_recheck: Option<Instant> = None;
         let mut failures = 0u32;
         loop {
@@ -158,12 +166,19 @@ impl DeezerLengths {
                 last_recheck = Some(Instant::now());
             }
             match self.step(BATCH).await {
-                Ok(0) => tokio::time::sleep(IDLE).await,
-                Ok(_) => failures = 0,
+                Ok(0) => {
+                    beat.ok_then_wait(IDLE).await;
+                    tokio::time::sleep(IDLE).await
+                }
+                Ok(_) => {
+                    failures = 0;
+                    beat.ok().await;
+                }
                 Err(e) => {
                     failures += 1;
                     let delay = Duration::from_secs((30u64 << failures.min(6)).min(1800));
                     tracing::warn!("lengths: Deezer: {e}; pausing {}s", delay.as_secs());
+                    report_pause(&beat, &e, delay).await;
                     tokio::time::sleep(delay).await;
                 }
             }
@@ -194,6 +209,16 @@ impl DeezerLengths {
             }
         }
         Ok(tracks.len())
+    }
+}
+
+/// A database error is the loop failing; the provider being away is its
+/// own business, logged above.
+async fn report_pause(beat: &Beat, error: &anyhow::Error, delay: Duration) {
+    if error.downcast_ref::<sqlx::Error>().is_some() {
+        beat.failed_then_wait(error, delay).await
+    } else {
+        beat.ok_then_wait(delay).await
     }
 }
 

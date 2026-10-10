@@ -4,6 +4,7 @@ pub mod community;
 pub mod connected_accounts;
 pub mod enrichment;
 pub mod imports;
+pub mod monitoring;
 pub mod rankings;
 pub mod scrobble_clients;
 pub mod scrobblers;

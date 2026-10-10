@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT 'classification' AS \"queue!\", count(*) AS \"due!\",\n               extract(epoch FROM NOW() - min(not_before))::float8 AS oldest_due_secs\n        FROM classification_queue WHERE not_before <= NOW()\n        UNION ALL\n        SELECT 'ranking', count(*), extract(epoch FROM NOW() - min(enqueued_at))::float8\n        FROM ranking_queue\n        UNION ALL\n        SELECT 'enrichment', count(*), extract(epoch FROM NOW() - min(next_attempt_at))::float8\n        FROM enrichment_jobs WHERE status = 'pending' AND next_attempt_at <= NOW()\n        UNION ALL\n        SELECT 'import', count(*), extract(epoch FROM NOW() - min(created_at))::float8\n        FROM scrobble_imports WHERE status IN ('pending', 'running')\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "queue!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "due!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "oldest_due_secs",
+        "type_info": "Float8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "a48edc3f77b0098d989bf6f86aa8fcce99f982931cfba259d5c4563807a3c402"
+}

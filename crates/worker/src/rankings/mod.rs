@@ -20,6 +20,7 @@ use chrono::{DateTime, TimeDelta, Utc};
 use sqlx::PgPool;
 use tokio::time::{Instant, MissedTickBehavior};
 
+use crate::heartbeat::Beat;
 use db::queries::rankings::{self as rdb, Kind, Period, Ruleset, Snapshot};
 use shared::ranking::{RankingParams, RankingSettings};
 
@@ -109,27 +110,35 @@ impl Weigher {
         Ok(Self { db, ruleset })
     }
 
-    pub async fn run(self: Arc<Self>) {
+    pub async fn run(self: Arc<Self>, beat: Beat) {
         loop {
             let days = match rdb::claim_due(&self.db, CLAIM_BATCH).await {
                 Ok(days) => days,
                 Err(e) => {
                     tracing::error!("rankings: failed to claim days: {e}");
+                    beat.failed(e).await;
                     tokio::time::sleep(POLL_INTERVAL).await;
                     continue;
                 }
             };
             if days.is_empty() {
+                beat.ok().await;
                 tokio::time::sleep(POLL_INTERVAL).await;
                 continue;
             }
+            let mut failure = None;
             for day in days {
                 if let Err(e) =
                     rdb::weigh_user_day(&self.db, &self.ruleset, day.user_id, day.day, false).await
                 {
                     tracing::error!(user_id = day.user_id, day = %day.day,
                         "rankings: weighing failed, retrying on the next sweep: {e}");
+                    failure = Some(e.to_string());
                 }
+            }
+            match failure {
+                Some(e) => beat.failed(e).await,
+                None => beat.ok().await,
             }
         }
     }
@@ -137,15 +146,19 @@ impl Weigher {
     /// First tick fires at startup, so history predating these params
     /// starts filling in immediately. Once a UTC day, also deletes the
     /// weights no period reaches any more.
-    pub async fn run_sweeps(self: Arc<Self>) {
+    pub async fn run_sweeps(self: Arc<Self>, beat: Beat) {
         let mut interval = tokio::time::interval(SWEEP_INTERVAL);
         let mut purged_on = None;
         loop {
             interval.tick().await;
+            let mut failure = None;
             match self.sweep().await {
                 Ok(0) => {}
                 Ok(n) => tracing::info!("rankings: sweep queued {n} days"),
-                Err(e) => tracing::error!("rankings: sweep failed: {e}"),
+                Err(e) => {
+                    tracing::error!("rankings: sweep failed: {e}");
+                    failure = Some(e.to_string());
+                }
             }
             let today = Utc::now().date_naive();
             if purged_on != Some(today) {
@@ -156,15 +169,22 @@ impl Weigher {
                             tracing::info!("rankings: deleted the weights of {n} expired days");
                         }
                     }
-                    Err(e) => tracing::error!("rankings: purging expired weights failed: {e}"),
+                    Err(e) => {
+                        tracing::error!("rankings: purging expired weights failed: {e}");
+                        failure = Some(e.to_string());
+                    }
                 }
+            }
+            match failure {
+                Some(e) => beat.failed(e).await,
+                None => beat.ok().await,
             }
         }
     }
 
     /// Recomputes each period's snapshots when due. A failed refresh leaves
     /// the previous snapshots in place and is retried after a pause.
-    pub async fn run_snapshots(self: Arc<Self>) {
+    pub async fn run_snapshots(self: Arc<Self>, beat: Beat) {
         let mut retry_at: HashMap<Period, Instant> = HashMap::new();
         let mut interval = tokio::time::interval(SNAPSHOT_TICK);
         interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -174,10 +194,12 @@ impl Weigher {
                 Ok(stored) => stored,
                 Err(e) => {
                     tracing::error!("rankings: failed to read snapshots: {e}");
+                    beat.failed(e).await;
                     continue;
                 }
             };
             let now = Utc::now();
+            let mut failure = None;
             for period in Period::ALL {
                 if retry_at.get(&period).is_some_and(|at| Instant::now() < *at)
                     || !snapshot_due(period, &stored, self.ruleset.id, now)
@@ -209,8 +231,13 @@ impl Weigher {
                             SNAPSHOT_RETRY.as_secs() / 60
                         );
                         retry_at.insert(period, Instant::now() + SNAPSHOT_RETRY);
+                        failure = Some(e.to_string());
                     }
                 }
+            }
+            match failure {
+                Some(e) => beat.failed(e).await,
+                None => beat.ok().await,
             }
         }
     }
