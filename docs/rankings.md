@@ -2,11 +2,12 @@
 
 Scrobblr labels every scrobble (the classifier: `counted`, `suspect`,
 `duplicate`, `no_data`) and weighs it for global rankings. **Shadow mode:**
-no route serves a global ranking yet. The worker computes the weights and
-keeps each period's ranking precomputed; `worker rank report` compares raw
-and filtered rankings and `worker rank top` prints a stored one; nothing
-else reads them. Profiles do read the labels: they leave duplicates out and say how
-much of a user's listening is verified (below).
+no route serves a global ranking yet. The worker computes the weights,
+looks for accounts pushing the same entities together ([Coordination](#coordination)),
+and keeps each period's ranking precomputed; `worker rank report` compares
+raw and filtered rankings and `worker rank top` prints a stored one;
+nothing else reads them. Profiles do read the labels: they leave
+duplicates out and say how much of a user's listening is verified (below).
 
 ## Profiles
 
@@ -105,6 +106,350 @@ Last.fm over three years, one user):
   checked play by play, and is the cheapest thing to dump: it still counts
   on the user's profile, never in global rankings.
 
+## Coordination
+
+The weights judge one account at a time. A farm of accounts older than
+`RANKING_MIN_ACCOUNT_DAYS`, each playing like a plausible fan through a
+known client and declaring plausible listened time, weighs like fans: per
+account, nothing tells them apart. What gives a farm away is what its
+accounts share. Every 6 hours the worker looks for accounts pushing the
+same artists and tracks together (`shared::coordination`) and gives each a
+factor from 0 to 1 that global rankings multiply its listener credits and
+weight by. It blocks, deletes and relabels nothing, and profiles never
+read it. Like the rest of this page, it is shadow mode: only `worker rank
+report`, `worker rank cohorts` and the stored snapshots read it.
+
+### Groups, not pairs
+
+Comparing every account with every other grows with the square of the
+accounts. Instead, every artist and every track is a candidate group: the
+accounts that weighed something for it over the last 28 days
+(`ranking_daily`). A farm exists to push something, so it sits inside its
+targets' groups, and building the groups costs one pass over the
+(account, entity) pairs. Within a group, each signal asks whether the
+members share a trait far more often than the active population explains.
+A popular artist's listeners look like the population on every trait, so
+popularity flags no one; "accounts whose listening coincides beyond what
+popularity explains" is what a cell inside a group measures.
+
+### Signals
+
+Four signals compare a group with the population. For a value of a trait
+(a registration week, an address hash, a client) held by `observed` of a
+group's `n` members, where `c` of the population's `N` active accounts hold
+it, chance predicts `expected = n × c / N`. A **cell** counts only when its
+excess, `observed − expected`, is at least 10 accounts
+(`RANKING_COORDINATION_MIN_COHORT`) and 4 standard deviations
+(`RANKING_COORDINATION_MIN_Z`, Poisson). Its members get its **purity**,
+`(observed − expected) / observed`: the share of the cell the excess
+explains. A farm's cell is nearly pure; the few honest accounts that share
+its trait by chance get the same purity but, lacking the farm's other
+traits, only what one signal costs.
+
+| signal | a member's cell | weight |
+| --- | --- | --- |
+| `age` | registered in a 7-day window (`_AGE_DAYS`) the group is over-represented in; every non-overlapping window that passes | 0.5 |
+| `origin` | registered from an address, or a network, that at least 3 members share beyond chance ([Privacy](#privacy)); address or network, whichever explains more | 0.5 |
+| `client` | scrobbled the entity mostly through a client family (`protocol:name` without its version) used by under 2 % of the accounts outside the group (`_RARE_CLIENT`) | 0.35 |
+| `sync` | played its tracks in crowds on at least 4 of the last 14 days (`_SYNC_DAYS`, `_SYNC_WINDOW_DAYS`); 0.5 at 4 days, 1 from 8 | 0.5 |
+| `shape` | its own listening: the share of its weight on its top 3 artists, 0 at 45 % and 1 from 85 % (`_SHAPE_FROM`, `_SHAPE_TO`) | 0.125 |
+| `burst` | new to the entity (no weight for it in the 28 days before the window); worth the group's share of new members | 0.125 |
+
+**A crowd** is a play with at least 3 other accounts playing the same track
+within 2 minutes of it (`_SYNC_SECS`), 10 times (`_SYNC_RATIO`) what the
+accounts playing it within the hour around (`_SYNC_CONTEXT_SECS`) would put
+in those 4 minutes if spread evenly: a third of that hour's other listeners
+within 4 minutes. The hour, not the day, is the null because habits vary
+over the day (everyone listens in the evening) and hardly within an hour.
+Calqued schedules crowd every day; a premiere, a release night or a
+listening party crowds one.
+
+The clients the weights trust are the ones anyone can claim, so `client`
+only counts a client nearly nobody outside the group uses: a farm's own
+Last.fm API key or script name. A platform-exclusive catalogue skewing a
+fandom to one popular client never fires it.
+
+### Suspicion and factor
+
+A member's suspicion for a group is `min(1, Σ weight × evidence)`; an
+account's is its highest over the groups it is in. One primary signal at
+full strength reaches 0.5, the two behavioural ones together 0.25, so
+**nothing short of two independent group signals reaches certainty**, and
+behaviour alone never reaches the curve. The factor is 1 up to 0.4, 0 from
+0.9 (`RANKING_COORDINATION_FROM`, `_TO`), a smoothstep between:
+
+| evidence | suspicion | factor |
+| --- | --- | --- |
+| shape and burst only, at full strength | 0.25 | 1 |
+| one primary signal at full strength | 0.50 | 0.90 |
+| one primary at full strength, plus shape and burst | 0.75 | 0.22 |
+| two primary signals at purity 0.8 | 0.80 | 0.10 |
+| two primary signals at full strength | 1 | 0 |
+
+The bounds come from two requirements: one signal alone must keep at least
+~90 % (it has innocent explanations: a campus, an artist bringing its fans
+over in one week), and two strong ones must keep at most ~10 %.
+
+### In the rankings
+
+A run writes the factor of each flagged account's active days in
+`coordination_days` (rows below 1 only). Rankings and snapshots multiply a
+user's listener credits and weight by the user's factor for the period:
+the factors of their days, weighed by their weight on each day. They
+multiply the credit **after** it is capped at one listener: a farm account
+with lots of weight would otherwise stay a full listener at any factor.
+`rankings()` keeps the numbers without the factors beside them, for
+`worker rank report`.
+
+A run rewrites its window's days and leaves earlier days as the last run
+covering them left them, so a farm that stopped keeps its days dented in
+the year's ranking; the rows expire with the weights. A run is due every 6
+hours, when the UTC day changes and when its settings do; a snapshot is due
+again when a newer run lands. A run that fails keeps the previous factors
+and is retried 10 minutes later; the loop's heartbeat reports it. Runs,
+cohorts and flagged accounts are kept 30 days for review.
+
+`RANKING_COORDINATION=report` lists cohorts without applying any factor
+(every stored factor is removed); `off` doesn't run (and removes them);
+`apply`, the default, applies them to the shadow rankings. Below 200 active
+accounts (`_MIN_ACCOUNTS`) nothing is judged: every signal compares with
+the population, which is then too small to be a baseline.
+
+### Cohorts
+
+A cohort is the flagged accounts whose strongest group signal is in the
+same group (0.05 apart counts as equal and the larger group wins, so a
+farm meets on its main target rather than scattering over groups that
+differ by rounding). `worker rank cohorts` lists each with its size, mean
+score and factor, the members' mean evidence per signal, the cells of its
+group (registration windows, how many origin and client values, lockstep
+days, new listeners), and its top 5 targets with the cohort's share of
+their listeners and weight; `--members` adds every account's evidence.
+
+### Why these numbers
+
+- **28-day window, 14 days of plays.** A push that moves the month's
+  ranking lasts weeks; 28 days covers the week and the month, and the
+  baseline for `burst` is another 28 (inside the 372 days of weights
+  kept). Plays are read raw for `sync` and `client`, so their window is
+  shorter: 14 days is two weekends, enough for 4 days of crowds to mean
+  something.
+- **Excess of 10 accounts, z of 4.** Ten accounts add at most ten
+  listeners, a few positions where the week's #100 artist has 178 of them
+  on the synthetic population (#50: 414, #200: 92). Under
+  Poisson, z ≥ 4 is a 3 × 10⁻⁵ chance per cell; small expectations are
+  held by the 10-account floor instead (11 or more where 1 is expected:
+  under 10⁻⁸). Friend groups (4) and households (3) never reach it.
+- **3 members per value.** A couple's two accounts never make a cell.
+- **Crowds: 3 others, 2 minutes, a third of the hour, 4 days.** Two
+  minutes is under half a typical track (3.7 min), so a crowd is the same
+  track at the same time; 3 others leaves out a household listening
+  together on one speaker; one day is a premiere, two a weekly party.
+- **Rare client: 2 %** of the accounts outside the group: a client the
+  group nearly owns.
+- **Shape: 45 % to 85 %** of a month on 3 artists. Honest synthetic
+  accounts put a median 21 % of their month on their top 3 artists (p90
+  31 %, p99 51 %); the aged farm 70 to 74 %, the decoy farm 26 to 38 %.
+- **Weights.** Primary signals 0.5 so that two are needed. `client` 0.35:
+  a name is free to change, so it corroborates rather than convicts.
+  Behavioural signals 0.125: together half a primary, and never enough
+  alone.
+
+### Cost
+
+Detection is linear in the (account, entity) pairs of the window plus
+sorting the sync window's plays; it never compares two accounts. Measured
+on the synthetic population below (5,154,957 scrobbles, 5,550 accounts,
+chunks older than 30 days compressed) in TimescaleDB 2.29.2 / Postgres 18
+with `shared_buffers=512MB`, on an 8-core laptop with 7 GB of RAM:
+
+| | |
+| --- | --- |
+| input | 5,522 active accounts, 976,481 (account, track) pairs, 1,439,097 plays, 14,388 artists and tracks examined |
+| loading | 9.8 s: the window's pairs 3.4 s, the baseline 2.4 s, the plays 3.2 s |
+| detection | 2.3 s on a blocking thread |
+| storing | ~1 s, one transaction (36k factor rows) |
+| a run | 13.5 s, 257 MB peak memory; ~25 s under the load below |
+
+It only reads until its final transaction. With 4 clients inserting
+scrobbles and reading profiles and the stored ranking (pgbench), latency
+was the same with and without detection running back to back: 9.47 ms
+(422 transactions/s) idle, 9.50 ms (421/s) during, within this machine's
+run-to-run noise.
+
+Applying the factors costs the rankings little, with 1,473 accounts
+flagged (27 % of the active ones, an extreme where the farms are a quarter
+of the population; with no flags the cost is near nothing):
+
+| | without factors | with factors |
+| --- | --- | --- |
+| all six snapshot refreshes | 9.8 s | 10.6 s |
+| `rankings()`, artists, week / month / 60 days | 0.51 / 1.45 / 2.34 s | 0.59 / 1.70 / 2.58 s |
+| `rankings()`, tracks, week / month / 60 days | 0.84 / 2.36 / 3.58 s | 0.91 / 2.70 / 4.07 s |
+| reading 50 positions of a snapshot | unchanged | unchanged |
+
+Two first attempts cost more and were dropped: joining every
+`ranking_daily` row to the factors (the planner merge-joined in day order,
++25 to 65 % with no factor stored) and subtracting per (user, entity, day)
+what the factors take (+45 to 80 % with them). One factor per user and
+period, joined by hash, is what the table measures.
+
+### Synthetic results
+
+`scripts/synthetic/coordination.sql` adds four farms and three honest
+crowds to the 4,000-user population (commands under
+[Synthetic scenario](#synthetic-scenario)). Every farm account is older
+than 7 days, claims a client the weights trust, declares listened time at
+the scrobble point and plays 15 to 40 tracks a day over 28 days, three
+target artists and filler; the classifier labels none of it suspect.
+
+- **a, aged farm**: 400 accounts registered within 2 days, 40 days ago,
+  before origins were recorded; own hours; 70 % targets.
+- **b, decoy farm**: 400 registered within 2 days, no origins; 25 %
+  targets, the rest from 25 favourites drawn like the population's.
+- **c, proxied farm**: 300 registered within 3 days from 3 addresses in
+  one /24, one schedule for all (20:00, same tracks), its own Last.fm API
+  key.
+- **d, spread farm**: 300 registered over 4 months (60 to 180 days ago,
+  so most past origin retention), each from its own residential address,
+  own hours, 50 % targets.
+- **e, release**: 2,650 honest users play a new album the night it comes
+  out (40 % in its first 10 minutes), half replay it later; 150 accounts
+  sign up the week before for it.
+- **f, friends and shared networks**: 40 groups of 4 friends registered
+  the same days sharing a playlist and a Saturday listening party in
+  sync; 30 households of 3 behind one address listening together most
+  evenings; 150 students behind one campus address registered within 2
+  weeks.
+- **g, fandom**: 60 established fans of a small artist, 6 to 12 plays
+  most nights, and a listening party.
+
+With the default settings (run #6, the week ending 2026-10-10):
+
+| scenario | accounts | flagged | at 0 | mean factor | weight kept | its artists in the week by listeners |
+| --- | --- | --- | --- | --- | --- | --- |
+| a, aged farm | 400 | 400 | 0 | 0.46 | 45.6 % | #52–54 → #94–96 (400 → 182 listeners) |
+| b, decoy farm | 400 | 400 | 0 | 0.80 | 79.9 % | #55–57 → #52–54 (400 → 320) |
+| c, proxied farm | 300 | 300 | 300 | 0 | 0 % | #65–67 → out of the ranking |
+| d, spread farm | 300 | 211 | 0 | 0.91 | 90.7 % | #62–64 → #63–65 (300 → 272) |
+| e, release listeners | 2,650 | 104 | 0 | 0.999 | 99.89 % | Release Star #6 → #4 |
+| e, hype signups | 150 | 5 | 0 | 0.999 | 99.99 % | |
+| f, campus | 150 | 31 | 0 | 0.993 | 99.24 % | |
+| f, friends | 160 | 63 | 0 | 0.991 | 99.01 % | |
+| f, households | 90 | 26 | 0 | 0.991 | 98.88 % | |
+| g, fandom | 60 | 2 | 0 | 0.999 | 99.85 % | Indie Darling #316 → #308 |
+| every honest account | 4,150 | 162 | 0 | 0.999 | 99.89 % | |
+
+The proxied farm fires all four group signals and is zeroed; each other
+farm fires one (registration) plus behaviour. No honest account was
+dented below 0.92: 58 kept 0.99 or more, 104 between 0.90 and 0.99. They
+are mostly the friends, households and students, whose registrations the
+scenario packs into the same four weeks: shared listening (a playlist, a
+household's evenings) puts several of them in the same artists' groups,
+where that shared registration week is one signal. The decoy farm moves
+*up* three places because the aged farm above it falls. `worker rank
+cohorts` shows the first three farms as one cohort each, named after
+their first target, and 194 of the spread farm's 211 flagged accounts as
+a fourth; the honest dents and the rest of the spread farm make 38
+smaller cohorts of 1 to 14 accounts.
+
+**More aggressive settings** (`RANKING_COORDINATION_FROM=0.3`, `_TO=0.7`,
+shape and burst 0.2) zero the aged farm, keep 15 % of the decoy farm and
+47 % of the spread one, but dent 542 honest accounts, 67 of them below
+half: friends keep 76 %, the campus 77 %, households 79 %, hype signups
+80 %. The defaults choose the other side.
+
+### What it doesn't catch, and what evading costs
+
+- **The spread farm (d) is not caught**, and the aged (a) and decoy (b)
+  farms only dented: each shares one group trait (when its accounts
+  registered) and nothing else. The aged farm's three targets stay in the
+  week's top 100 at 182 listeners each. Telling them from fans an artist
+  brought over in one week, or a campus, takes a second independent
+  trait, which they don't have; zeroing on one trait is what the
+  aggressive settings above do, at a cost to honest accounts.
+- **Registration (`age`) costs time.** A week's cell needs 10 accounts
+  above what the population's signups predict. A farm registering fewer
+  than ~10 extra accounts a week passes unseen: 400 accounts take some 40
+  weeks, all held until used. The spread farm, registered over 4 months
+  against a population registered over 2 years, still stands out 6 times
+  in every week it registered in.
+- **Origin costs money or time:** one registration per residential
+  address (proxy services sell them; a registration is a few requests),
+  or accounts aged past the 90 days origins are kept.
+- **Client, sync, shape and burst cost nothing to a script:** claim a
+  popular client, randomize each account's schedule, add filler
+  listening, ramp up slowly or keep pushing past 28 days. That is why
+  they only corroborate (client weighs 0.35, behaviour 0.125).
+- **Small farms.** A cell needs 10 accounts above chance, so up to ~10
+  coordinated accounts per target are never judged; on a small instance
+  that is a larger share of a ranking (the week's #200 here has 92
+  listeners).
+- **What the weights already handle isn't repeated here:** new accounts,
+  imports, short listens, unknown clients and loops weigh what they did.
+
+### Privacy
+
+The origin signal needs to know which accounts registered from the same
+place, never where:
+
+- **What is stored.** With `REGISTRATION_HASH_KEY` set, registering stores
+  two 64-bit values (`registration_origins`): HMAC-SHA256 under that key of
+  the client's address (an IPv6 address by its /64, which one host rotates
+  its addresses within) and of its network (IPv4 /24, IPv6 /48), the key's
+  id, and when. Never the address. Unset, nothing is stored and the signal
+  is silent.
+- **Which address.** The one the API's limits use: the peer, or the entry
+  the trusted proxies appended to `X-Forwarded-For` (`TRUSTED_PROXY_HOPS`,
+  `TRUSTED_PROXIES`), so a client reaching the API around its proxies
+  can't make another account look like it registered elsewhere, or like
+  a farm's. Behind a proxy the API isn't told about, every registration
+  shares the proxy's address; the signal then finds nothing over chance
+  and flags no one, but sees nothing either.
+- **The key is the secret.** The IPv4 space is small enough to hash
+  whole, so whoever holds the key and the table (or a backup) can recover
+  the addresses. It lives in the environment, like `TOKEN_ENCRYPTION_KEY`,
+  never in the database or its backups ([operations.md](operations.md)).
+- **Retention.** The worker deletes origins older than
+  `REGISTRATION_ORIGIN_DAYS` (90) once a day; backups keep them as long as
+  they keep everything else. Deleting an account deletes its row.
+- **Key changes.** Each value carries its key's id, so values made under
+  different keys never match: after a new key, earlier origins compare
+  with nothing and the signal weakens until they expire. Change it when
+  it may have leaked, not on a schedule.
+- **Use.** Values are only compared for equality inside the detection;
+  cohort listings say how many accounts share how many values, never
+  which. Being pseudonymous data while the key exists, they belong in the
+  privacy policy, as fraud prevention.
+
+### Recalibrating with real users
+
+Every threshold is a setting because none could be fitted to real data:
+the real database has a handful of accounts, under the 200 below which
+nothing is judged. The defaults lean to false negatives. Once there are
+real users:
+
+1. Run `RANKING_COORDINATION=report` for a few weeks: cohorts are
+   computed and listed, no factor is applied.
+2. After each run, review `worker rank cohorts --members`. A farm shows
+   as a large cohort whose targets few others listen to (`… of … listeners`
+   near 100 %) with two or more signals; honest dents show as small
+   cohorts with one signal and popular targets. Note which signals fire
+   for each kind.
+3. Preview other settings with `worker rank detect --dry-run` and the
+   variables set; it stores nothing. Compare flagged counts, and run
+   `scripts/synthetic/` on a scratch copy to see what a change costs the
+   honest crowds there.
+4. Scale `RANKING_COORDINATION_MIN_COHORT` with the rankings: about the
+   listeners a few positions are worth around the last position anyone
+   looks at (here 10 against 178 at #100).
+5. Watch the share of active accounts flagged and the honest
+   cohorts' factors; on the synthetic population 3.9 % of honest accounts
+   are dented, none below 0.92. If real honest cohorts are dented more,
+   raise `_FROM`, or `_MIN_Z` for the signal that fires them.
+6. Switch to `apply` once the listings hold no honest cohort you would
+   not accept being dented as much as it is.
+
 ## Storage and cost
 
 Weighing is per user and UTC day, after the day is classified
@@ -164,12 +509,12 @@ included:
 | `month` | 30 | every hour |
 | `year` | 365 | every day |
 
-and each also when the UTC day changes (the window moves) or the weights'
-settings do. A refresh sums `ranking_daily` over the period and replaces
+and each also when the UTC day changes (the window moves), the weights'
+settings do, or a newer coordination run brings other factors. A refresh sums `ranking_daily` over the period and replaces
 the period's two rows in `ranking_snapshots` (artists, tracks) and their
 first 1,000 positions in `ranking_entries`, in one transaction: listener
-credits, weight and the raw counts beside them, entities without weight
-left out. Readers see the previous snapshot until the new one commits.
+credits and weight with the coordination factors applied, the raw counts
+beside them, entities without weight left out. Readers see the previous snapshot until the new one commits.
 
 A refresh that fails (the database away, the 10-minute statement timeout)
 rolls back: the previous snapshot stays as it was and the period is tried
@@ -207,19 +552,28 @@ worker rank recompute [--from DATE] [--to DATE] [--user NAME] [--dry-run]
 worker rank backfill [--from DATE] [--to DATE] [--dry-run]
 worker rank refresh [--period week|month|year]
 worker rank top [--period week|month|year] [--kind artist|track] [--limit N]
+worker rank detect [--dry-run] [--limit N] [--members]
+worker rank cohorts [--dry-run] [--limit N] [--members]
 worker tracks mb-review [--limit N] [--apply]
 ```
 
 `report` prints, for the range (the last 7 days by default): plays and how
 many each reason down-weighted, then the top N artists and tracks by
 listeners and by plays, filtered beside raw (what moved, entered and left),
-then the users ranked by plays and by weight. `recompute` weighs days
+then the coordination section (the latest run, the weight its factors
+took in the range, and the top N with the factors beside the same
+without them, what moved and left), then the users ranked by plays and
+by weight. `recompute` weighs days
 synchronously with the current `RANKING_*` settings; run it with other
 settings on a scratch copy of the database to preview them. Days before
 the retention window have no weights: `report` shows none for them, and
 `recompute` previews them only with `--dry-run`. `refresh`
 recomputes the stored rankings now and `top` prints one as a route would
-read it.
+read it. `detect` runs a coordination detection now with the current
+`RANKING_COORDINATION*` settings and stores it (the worker does every 6
+hours); `cohorts` lists the latest stored run's cohorts. With `--dry-run`
+both detect now and store nothing, which previews other settings;
+`--members` lists each flagged account's evidence.
 
 ## Track lengths
 
@@ -287,13 +641,35 @@ the extension, the mobile app and Spotify (95 %, the rest duplicates and
 listened time): the same for every artist, so the order holds. The
 classifier labelled none of the honest plays suspect.
 
+The coordination scenarios ([Synthetic results](#synthetic-results))
+take the population without the four attacks:
+
+```bash
+psql postgres://…/synth -v users=4000 -v days=60 -f scripts/synthetic/population.sql
+psql postgres://…/synth -f scripts/synthetic/coordination.sql
+DATABASE_URL=postgres://…/synth worker classify reclassify
+DATABASE_URL=postgres://…/synth worker rank recompute
+DATABASE_URL=postgres://…/synth worker rank detect
+DATABASE_URL=postgres://…/synth worker rank refresh
+psql postgres://…/synth -f scripts/synthetic/coordination-results.sql
+```
+
+Each farm's size and the crowds' are variables (`-v aged=400 -v decoy=400
+-v proxied=300 -v spread=300 -v release=2500 -v hype=150 -v fans=60`).
+The population's registration days are spread over 60 to 900 days ago by
+user number, without drawing from the random sequence, so its plays (and
+the numbers above) are the same as before they were spread. Loading took
+13 min for the population and 10 for the scenarios; classifying and
+weighing 10 and 12 min in 6 processes split by date (days are
+independent).
+
 ## Limits
 
-- **Aged farms.** Accounts older than `RANKING_MIN_ACCOUNT_DAYS` that play
-  like fans, through a known client name and declaring plausible listened
-  time, weigh like fans: per account, nothing tells them apart. Telling
-  them apart takes cross-account signals (many accounts, one artist, the
-  same times); not done.
+- **Aged farms sharing one trait.** Coordination detection zeroes a farm
+  that shares two group traits, but only dents one that shares a single
+  one (registration week) and evades the rest; one registering slowly
+  enough isn't seen at all ([what evading costs](#what-it-doesnt-catch-and-what-evading-costs)).
+  Thresholds are unfitted to real users ([Recalibrating](#recalibrating-with-real-users)).
 - **Native client names are claims.** Known clients weigh in full because
   of the software they name, which anyone can name.
 - **The extension without a length.** It scrobbles after 30 s when YouTube

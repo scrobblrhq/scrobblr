@@ -67,10 +67,15 @@ unhealthy service. The database is dumped first and the uploads after:
 an image is stored before a row refers to it, so the archive has every
 file the dump names.
 
-The files are readable by root only (`0600`): they hold password hashes
-and encrypted account tokens. `TOKEN_ENCRYPTION_KEY` is not in them: keep
-it apart from the backups and restore it with them, or linked Spotify and
-Last.fm accounts must be connected again.
+The files are readable by root only (`0600`): they hold password hashes,
+encrypted account tokens and keyed hashes of where recent accounts
+registered from ([rankings.md](rankings.md#privacy)). `TOKEN_ENCRYPTION_KEY`
+is not in them: keep it apart from the backups and restore it with them,
+or linked Spotify and Last.fm accounts must be connected again. Keep
+`REGISTRATION_HASH_KEY` apart from them too: with it, the hashes in a
+backup give back the addresses. Restored with another key, only the
+origins recorded before the restore stop matching new ones, until they
+expire.
 
 **Schedule and retention.** When no backup succeeded since the latest
 `BACKUP_TIME` (the first start, or the host was down then), it backs up
