@@ -11,14 +11,16 @@ use aide::{
 };
 use axum::{
     Extension, Json, Router,
-    extract::{DefaultBodyLimit, Request},
+    extract::{DefaultBodyLimit, Request, State},
     http::{HeaderValue, StatusCode as HttpStatus, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
 };
+use fred::interfaces::ClientLike;
 use shared::media::UploadKey;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 use tower::ServiceBuilder;
 use tower_http::{
     catch_panic::CatchPanicLayer, compression::CompressionLayer, services::ServeDir,
@@ -39,6 +41,8 @@ use crate::{
     state::AppState,
 };
 
+#[cfg(test)]
+mod health_tests;
 #[cfg(test)]
 mod openapi_tests;
 #[cfg(test)]
@@ -389,12 +393,7 @@ pub fn build(state: AppState) -> Router {
                 community::_list_track_comments_doc,
             ),
         )
-        .api_route("/v1/search", get_with(tracks::search, tracks::_search_doc))
-        // Health
-        .api_route(
-            "/health",
-            get_with(health, |r| r.hidden(true).description("Health check xD")),
-        );
+        .api_route("/v1/search", get_with(tracks::search, tracks::_search_doc));
 
     let optional_authed_users = ApiRouter::new()
         // User profiles
@@ -466,6 +465,7 @@ pub fn build(state: AppState) -> Router {
 
     let native = ApiRouter::new()
         .route("/docs", Scalar::new("/api.json").axum_route())
+        .route("/health", axum::routing::get(health))
         .merge(authed(
             &state,
             Access::Scope(Scope::Scrobble),
@@ -570,8 +570,51 @@ fn authed(state: &AppState, access: Access, routes: ApiRouter<AppState>) -> ApiR
         ))
 }
 
-async fn health() -> &'static str {
-    "ok"
+/// Readiness for uptime checks and the container's healthcheck: 200 `ok`
+/// when the database and Redis answer within 2 s, otherwise 503 naming
+/// which doesn't (the error itself goes to the log only).
+async fn health(State(state): State<AppState>) -> Response {
+    const TIMEOUT: Duration = Duration::from_secs(2);
+    let database = async {
+        match tokio::time::timeout(TIMEOUT, sqlx::query("SELECT 1").execute(&state.db)).await {
+            Ok(Ok(_)) => true,
+            Ok(Err(e)) => {
+                tracing::warn!("health: database: {e}");
+                false
+            }
+            Err(_) => {
+                tracing::warn!("health: database didn't answer within {TIMEOUT:?}");
+                false
+            }
+        }
+    };
+    let redis = async {
+        match tokio::time::timeout(TIMEOUT, state.redis.ping::<()>(None)).await {
+            Ok(Ok(())) => true,
+            Ok(Err(e)) => {
+                tracing::warn!("health: redis: {e}");
+                false
+            }
+            Err(_) => {
+                tracing::warn!("health: redis didn't answer within {TIMEOUT:?}");
+                false
+            }
+        }
+    };
+    let (database, redis) = tokio::join!(database, redis);
+    let down: Vec<&str> = [(database, "database"), (redis, "redis")]
+        .into_iter()
+        .filter_map(|(up, name)| (!up).then_some(name))
+        .collect();
+    if down.is_empty() {
+        "ok".into_response()
+    } else {
+        (
+            HttpStatus::SERVICE_UNAVAILABLE,
+            format!("unavailable: {}", down.join(", ")),
+        )
+            .into_response()
+    }
 }
 
 fn api_docs(api: TransformOpenApi) -> TransformOpenApi {

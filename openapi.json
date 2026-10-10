@@ -2902,7 +2902,6 @@
         ]
       }
     },
-    "/health": {},
     "/v1/album/{id}/image": {
       "post": {
         "description": "Adds a community cover candidate for the album (multipart `image` field). Uploads never replace the current cover directly — the most-liked candidate becomes the displayed cover once it clears the vote threshold. Returns the refreshed candidate list.",

@@ -14,11 +14,11 @@ use crate::state::AppState;
 
 const SNAPSHOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../openapi.json");
 
-/// `/api.json`, from a router whose database and Redis are never reached.
-async fn spec() -> Value {
-    let state = AppState {
+/// A state whose database and Redis are never reached.
+pub(super) fn offline_state() -> AppState {
+    AppState {
         db: sqlx::postgres::PgPoolOptions::new()
-            .connect_lazy("postgres://localhost/unused")
+            .connect_lazy("postgres://127.0.0.1:1/unused")
             .unwrap(),
         redis: fred::types::Builder::default_centralized().build().unwrap(),
         public_base_url: "https://scrobblr.example".into(),
@@ -33,8 +33,12 @@ async fn spec() -> Value {
         clients: Default::default(),
         compat: Default::default(),
         live: Default::default(),
-    };
-    let response = super::build(state)
+    }
+}
+
+/// `/api.json`, from a router whose database and Redis are never reached.
+async fn spec() -> Value {
+    let response = super::build(offline_state())
         .oneshot(Request::get("/api.json").body(Body::empty()).unwrap())
         .await
         .unwrap();
