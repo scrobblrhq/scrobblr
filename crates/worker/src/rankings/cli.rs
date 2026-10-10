@@ -11,7 +11,7 @@ use db::queries::coordination as cdb;
 use db::queries::rankings::{self as rdb, DayWeights, Kind, Period, Ranked, Ruleset};
 use db::queries::users as users_db;
 use shared::coordination::{Evidence, Signal};
-use shared::ranking::{FULL, RankingParams, Reason};
+use shared::ranking::{self, FULL, RankingParams, Reason};
 
 pub const USAGE: &str = "       worker rank report    [--from DATE | --all] [--to DATE] [--limit N]
        worker rank recompute [--from DATE] [--to DATE] [--user NAME] [--dry-run]
@@ -24,7 +24,7 @@ pub const USAGE: &str = "       worker rank report    [--from DATE | --all] [--t
                              the last 7 days, and with and without coordination factors;
                              recompute and backfill cover all history; refresh recomputes
                              the stored rankings now (the worker does on a schedule) and
-                             top prints one as a route would read it; detect looks for
+                             top prints one as the routes read it; detect looks for
                              coordinated accounts now and stores their factors (the worker
                              does every 6 hours); cohorts lists the latest run's cohorts,
                              or with --dry-run a fresh detection that stores nothing";
@@ -371,11 +371,22 @@ async fn top(db: &PgPool, o: Options) -> anyhow::Result<()> {
     let started = std::time::Instant::now();
     let entries = rdb::snapshot_entries(db, period, kind, 0, o.limit.unwrap_or(20)).await?;
     let took = started.elapsed();
+    let min_listeners =
+        ranking::parse_min_listeners(crate::non_empty_env("RANKING_MIN_LISTENERS").as_deref())
+            .map_err(anyhow::Error::msg)?;
     println!(
         "   #  {:<40} listeners    weight  raw listeners  raw plays",
         "name"
     );
+    let mut served = true;
     for e in &entries {
+        if served && !ranking::is_served(e.listeners, min_listeners) {
+            served = false;
+            println!(
+                "      (the routes serve none below: under {min_listeners} listeners, \
+                 RANKING_MIN_LISTENERS)"
+            );
+        }
         let name = match (&e.artist_name, &e.name) {
             (Some(artist), Some(name)) => format!("{artist} — {name}"),
             (None, Some(name)) => name.clone(),
