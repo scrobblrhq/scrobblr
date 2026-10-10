@@ -9,7 +9,8 @@
 //! days with the classification, so a lost queue entry or new params are
 //! picked up again. Rankings sum `ranking_daily` over a period; the worker
 //! keeps each [`Period`]'s in `ranking_snapshots` (migration `0022`).
-//! Nothing user-facing reads them yet.
+//! Nothing user-facing reads them yet. Weights are kept only for the days a
+//! period can reach ([`retained_from`]).
 
 use std::collections::HashMap;
 use std::time::Instant;
@@ -188,8 +189,9 @@ pub async fn claim_due(pool: &PgPool, limit: i64) -> Result<Vec<QueuedDay>, sqlx
 }
 
 /// Weighs one user's UTC day with `ruleset` from its stored classification
-/// and, unless `dry_run`, replaces its rows. A day without a classification
-/// has its rows removed. Reads `scrobbles`, never writes it.
+/// and, unless `dry_run`, replaces its rows. A day without a classification,
+/// or before [`retained_from`], has its rows removed. Reads `scrobbles`,
+/// never writes it.
 pub async fn weigh_user_day(
     pool: &PgPool,
     ruleset: &Ruleset,
@@ -223,7 +225,8 @@ pub async fn weigh_user_day(
     )
     .fetch_optional(&mut *tx)
     .await?;
-    let Some(classified) = classified else {
+    let retained = dry_run || day >= retained_from(Utc::now().date_naive());
+    let Some(classified) = classified.filter(|_| retained) else {
         if !dry_run {
             sqlx::query!(
                 "DELETE FROM ranking_days WHERE user_id = $1 AND day = $2",
@@ -394,8 +397,8 @@ pub async fn weigh_user_day(
 
 /// Queues days whose weights are missing, made with another ruleset or
 /// from an older classification, and days weighed whose classification is
-/// gone. Newest days first, at most `limit` (`None` = all). Returns the
-/// days queued.
+/// gone, from [`retained_from`] on. Newest days first, at most `limit`
+/// (`None` = all). Returns the days queued.
 pub async fn enqueue_stale(
     conn: &mut PgConnection,
     ruleset_id: i32,
@@ -403,6 +406,8 @@ pub async fn enqueue_stale(
     to: Option<NaiveDate>,
     limit: Option<i64>,
 ) -> Result<u64, sqlx::Error> {
+    let first = retained_from(Utc::now().date_naive());
+    let from = Some(from.map_or(first, |from| from.max(first)));
     let queued = sqlx::query!(
         r#"
         WITH classified AS (
@@ -624,7 +629,7 @@ impl Period {
         Period::ALL.into_iter().find(|p| p.as_str() == s)
     }
 
-    pub fn days(self) -> i64 {
+    pub const fn days(self) -> i64 {
         match self {
             Period::Week => 7,
             Period::Month => 30,
@@ -636,6 +641,31 @@ impl Period {
     pub fn range(self, today: NaiveDate) -> (NaiveDate, NaiveDate) {
         (today - TimeDelta::days(self.days() - 1), today)
     }
+}
+
+/// Days of weights kept: the longest period, and a week more so a snapshot
+/// computed around midnight, or by a lagging clock, finds its first day.
+pub const RETAINED_DAYS: i64 = Period::Year.days() + 7;
+
+/// The first day whose weights are kept on `today`.
+pub fn retained_from(today: NaiveDate) -> NaiveDate {
+    today - TimeDelta::days(RETAINED_DAYS - 1)
+}
+
+/// Deletes the weights of days before [`retained_from`]`(today)`; returns
+/// the user-days removed. No period reaches them.
+pub async fn purge_expired(pool: &PgPool, today: NaiveDate) -> Result<u64, sqlx::Error> {
+    let first = retained_from(today);
+    let mut tx = pool.begin().await?;
+    sqlx::query!("DELETE FROM ranking_daily WHERE day < $1", first)
+        .execute(&mut *tx)
+        .await?;
+    let days = sqlx::query!("DELETE FROM ranking_days WHERE day < $1", first)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+    tx.commit().await?;
+    Ok(days)
 }
 
 /// A period's stored ranking of artists or tracks.

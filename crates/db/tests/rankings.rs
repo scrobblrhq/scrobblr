@@ -278,6 +278,70 @@ async fn stale_and_orphaned_days_are_queued_again() {
     .await;
 }
 
+#[tokio::test]
+#[ignore = "needs Postgres: just test-db"]
+async fn weights_are_kept_only_for_the_longest_period() {
+    with_db(true, |pool| async move {
+        let (classifier, weights) = rulesets(&pool).await;
+        let fan = user(&pool, "fan", 1000).await;
+        let song = track(&pool, "Band", "Song", 200_000).await;
+        let today = Utc::now().date_naive();
+        let first = rdb::retained_from(today);
+        assert!(first <= Period::Year.range(today).0);
+        let old = first - TimeDelta::days(1);
+        for day in [old, first] {
+            scrobble(
+                &pool,
+                Scrobble {
+                    user_id: fan,
+                    track: song,
+                    played_at: at(day, 600),
+                    length_ms: 200_000,
+                    listened_ms: None,
+                    client_id: None,
+                    import_id: None,
+                },
+            )
+            .await;
+        }
+        classify_and_weigh(&pool, &classifier, &weights).await;
+        let weighed = async || -> Vec<NaiveDate> {
+            sqlx::query_scalar("SELECT day FROM ranking_days ORDER BY day")
+                .fetch_all(&pool)
+                .await
+                .unwrap()
+        };
+        assert_eq!(weighed().await, vec![first]);
+        let mut conn = pool.acquire().await.unwrap();
+        assert_eq!(
+            rdb::enqueue_stale(&mut conn, weights.id, None, None, None)
+                .await
+                .unwrap(),
+            0
+        );
+        let preview = rdb::weigh_user_day(&pool, &weights, fan, old, true)
+            .await
+            .unwrap();
+        assert_eq!(preview.plays, 1);
+
+        // Tomorrow the first day falls out of the window.
+        assert_eq!(rdb::purge_expired(&pool, today).await.unwrap(), 0);
+        assert_eq!(
+            rdb::purge_expired(&pool, today + TimeDelta::days(1))
+                .await
+                .unwrap(),
+            1
+        );
+        assert!(weighed().await.is_empty());
+        let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM ranking_daily")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(rows, 0);
+    })
+    .await;
+}
+
 /// The four ways of botting from scripts/synthetic/botting.sql, small:
 /// each tops a raw ranking and none moves the filtered ones.
 #[tokio::test]

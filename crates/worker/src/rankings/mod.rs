@@ -135,15 +135,29 @@ impl Weigher {
     }
 
     /// First tick fires at startup, so history predating these params
-    /// starts filling in immediately.
+    /// starts filling in immediately. Once a UTC day, also deletes the
+    /// weights no period reaches any more.
     pub async fn run_sweeps(self: Arc<Self>) {
         let mut interval = tokio::time::interval(SWEEP_INTERVAL);
+        let mut purged_on = None;
         loop {
             interval.tick().await;
             match self.sweep().await {
                 Ok(0) => {}
                 Ok(n) => tracing::info!("rankings: sweep queued {n} days"),
                 Err(e) => tracing::error!("rankings: sweep failed: {e}"),
+            }
+            let today = Utc::now().date_naive();
+            if purged_on != Some(today) {
+                match rdb::purge_expired(&self.db, today).await {
+                    Ok(n) => {
+                        purged_on = Some(today);
+                        if n > 0 {
+                            tracing::info!("rankings: deleted the weights of {n} expired days");
+                        }
+                    }
+                    Err(e) => tracing::error!("rankings: purging expired weights failed: {e}"),
+                }
             }
         }
     }

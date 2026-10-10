@@ -116,6 +116,13 @@ a 5-minute sweep queues days weighed with other settings, from an older
 classification, or never. It reads `scrobbles` only by user, the
 compression's segment key, and never writes it.
 
+Weights are kept for the days the longest period reaches, plus a week
+(`RETAINED_DAYS`, 372): once a UTC day the sweep deletes older days'
+`ranking_days` and `ranking_daily` rows, weighing a day before the window
+removes its rows instead of writing them (a dry run still computes it), and
+the sweep never queues one. Labels, which profiles read, are kept for all
+history. A ranking over a longer span would need the window widened first.
+
 A ranking over a period sums `ranking_daily`'s rows for its days
 (`db::queries::rankings::rankings`), never scrobbles: compressed chunks are
 segmented by user, so anything by artist or track over raw scrobbles
@@ -208,7 +215,9 @@ many each reason down-weighted, then the top N artists and tracks by
 listeners and by plays, filtered beside raw (what moved, entered and left),
 then the users ranked by plays and by weight. `recompute` weighs days
 synchronously with the current `RANKING_*` settings; run it with other
-settings on a scratch copy of the database to preview them. `refresh`
+settings on a scratch copy of the database to preview them. Days before
+the retention window have no weights: `report` shows none for them, and
+`recompute` previews them only with `--dry-run`. `refresh`
 recomputes the stored rankings now and `top` prints one as a route would
 read it.
 
