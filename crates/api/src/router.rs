@@ -11,16 +11,14 @@ use aide::{
 };
 use axum::{
     Extension, Json, Router,
-    extract::{DefaultBodyLimit, Request, State},
+    extract::{DefaultBodyLimit, Request},
     http::{HeaderValue, StatusCode as HttpStatus, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
 };
-use fred::interfaces::ClientLike;
 use shared::media::UploadKey;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
 use tower::ServiceBuilder;
 use tower_http::{
     catch_panic::CatchPanicLayer, compression::CompressionLayer, services::ServeDir,
@@ -38,6 +36,7 @@ use crate::{
         cors,
         rate_limit::{rate_limit, upload_limit},
     },
+    monitoring,
     state::AppState,
 };
 
@@ -465,7 +464,12 @@ pub fn build(state: AppState) -> Router {
 
     let native = ApiRouter::new()
         .route("/docs", Scalar::new("/api.json").axum_route())
-        .route("/health", axum::routing::get(health))
+        .route("/health", axum::routing::get(monitoring::health))
+        .route(
+            "/health/worker",
+            axum::routing::get(monitoring::health_worker),
+        )
+        .route("/metrics", axum::routing::get(monitoring::metrics))
         .merge(authed(
             &state,
             Access::Scope(Scope::Scrobble),
@@ -493,6 +497,10 @@ pub fn build(state: AppState) -> Router {
     }
     let router = router
         .layer(CatchPanicLayer::custom(panic_response))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            monitoring::count_responses,
+        ))
         .layer(TraceLayer::new_for_http())
         .layer(CompressionLayer::new())
         .route("/api.json", axum::routing::get(serve_api))
@@ -568,53 +576,6 @@ fn authed(state: &AppState, access: Access, routes: ApiRouter<AppState>) -> ApiR
             (state.clone(), access),
             require_auth,
         ))
-}
-
-/// Readiness for uptime checks and the container's healthcheck: 200 `ok`
-/// when the database and Redis answer within 2 s, otherwise 503 naming
-/// which doesn't (the error itself goes to the log only).
-async fn health(State(state): State<AppState>) -> Response {
-    const TIMEOUT: Duration = Duration::from_secs(2);
-    let database = async {
-        match tokio::time::timeout(TIMEOUT, sqlx::query("SELECT 1").execute(&state.db)).await {
-            Ok(Ok(_)) => true,
-            Ok(Err(e)) => {
-                tracing::warn!("health: database: {e}");
-                false
-            }
-            Err(_) => {
-                tracing::warn!("health: database didn't answer within {TIMEOUT:?}");
-                false
-            }
-        }
-    };
-    let redis = async {
-        match tokio::time::timeout(TIMEOUT, state.redis.ping::<()>(None)).await {
-            Ok(Ok(())) => true,
-            Ok(Err(e)) => {
-                tracing::warn!("health: redis: {e}");
-                false
-            }
-            Err(_) => {
-                tracing::warn!("health: redis didn't answer within {TIMEOUT:?}");
-                false
-            }
-        }
-    };
-    let (database, redis) = tokio::join!(database, redis);
-    let down: Vec<&str> = [(database, "database"), (redis, "redis")]
-        .into_iter()
-        .filter_map(|(up, name)| (!up).then_some(name))
-        .collect();
-    if down.is_empty() {
-        "ok".into_response()
-    } else {
-        (
-            HttpStatus::SERVICE_UNAVAILABLE,
-            format!("unavailable: {}", down.join(", ")),
-        )
-            .into_response()
-    }
 }
 
 fn api_docs(api: TransformOpenApi) -> TransformOpenApi {

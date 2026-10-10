@@ -33,6 +33,7 @@ pub(super) fn offline_state() -> AppState {
         clients: Default::default(),
         compat: Default::default(),
         live: Default::default(),
+        monitoring: Default::default(),
     }
 }
 

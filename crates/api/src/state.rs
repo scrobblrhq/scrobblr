@@ -11,6 +11,7 @@ use crate::media::Media;
 use crate::middleware::app_signature::AppKeys;
 use crate::middleware::cors::CorsOrigins;
 use crate::middleware::rate_limit::{RateLimit, TrustedProxies};
+use crate::monitoring::Monitoring;
 use db::queries::scrobble_clients::{self as clients_db, ClientIdentity};
 
 /// Shared application state injected into every handler via Axum's `State` extractor.
@@ -37,6 +38,7 @@ pub struct AppState {
     /// The scrobbler-compatible APIs' settings.
     pub compat: Arc<CompatConfig>,
     pub live: Arc<LiveHub>,
+    pub monitoring: Arc<Monitoring>,
 }
 
 /// `scrobble_clients` ids already resolved, so ingest doesn't look one up

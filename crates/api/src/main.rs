@@ -5,6 +5,7 @@ mod limits;
 mod live;
 mod media;
 mod middleware;
+mod monitoring;
 mod router;
 mod state;
 #[cfg(test)]
@@ -142,6 +143,11 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    let monitoring = monitoring::Monitoring::from_env()?;
+    if monitoring.metrics_token.is_some() {
+        tracing::info!("/metrics enabled for requests bearing METRICS_TOKEN");
+    }
+
     // Axum
     let state = state::AppState {
         db,
@@ -156,6 +162,7 @@ async fn main() -> anyhow::Result<()> {
         clients: Default::default(),
         compat,
         live,
+        monitoring: std::sync::Arc::new(monitoring),
     };
     let app = router::build(state);
 

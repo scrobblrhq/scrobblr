@@ -139,6 +139,7 @@ where
         clients: Default::default(),
         compat: Default::default(),
         live,
+        monitoring: Default::default(),
     };
     customize(&mut state);
     let octets = rand::random::<[u8; 3]>();

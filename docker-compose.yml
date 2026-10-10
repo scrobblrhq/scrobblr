@@ -94,6 +94,8 @@ services:
       SCROBBLER_API_KEYS: ${SCROBBLER_API_KEYS:-}
       SCROBBLER_STRICT_API_KEYS: ${SCROBBLER_STRICT_API_KEYS:-}
       SCROBBLER_DAILY_LIMIT: ${SCROBBLER_DAILY_LIMIT:-}
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+      WORKER_STALL_FACTOR: ${WORKER_STALL_FACTOR:-}
     ports:
       # Only the host itself (a proxy on it) by default; API_BIND opens it
       # to an interface a proxy on another machine reaches.
