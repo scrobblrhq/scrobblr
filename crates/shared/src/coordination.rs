@@ -16,7 +16,8 @@
 //! **Signals.** Within a group, a signal finds the members holding a trait
 //! far more often than the active population explains:
 //!
-//! - [`Signal::Age`]: registered within the same few days.
+//! - [`Signal::Age`]: registered within the same few days, or the same
+//!   weeks, far more often than the population did.
 //! - [`Signal::Origin`]: registered from the same address or network
 //!   ([`crate::origin`]).
 //! - [`Signal::Client`]: scrobbled the group's entity through the same
@@ -58,8 +59,6 @@ pub const COORDINATION_VERSION: u32 = 1;
 /// A value of a trait counts only when this many members hold it, so pairs
 /// (a couple's accounts) never make a cell.
 const MIN_VALUE_MEMBERS: i64 = 3;
-/// Registration windows taken per group: a farm registered in batches.
-const MAX_AGE_WINDOWS: usize = 4;
 /// A cohort gathers around the group of its members' strongest primary
 /// evidence; closer than this (thousandths of suspicion), the larger group
 /// wins, so a farm meets on its main target rather than scattering over
@@ -1105,7 +1104,9 @@ struct AgeWindow {
 }
 
 /// Picks registration windows of `age_days`, the largest excess first,
-/// while the excess is significant; the windows never overlap.
+/// while the excess is significant; the windows never overlap. A farm
+/// registered in batches, or steadily over months, is over-represented in
+/// every week it registered in; each window passes on its own.
 fn age_cells(
     mut days: Vec<(i32, usize)>,
     population: &Population,
@@ -1118,7 +1119,7 @@ fn age_cells(
     let mut used = vec![false; days.len()];
     let mut taken: Vec<(i32, i32)> = Vec::new();
     let mut cells = Vec::new();
-    while cells.len() < MAX_AGE_WINDOWS {
+    loop {
         let mut unused = vec![0i64; days.len() + 1];
         for k in 0..days.len() {
             unused[k + 1] = unused[k] + i64::from(!used[k]);
@@ -1605,6 +1606,31 @@ mod tests {
         assert_eq!(d.cohorts[a].kind, Kind::Artist);
         assert!([9_001, 9_002, 9_003].contains(&d.cohorts[a].entity_id));
         assert!([9_101, 9_102].contains(&d.cohorts[b].entity_id));
+    }
+
+    #[test]
+    fn a_farm_registered_steadily_for_weeks_is_over_represented_in_each() {
+        let mut w = World::new(59);
+        w.honest(1, 600);
+        w.farm(
+            10_001,
+            200,
+            |u| day(40 + u % 56),
+            |_| None,
+            &[9_001],
+            0,
+            false,
+        );
+        let d = detect(&w.input(), &params());
+        let aged = (10_001..10_201)
+            .filter(|u| {
+                d.accounts
+                    .iter()
+                    .any(|a| a.user_id == *u && a.evidence.get(Signal::Age) > 0)
+            })
+            .count();
+        assert!(aged >= 180, "{aged}");
+        assert!(d.cohorts[0].detail.age.len() >= 7);
     }
 
     #[test]
