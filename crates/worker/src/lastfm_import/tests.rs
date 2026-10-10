@@ -220,6 +220,45 @@ async fn imports_a_whole_history_and_a_reimport_adds_nothing() {
 
 #[tokio::test]
 #[ignore = "needs Postgres: just test-db"]
+async fn imported_history_is_compressed_when_the_import_ends() {
+    with_db(|pool| async move {
+        let fake = FakeLastfm::default();
+        let start = Utc::now().timestamp() - 90 * 86_400;
+        fake.user(
+            "rj",
+            (0..500)
+                .map(|n| {
+                    FakePlay::new(
+                        start + n * 3600,
+                        "Artist",
+                        &format!("Song {}", n % 40),
+                        "Album",
+                    )
+                })
+                .collect(),
+        );
+        let url = fake.start().await;
+        let importer = importer(&pool, &url, 1_000_000);
+        let user_id = user(&pool, "alice").await;
+
+        let id = new_import(&pool, user_id, "rj").await;
+        assert_eq!(drive(&importer, &pool, id).await.0, SliceEnd::Done);
+        let (old, compressed): (i64, i64) = sqlx::query_as(
+            "SELECT count(*), count(*) FILTER (WHERE is_compressed)
+             FROM timescaledb_information.chunks
+             WHERE hypertable_name = 'scrobbles' AND range_end < NOW() - INTERVAL '30 days'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(old >= 3, "{old}");
+        assert_eq!(compressed, old);
+    })
+    .await;
+}
+
+#[tokio::test]
+#[ignore = "needs Postgres: just test-db"]
 async fn resumes_after_errors_and_a_dead_worker_without_duplicates() {
     with_db(|pool| async move {
         let fake = FakeLastfm::default();

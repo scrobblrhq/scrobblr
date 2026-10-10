@@ -556,6 +556,28 @@ pub async fn refresh_scrobble_aggregates(
     Ok(())
 }
 
+/// Runs the scrobbles' compression policy now instead of at its next run
+/// (every 12 h). Imports write history into chunks it already compressed,
+/// or into new ones, whose row indexes take several times the compressed
+/// size; compressing rewrites both.
+pub async fn compress_history(pool: &PgPool) -> Result<(), sqlx::Error> {
+    let jobs = sqlx::query_scalar!(
+        r#"
+        SELECT job_id AS "job_id!" FROM timescaledb_information.jobs
+        WHERE proc_name = 'policy_compression' AND hypertable_name = 'scrobbles'
+        "#
+    )
+    .fetch_all(pool)
+    .await?;
+    for job in jobs {
+        sqlx::query("CALL run_job($1)")
+            .bind(job)
+            .execute(pool)
+            .await?;
+    }
+    Ok(())
+}
+
 /// Returns the currently playing track for a user, enriched with track, artist,
 /// and album metadata. Returns `None` if the user has no active now-playing
 /// entry or if the entry has expired.

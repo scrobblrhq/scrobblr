@@ -136,7 +136,7 @@ How users bring their Last.fm history over: `POST /v1/import/lastfm` (API) or `w
   - Dedup (`shared::import::new_plays`) compares against the user's stored rows in the page's time span. It skips an earlier import's row with the same second and track, and a live scrobble of the same track within 10 min, matched one-for-one.
   - Rows are inserted with `source = 'lastfm_import'` and `import_id`. `import_id` is set by the server, so rules should trust it rather than `source`.
   - Counters are updated set-based: `increment_scrobble_counts` skips rows with `import_id`, and `last_seen_at` only moves forward.
-  - Old history lands in the uncompressed part of compressed chunks, and the compression policy recompresses them. The primary-key uniqueness check decompresses overlapping batches in memory, so insert cost grows with the number of users active in that week.
+  - Old history lands in the uncompressed part of compressed chunks, or in new uncompressed chunks; when the job ends (done or failed) the importer runs the compression policy at once (`scrobbles::compress_history`) rather than leaving them, and their bloated indexes, for up to 12 h. The primary-key uniqueness check decompresses overlapping batches in memory, so insert cost grows with the number of users active in that week.
 - **Checkpoints** (segment boundary, end of a lease's pages, end of the job; tracked as `pending_from`/`pending_to`) — never per scrobble:
   - `refresh_scrobble_aggregates`, retried while the scheduled refresh holds the lock;
   - `enqueue_scrobble_classification`;

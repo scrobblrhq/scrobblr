@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT job_id AS \"job_id!\" FROM timescaledb_information.jobs\n        WHERE proc_name = 'policy_compression' AND hypertable_name = 'scrobbles'\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "job_id!",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "e45772624b610b991f6020ba4c4b737a30dee488bebd3b32c94aca0b1c936a93"
+}

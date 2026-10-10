@@ -130,8 +130,23 @@ impl Importer {
         }
     }
 
-    /// Fetches and records up to `max_pages` pages of a leased job.
+    /// Fetches and records up to `max_pages` pages of a leased job, and
+    /// compresses the history it wrote once the job ends.
     pub async fn process(
+        &self,
+        job: ClaimedImport,
+        max_pages: u32,
+    ) -> Result<SliceEnd, sqlx::Error> {
+        let end = self.fetch_pages(job, max_pages).await?;
+        if matches!(end, SliceEnd::Done | SliceEnd::Failed(_))
+            && let Err(e) = scrobbles_db::compress_history(&self.db).await
+        {
+            tracing::warn!("import: compression skipped, the policy will catch up: {e}");
+        }
+        Ok(end)
+    }
+
+    async fn fetch_pages(
         &self,
         mut job: ClaimedImport,
         max_pages: u32,
