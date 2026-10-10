@@ -10,12 +10,28 @@
 
 name: scrobblr
 
+# Pinned: a floating tag upgrades TimescaleDB unannounced, and an image
+# older than a database's extension can't load it. Dev and CI run
+# Postgres 18; moving an existing volume to it takes pg_upgrade. The backup
+# image is built on it, so its pg_dump is the server's.
+x-db-image: &db-image timescale/timescaledb:2.30.2-pg16
+
+# The backup and restore services' connection; a password never goes into
+# a URL, so it may hold any character.
+x-backup-postgres: &backup-postgres
+  PGHOST: db
+  PGUSER: ${POSTGRES_USER:-scrobblr}
+  PGPASSWORD: ${POSTGRES_PASSWORD:-scrobblr}
+  PGDATABASE: ${POSTGRES_DB:-scrobblr}
+
+x-backup-build: &backup-build
+  context: ./backup
+  args:
+    DB_IMAGE: *db-image
+
 services:
   db:
-    # Pinned: a floating tag upgrades TimescaleDB unannounced, and an image
-    # older than a database's extension can't load it. Dev and CI run
-    # Postgres 18; moving an existing volume to it takes pg_upgrade.
-    image: timescale/timescaledb:2.30.2-pg16
+    image: *db-image
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-scrobblr}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-scrobblr}
@@ -163,6 +179,57 @@ services:
       retries: 3
       start_period: 60s
     restart: unless-stopped
+
+
+  # Backs up the database and the uploads daily into BACKUP_DIR, keeps
+  # BACKUP_KEEP_DAILY daily and BACKUP_KEEP_WEEKLY weekly ones, optionally
+  # copies them to BACKUP_REMOTE (docs/operations.md). Reads the app's
+  # data, never writes it. Unhealthy while the last backup failed or is
+  # older than BACKUP_MAX_AGE_HOURS.
+  backup:
+    build: *backup-build
+    image: scrobblr-backup:latest
+    environment:
+      <<: *backup-postgres
+      BACKUP_TIME: ${BACKUP_TIME:-}
+      BACKUP_KEEP_DAILY: ${BACKUP_KEEP_DAILY:-}
+      BACKUP_KEEP_WEEKLY: ${BACKUP_KEEP_WEEKLY:-}
+      BACKUP_MAX_AGE_HOURS: ${BACKUP_MAX_AGE_HOURS:-}
+      BACKUP_REMOTE: ${BACKUP_REMOTE:-}
+      BACKUP_PING_URL: ${BACKUP_PING_URL:-}
+      RCLONE_CONFIG: /config/rclone/rclone.conf
+    volumes:
+      - ${BACKUP_DIR:-./backups}:/backups
+      - uploads:/uploads:ro
+      - ${BACKUP_RCLONE_DIR:-./backup/rclone}:/config/rclone
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "scrobblr-backup", "check"]
+      interval: 5m
+      timeout: 30s
+      retries: 1
+      # The first backup runs at startup and may take a while.
+      start_period: 1h
+    restart: unless-stopped
+
+  # Not started by `up`: `docker compose run --rm restore NAME [--replace]`
+  # with the api, worker and backup stopped (docs/operations.md).
+  restore:
+    build: *backup-build
+    image: scrobblr-backup:latest
+    profiles: ["restore"]
+    entrypoint: ["scrobblr-backup", "restore"]
+    environment:
+      <<: *backup-postgres
+    volumes:
+      - ${BACKUP_DIR:-./backups}:/backups:ro
+      - uploads:/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
 
 volumes:
   db-data:

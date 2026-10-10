@@ -22,6 +22,8 @@ target
 
 # Runtime data / secrets
 uploads
+backups
+backup
 .env
 .env.*
 

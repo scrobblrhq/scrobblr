@@ -21,5 +21,8 @@ devenv.local.yaml
 
 # user-uploaded images (avatars, community art)
 uploads/
+# docker-compose.yml's default backup directory and rclone config
+/backups/
+/backup/rclone/
 .claude/settings.json
 .mcp.json
