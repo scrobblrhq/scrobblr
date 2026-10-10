@@ -5,8 +5,8 @@
 --   psql "$SCRATCH_URL" -v users=4000 -v days=60 -f scripts/synthetic/population.sql
 --
 -- Run it as a superuser (it skips triggers). Deterministic for given
--- variables. Every user is established (created
--- 120 days ago), listens in sessions of back-to-back plays (so the
+-- variables. Every user is established (registered 60 to 900 days ago,
+-- evenly), listens in sessions of back-to-back plays (so the
 -- classifier counts them), mostly to 25 favourite artists drawn from a
 -- Zipf-like popularity, through one client each: the extension or the
 -- mobile app (listened time at the scrobble point), the Spotify poller,
@@ -98,8 +98,11 @@ FROM tracks t;
 CREATE INDEX ON synth_tracks (artist_id, rank);
 
 -- Users: how often they listen, and through what.
+-- Registration days come from the user's number, not random(), so the
+-- draws below are the same as before they were spread.
 INSERT INTO users (username, email, password_hash, created_at)
-SELECT 'synth' || n, 'synth' || n || '@synthetic.invalid', 'x', NOW() - INTERVAL '120 days'
+SELECT 'synth' || n, 'synth' || n || '@synthetic.invalid', 'x',
+       NOW() - make_interval(days => 60 + (n * 7919) % 841, secs => (n * 104729) % 86400)
 FROM generate_series(1, :users) n;
 
 CREATE TEMP TABLE synth_users AS
