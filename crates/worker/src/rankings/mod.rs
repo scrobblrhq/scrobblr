@@ -7,9 +7,10 @@
 //! day's classification is written), the other periodically queues what
 //! the queue missed or new params made stale. A third keeps each period's
 //! ranking precomputed in `ranking_snapshots`, with the coordination
-//! factors of the latest run applied.
+//! factors of the latest run ([`coordination`]) applied.
 
 pub mod cli;
+pub mod coordination;
 
 use std::collections::HashMap;
 use std::fmt::Display;
@@ -88,7 +89,7 @@ pub fn params_from_env() -> anyhow::Result<RankingParams> {
     RankingParams::new(&settings).map_err(|e| anyhow::anyhow!("ranking config: {e}"))
 }
 
-fn env_or<T>(name: &str, default: T) -> anyhow::Result<T>
+pub(crate) fn env_or<T>(name: &str, default: T) -> anyhow::Result<T>
 where
     T: FromStr,
     T::Err: Display,

@@ -7,8 +7,10 @@ use anyhow::{Context, bail};
 use chrono::{NaiveDate, TimeDelta, Utc};
 use sqlx::PgPool;
 
+use db::queries::coordination as cdb;
 use db::queries::rankings::{self as rdb, DayWeights, Kind, Period, Ranked, Ruleset};
 use db::queries::users as users_db;
+use shared::coordination::{Evidence, Signal};
 use shared::ranking::{FULL, RankingParams, Reason};
 
 pub const USAGE: &str = "       worker rank report    [--from DATE | --all] [--to DATE] [--limit N]
@@ -16,10 +18,16 @@ pub const USAGE: &str = "       worker rank report    [--from DATE | --all] [--t
        worker rank backfill  [--from DATE] [--to DATE] [--dry-run]
        worker rank refresh   [--period week|month|year]
        worker rank top       [--period week|month|year] [--kind artist|track] [--limit N]
+       worker rank detect    [--dry-run] [--limit N] [--members]
+       worker rank cohorts   [--dry-run] [--limit N] [--members]
                              report compares raw and filtered rankings, by default over
-                             the last 7 days; recompute and backfill cover all history;
-                             refresh recomputes the stored rankings now (the worker does
-                             on a schedule) and top prints one as a route would read it";
+                             the last 7 days, and with and without coordination factors;
+                             recompute and backfill cover all history; refresh recomputes
+                             the stored rankings now (the worker does on a schedule) and
+                             top prints one as a route would read it; detect looks for
+                             coordinated accounts now and stores their factors (the worker
+                             does every 6 hours); cohorts lists the latest run's cohorts,
+                             or with --dry-run a fresh detection that stores nothing";
 
 #[derive(Debug, Default)]
 struct Options {
@@ -31,6 +39,7 @@ struct Options {
     kind: Option<Kind>,
     all: bool,
     dry_run: bool,
+    members: bool,
 }
 
 fn parse(args: &[String]) -> anyhow::Result<Options> {
@@ -58,6 +67,7 @@ fn parse(args: &[String]) -> anyhow::Result<Options> {
             }
             "--all" => options.all = true,
             "--dry-run" => options.dry_run = true,
+            "--members" => options.members = true,
             other => bail!("unknown option `{other}` (see `worker --help`)"),
         }
     }
@@ -76,6 +86,8 @@ pub async fn run(db: &PgPool, args: &[String]) -> anyhow::Result<()> {
         "backfill" => backfill(db, params, options).await,
         "refresh" => refresh(db, params, options).await,
         "top" => top(db, options).await,
+        "detect" => detect(db, options, true).await,
+        "cohorts" => detect(db, options, false).await,
         other => bail!("unknown rank command `{other}` (see `worker --help`)"),
     }
 }
@@ -156,6 +168,8 @@ async fn report(db: &PgPool, params: RankingParams, o: Options) -> anyhow::Resul
             |r| r.weight_rank,
         );
     }
+
+    coordination_section(db, from, to, limit, listener_weight).await?;
 
     let (users, contributors) = rdb::contributors(db, from, to, limit).await?;
     let moved = contributors
@@ -378,6 +392,370 @@ async fn top(db: &PgPool, o: Options) -> anyhow::Result<()> {
         );
     }
     println!("(read in {:.1} ms)", took.as_secs_f64() * 1000.0);
+    Ok(())
+}
+
+/// The latest coordination run, and the rankings with its factors beside
+/// the same without them.
+async fn coordination_section(
+    db: &PgPool,
+    from: NaiveDate,
+    to: NaiveDate,
+    limit: i64,
+    listener_weight: i64,
+) -> anyhow::Result<()> {
+    println!("\ncoordination");
+    match cdb::latest_run(db).await? {
+        None => println!("  no detection run yet (worker rank detect)"),
+        Some(run) => println!(
+            "  latest run #{} ({}) at {}, over {} .. {}: {} active accounts, {} flagged in {} \
+             cohorts{}",
+            run.id,
+            run.mode,
+            run.started_at.format("%Y-%m-%d %H:%M UTC"),
+            run.window_from,
+            run.window_to,
+            run.accounts,
+            run.flagged,
+            run.cohorts,
+            if run.too_small {
+                " (too few active accounts: nothing judged)"
+            } else {
+                ""
+            }
+        ),
+    }
+    let t = rdb::coordination_totals(db, from, to).await?;
+    println!(
+        "  in range: {} accounts on {} user-days had a factor below 1; filtered weight {} -> {} \
+         ({:.1}% kept)",
+        t.accounts,
+        t.user_days,
+        plays(t.weight),
+        plays(t.coordinated),
+        percent(t.coordinated, t.weight)
+    );
+    for (kind, title) in [(Kind::Artist, "artists"), (Kind::Track, "tracks")] {
+        let ranked = rdb::rankings(db, kind, from, to, listener_weight, limit).await?;
+        let mut top: Vec<&Ranked> = ranked.iter().filter(|r| r.rank <= limit).collect();
+        top.sort_by_key(|r| r.rank);
+        let moved = top
+            .iter()
+            .filter(|r| r.rank != r.uncoordinated_rank)
+            .count();
+        println!(
+            "\n  top {limit} {title} by listeners with coordination factors: {moved} changed position"
+        );
+        println!(
+            "    with  without  move   {:<40} listeners without/with    weight without/with",
+            "name"
+        );
+        for r in &top {
+            println!(
+                "    {:>4}  {:>7}  {:>4}   {:<40} {:>10} {:>9}  {:>10} {:>9}",
+                r.rank,
+                r.uncoordinated_rank,
+                movement(r.uncoordinated_rank, r.rank),
+                truncate(&label(r), 40),
+                plays(r.uncoordinated_listeners),
+                plays(r.listeners),
+                plays(r.uncoordinated_weight),
+                plays(r.weight)
+            );
+        }
+        let mut left: Vec<&Ranked> = ranked
+            .iter()
+            .filter(|r| r.uncoordinated_rank <= limit && r.rank > limit)
+            .collect();
+        left.sort_by_key(|r| r.uncoordinated_rank);
+        for r in left {
+            println!(
+                "    left the top: #{} {} -> #{} (listeners {} -> {}, weight {} -> {})",
+                r.uncoordinated_rank,
+                label(r),
+                r.rank,
+                plays(r.uncoordinated_listeners),
+                plays(r.listeners),
+                plays(r.uncoordinated_weight),
+                plays(r.weight)
+            );
+        }
+    }
+    Ok(())
+}
+
+/// A cohort, stored or from a dry run.
+struct CohortView {
+    cohort: i32,
+    kind: Kind,
+    entity_id: i64,
+    members: i32,
+    score: i32,
+    factor: i32,
+    evidence: Evidence,
+    detail: serde_json::Value,
+}
+
+/// `detect` runs detection now (and stores it unless `--dry-run`);
+/// `cohorts` lists the latest stored run, or a fresh dry run.
+async fn detect(db: &PgPool, o: Options, run: bool) -> anyhow::Result<()> {
+    let params = super::coordination::params_from_env()?;
+    let limit = o.limit.unwrap_or(20);
+    let (cohorts, accounts) = if run || o.dry_run {
+        if params.mode == shared::coordination::Mode::Off {
+            bail!("RANKING_COORDINATION=off: nothing to detect");
+        }
+        let today = Utc::now().date_naive();
+        let out = super::coordination::run_once(db, &params, today, o.dry_run).await?;
+        let d = &out.detection;
+        println!(
+            "{} over {} .. {} (plays from {}): loaded {} (account, track) pairs and {} plays in \
+             {:.1} s, detected in {:.1} s",
+            match out.run_id {
+                Some(id) => format!("run #{id}"),
+                None => "dry run".to_string(),
+            },
+            out.window.from,
+            out.window.to,
+            out.window.sync_from,
+            out.loaded.pairs,
+            out.loaded.plays,
+            out.load.as_secs_f64(),
+            out.detect.as_secs_f64()
+        );
+        println!("params: {}", params.fingerprint());
+        summary(d.active, d.groups, d.too_small);
+        let ids: Vec<i64> = d.accounts.iter().map(|a| a.user_id).collect();
+        let names = cdb::usernames(db, &ids).await?;
+        let cohorts: Vec<CohortView> = d
+            .cohorts
+            .iter()
+            .enumerate()
+            .map(|(i, c)| CohortView {
+                cohort: i as i32,
+                kind: c.kind,
+                entity_id: c.entity_id,
+                members: c.members as i32,
+                score: c.score as i32,
+                factor: c.factor as i32,
+                evidence: c.evidence,
+                detail: cdb::detail_json(&c.detail),
+            })
+            .collect();
+        let accounts: Vec<cdb::StoredAccount> = d
+            .accounts
+            .iter()
+            .map(|a| {
+                let (username, registered) = names.get(&a.user_id).cloned().unwrap_or_default();
+                cdb::StoredAccount {
+                    user_id: a.user_id,
+                    username,
+                    registered,
+                    cohort: a.cohort as i32,
+                    suspicion: a.suspicion as i32,
+                    factor: a.factor as i32,
+                    evidence: a.evidence,
+                }
+            })
+            .collect();
+        (cohorts, accounts)
+    } else {
+        let Some(run) = cdb::latest_run(db).await? else {
+            bail!("no detection run yet (worker rank detect, or --dry-run)");
+        };
+        println!(
+            "run #{} ({}) at {}, took {:.1} s, over {} .. {}",
+            run.id,
+            run.mode,
+            run.started_at.format("%Y-%m-%d %H:%M UTC"),
+            f64::from(run.took_ms) / 1000.0,
+            run.window_from,
+            run.window_to
+        );
+        println!("params: {}", run.fingerprint);
+        summary(
+            i64::from(run.accounts),
+            i64::from(run.groups),
+            run.too_small,
+        );
+        let cohorts = cdb::cohorts(db, run.id)
+            .await?
+            .into_iter()
+            .map(|c| CohortView {
+                cohort: c.cohort,
+                kind: c.kind,
+                entity_id: c.entity_id,
+                members: c.members,
+                score: c.score,
+                factor: c.factor,
+                evidence: c.evidence,
+                detail: c.detail,
+            })
+            .collect();
+        (cohorts, cdb::accounts(db, run.id).await?)
+    };
+    print_cohorts(db, &cohorts, &accounts, limit, o.members).await
+}
+
+fn summary(active: i64, groups: i64, too_small: bool) {
+    if too_small {
+        println!(
+            "{active} active accounts: fewer than RANKING_COORDINATION_MIN_ACCOUNTS, nothing judged"
+        );
+    } else {
+        println!("{active} active accounts, {groups} artists and tracks examined");
+    }
+}
+
+async fn print_cohorts(
+    db: &PgPool,
+    cohorts: &[CohortView],
+    accounts: &[cdb::StoredAccount],
+    limit: i64,
+    members: bool,
+) -> anyhow::Result<()> {
+    let zeroed = accounts.iter().filter(|a| a.factor == 0).count();
+    println!(
+        "{} accounts flagged ({} at factor 0, {} dented) in {} cohorts",
+        accounts.len(),
+        zeroed,
+        accounts.len() - zeroed,
+        cohorts.len()
+    );
+    let target = |t: &serde_json::Value| {
+        Some((
+            Kind::parse(t["kind"].as_str()?)?,
+            t["entity_id"].as_i64()?,
+            t["members"].as_i64()?,
+            t["listeners"].as_i64()?,
+            t["weight_share"].as_i64()?,
+        ))
+    };
+    let shown: Vec<&CohortView> = cohorts.iter().take(limit.max(0) as usize).collect();
+    let mut entities: Vec<(Kind, i64)> = Vec::new();
+    for c in &shown {
+        entities.push((c.kind, c.entity_id));
+        if let Some(targets) = c.detail["targets"].as_array() {
+            entities.extend(targets.iter().filter_map(target).map(|t| (t.0, t.1)));
+        }
+    }
+    let names = cdb::entity_names(db, &entities).await?;
+    let name = |kind: Kind, id: i64| {
+        names
+            .get(&(kind, id))
+            .cloned()
+            .unwrap_or_else(|| format!("#{id}"))
+    };
+    let share = |permille: i64| format!("{:.2}", permille as f64 / FULL as f64);
+    for c in shown {
+        println!(
+            "\ncohort {} · {} {} · {} accounts · score {} · mean factor {}",
+            c.cohort + 1,
+            c.kind.as_str(),
+            name(c.kind, c.entity_id),
+            c.members,
+            share(i64::from(c.score)),
+            share(i64::from(c.factor))
+        );
+        let d = &c.detail;
+        for signal in Signal::ALL {
+            let value = c.evidence.get(signal);
+            let what = match signal {
+                Signal::Age => d["age"]
+                    .as_array()
+                    .map(|cells| {
+                        cells
+                            .iter()
+                            .map(|w| {
+                                format!(
+                                    "registered {}..{}: {} accounts, purity {}",
+                                    w["from"].as_str().unwrap_or("?"),
+                                    w["to"].as_str().unwrap_or("?"),
+                                    w["members"],
+                                    share(w["purity"].as_i64().unwrap_or(0))
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                            .join("; ")
+                    })
+                    .unwrap_or_default(),
+                Signal::Origin | Signal::Client => {
+                    let cell = &d[signal.as_str()];
+                    if cell.is_null() {
+                        String::new()
+                    } else {
+                        format!(
+                            "{} ({} values): {} accounts, purity {}",
+                            cell["value"].as_str().unwrap_or("?"),
+                            cell["values"],
+                            cell["members"],
+                            share(cell["purity"].as_i64().unwrap_or(0))
+                        )
+                    }
+                }
+                Signal::Sync => {
+                    let cell = &d["sync"];
+                    if cell.is_null() {
+                        String::new()
+                    } else {
+                        format!(
+                            "lockstep: {} accounts, median {} days with crowds",
+                            cell["members"], cell["median_days"]
+                        )
+                    }
+                }
+                Signal::Shape => String::new(),
+                Signal::Burst => format!(
+                    "new listeners: {}% of the group",
+                    d["new_share"].as_i64().unwrap_or(0) / 10
+                ),
+            };
+            if value == 0 && what.is_empty() {
+                println!("  {:<7} -", signal.as_str());
+            } else {
+                println!("  {:<7} {}  {}", signal.as_str(), share(value), what);
+            }
+        }
+        if let Some(targets) = d["targets"].as_array() {
+            for (n, t) in targets.iter().filter_map(target).enumerate() {
+                println!(
+                    "  {} {} ({}): {} of {} listeners, {:.1}% of its weight",
+                    if n == 0 { "targets" } else { "       " },
+                    name(t.0, t.1),
+                    t.0.as_str(),
+                    t.2,
+                    t.3,
+                    t.4 as f64 / 10.0
+                );
+            }
+        }
+        if members {
+            println!(
+                "  {:<22} {:<10} {:>5} {:>6}  age   orig  cli   sync  shape burst",
+                "user", "registered", "susp", "factor"
+            );
+            for a in accounts.iter().filter(|a| a.cohort == c.cohort) {
+                let e: Vec<String> = Signal::ALL
+                    .into_iter()
+                    .map(|s| share(a.evidence.get(s)))
+                    .collect();
+                println!(
+                    "  {:<22} {:<10} {:>5} {:>6}  {}",
+                    truncate(&a.username, 22),
+                    a.registered,
+                    share(i64::from(a.suspicion)),
+                    share(i64::from(a.factor)),
+                    e.join("  ")
+                );
+            }
+        }
+    }
+    if cohorts.len() as i64 > limit {
+        println!(
+            "\n({} more cohorts; --limit N)",
+            cohorts.len() as i64 - limit
+        );
+    }
     Ok(())
 }
 

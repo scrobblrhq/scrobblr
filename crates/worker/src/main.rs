@@ -234,6 +234,12 @@ async fn main() -> anyhow::Result<()> {
         weigher.clone().run_snapshots(beat)
     });
 
+    // Looks for accounts pushing the same entities together and stores the
+    // factors rankings apply (shadow mode).
+    let detector = Arc::new(rankings::coordination::Detector::from_env(db.clone())?);
+    let coordination_handle =
+        supervise(&db, "coordination", move |beat| detector.clone().run(beat));
+
     // The tasks loop forever and come back after a panic; one finishing
     // means it stopped for good, which must end the process with a failure
     // so a supervisor restarts it.
@@ -250,6 +256,7 @@ async fn main() -> anyhow::Result<()> {
         _ = rankings_handle => "rankings",
         _ = rankings_sweep_handle => "rankings sweep",
         _ = snapshots_handle => "ranking snapshots",
+        _ = coordination_handle => "coordination",
         _ = tokio::signal::ctrl_c() => {
             tracing::info!("received Ctrl-C, shutting down");
             return Ok(());
