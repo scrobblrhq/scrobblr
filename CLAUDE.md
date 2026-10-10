@@ -17,6 +17,7 @@ cargo run -p worker -- classify report   # classification review CLI (`worker --
 cargo run -p worker -- rank report       # raw vs filtered global rankings (shadow mode; `rank top` prints a stored one)
 cargo run -p worker -- tracks mb-review  # MusicBrainz matches two other lengths contradict (`--apply` unlinks them)
 cargo run -p worker -- uploads gc        # list uploads no row refers to (`--delete` deletes them)
+cargo run -p worker -- status            # each loop's heartbeat and the queues; exits 1 when one is stalled or failing
 just migrate              # apply pending migrations to DATABASE_URL (`just migrate status` lists them)
 cargo run -p worker -- import lastfm --user NAME --lastfm USER   # operator import (users import via POST /v1/import/lastfm)
 
@@ -35,6 +36,7 @@ just ci                   # CI's first job: fmt-check, lint, test, types-check (
 just ci-db                # CI's database job: migrate DATABASE_URL, test-db, sqlx-check (stale .sqlx/ fails)
 
 just build                # release build of api and worker
+backup/test.sh            # backup and restore end to end in a throwaway Compose project (Docker)
 
 # packages/types (bun is the package manager; biome for lint/format)
 bun install
@@ -67,7 +69,9 @@ Rust workspace crates and their dependency direction: `api` → `db` → `shared
   - `limits.rs` — Redis limits shared by the native and compatible APIs: password-login attempts and the daily scrobble quota. Keys carry their window, so a lost `EXPIRE` can't make one permanent.
   - `live.rs` — the `/v1/user/{username}/live` SSE fan-out: one `PSUBSCRIBE now_playing:*` on a Redis connection of its own. **Never subscribe on `AppState::redis`**: a subscribed RESP2 connection refuses every other command, which silently broke rate limiting, logins and now playing for the whole API. Publishing now playing is best-effort. Open streams are capped at 50 per address and 20 per signed-in viewer (the one watching, never the one watched, whose cap anyone could fill), counted in the hub, so per API instance; past them, 429.
   - Redis clients (API and worker) reconnect with backoff and time a command out after 3 s.
+  - Logging: `shared::logging::init` for both binaries; `LOG_FORMAT=json` gives one JSON object per line, anything but `text`/`json` stops startup.
   - Panics: release builds unwind. `CatchPanicLayer` answers a panicking handler with the usual opaque 500, the worker's `supervise` restarts a panicked loop (1 s backoff, doubling to 5 min), and `shared::panic::log_panics` sends every panic to the log.
+  - `monitoring.rs` — operational routes, outside the OpenAPI spec and behind the rate limit: `/health` (200 `ok`, or 503 naming the database or Redis when it doesn't answer within 2 s), `/health/worker` (503 when a worker loop is stalled or failing, no detail; public, for uptime checks) and `/metrics` (Prometheus text; a 404 unless `METRICS_TOKEN` is set, then 401 without `Bearer` that token). A layer outside every other counts responses by status class and 429s for it. Nothing sensitive goes on the public two.
   - `errors.rs` — `AppError` enum with `IntoResponse` mapping to status codes; all handlers return `ApiResult<T>`. Database/Redis/Internal variants log and return opaque 500s.
   - OpenAPI docs via `aide`: every handler has a sibling `_<name>_doc(TransformOperation)` function registered in the router. Spec served at `/api.json`, Scalar UI at `/docs`. Conventions, all checked by `router/openapi_tests.rs`:
     - Path parameters go through the named structs in `handlers/mod.rs` (`IdPath`, `UuidPath`, `UsernamePath`, …): aide can't name a bare `Path<i64>`, which left the parameter out of the spec.
@@ -95,6 +99,10 @@ Third-party scrobblers have their own, `scrobbler_credentials`, which the auth m
 The worker runs an enrichment pipeline (`crates/worker/src/enrichment/`) over the catalog: MusicBrainz (MBIDs, durations, release dates — 1 req/s hard limit), Cover Art Archive (album covers by MBID), Deezer (artist images + cover fallback; its limiter is shared with the length lookups below), Last.fm (bios, only when `LASTFM_API_KEY` is set). Jobs live in `enrichment_jobs` (queue queries in `db/src/queries/enrichment.rs`), enqueued at ingest for never-enriched entities, by the `POST /v1/{track,artist,album}/{id}/refresh` endpoints, and by periodic backfill/re-sweeps; `done` jobs are deleted a week after they finish (`failed` ones stay, so the backfill doesn't retry them). A track's `mbid_hint` (from imports or what a live client sent; the first one wins, and an enriched track without an mbid is queued again when one arrives) is looked up directly and adopted only if its title and artist match. A recording in `track_mbid_rejections` (migration `0021`, written by `worker tracks mb-review --apply`) is never adopted for that track again, as hint or search result. Merge policy: fill-only-NULL; `mbid` is never overwritten; images/bio are overwritten only on forced refresh; names/titles are never touched; and an image is never touched when `image_locked` is set (a community-voted or user-uploaded image — see below). Provider rate limiters are in-process — run a single worker instance.
 
 The worker also holds an optional Redis client (best-effort — a missing/unreachable `REDIS_URL` only disables this, enrichment still runs): after it fills an artist/album image, it re-publishes `now_playing` over the API's SSE channel for anyone currently playing that entity, so a live now-playing card swaps its fallback for the real cover within seconds instead of showing the pre-enrichment placeholder for the whole track.
+
+### Worker heartbeats
+
+Every loop `supervise` runs gets a `heartbeat::Beat` and reports each run: `ok`, or `failed` with its error (`*_then_wait` when it pauses longer than its interval, as the length lookups back off). Rows live in `worker_heartbeats` (migration `0024`, `db::queries::monitoring`); writes are throttled to one per loop every 30 s unless it starts or stops failing. Each loop's interval is in `heartbeat::LOOPS` (a new loop goes there or `supervise` panics at startup); the worker registers them at startup (rows of loops it no longer runs go), and a loop that isn't configured calls `disable()`. `shared::monitoring` judges them: **stalled** when no run finished within `WORKER_STALL_FACTOR` (default 3) × interval, **failing** when no run succeeded in that time; either makes `worker status` exit 1, `/health/worker` 503 and the worker container unhealthy. Errors from outside services (providers, Spotify, Last.fm) don't fail a loop; database errors do. Queue depths are counted when read, never stored.
 
 ### Scrobble classification (anti-botting, shadow mode)
 
@@ -217,7 +225,9 @@ The web app (SvelteKit, its own repo and deployment) is a server-side proxy: its
 
 ### Docker
 
-`docker-compose.yml` is the production setup (one host, managed by hand: `git pull`, `up -d --build`; docs/operations.md covers start/update/backup/restore and what a reverse proxy in front must do). It runs `db`, `redis`, the one-shot `migrate`, `api` and `worker`, and no proxy: the API is published on `${API_BIND:-127.0.0.1}:${API_PORT:-8080}`. It passes optional settings as `${VAR:-}`, an empty string when unset, so every reader must treat a blank value as unset (`non_empty_env` in the worker, the same filter elsewhere). The image build sees no `*.md` and no `scripts/` (`.dockerignore`): don't `include_str!` one.
+`docker-compose.yml` is the production setup (one host, managed by hand: `git pull`, `up -d --build`; docs/operations.md covers start/update/backup/restore, monitoring and what a reverse proxy in front must do). It runs `db`, `redis`, the one-shot `migrate`, `api`, `worker` and `backup`, and no proxy: the API is published on `${API_BIND:-127.0.0.1}:${API_PORT:-8080}`. It passes optional settings as `${VAR:-}`, an empty string when unset, so every reader must treat a blank value as unset (`non_empty_env` in the worker, the same filter elsewhere). The image build sees no `*.md`, no `scripts/` and no `backup/` (`.dockerignore`): don't `include_str!` one. Every service's log rotates (10 MB × 5).
+
+Backups (`backup/`): the `backup` service is built on the database's image (`x-db-image`, so `pg_dump` matches the server and its TimescaleDB) plus rclone, and runs `backup/scrobblr-backup.sh` (busybox ash; `shellcheck` it): daily at `BACKUP_TIME` into `BACKUP_DIR`, catch-up and hourly retries, a backup verified in `.partial-NAME` before it gets its name, restic-style retention, an optional `BACKUP_REMOTE` copy and `BACKUP_PING_URL`. It only reads the app's data (read-only uploads mount, `pg_dump`'s read-only transaction). The `restore` service (profile `restore`) recreates the database at the manifest's TimescaleDB version between `timescaledb_pre_restore()`/`_post_restore()`. `backup/test.sh` exercises both, failures included, against a throwaway project; run it after changing either.
 
 ### Types pipeline (Rust → TypeScript)
 

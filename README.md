@@ -60,7 +60,7 @@ docker compose --env-file .env.docker up -d --build
 The API comes up on http://127.0.0.1:8080 (docs at `/docs`). A one-shot
 `migrate` service applies pending migrations before the API and worker start.
 On a server the settings go in `.env` and the commands need no `--env-file`.
-Updating, backups and running behind a reverse proxy:
+Updating, backups, monitoring and running behind a reverse proxy:
 [docs/operations.md](docs/operations.md).
 
 ### With devenv
@@ -160,6 +160,9 @@ The main ones; `.env.example` (for `cargo run`) and `.env.docker.example` (for C
 | `UPLOAD_DIR`         | —        | `uploads`                | Directory user-uploaded images are written to |
 | `UPLOAD_PUBLIC_URL`  | —        | `{PUBLIC_BASE_URL}/uploads` | Base URL serving `UPLOAD_DIR`, e.g. a CDN host ([docs/uploads.md](docs/uploads.md)) |
 | `RUST_LOG`           | —        | —                        | Tracing filter (e.g. `api=debug,worker=debug,sqlx=warn`) |
+| `LOG_FORMAT`         | —        | `text`                   | `json` for one JSON object per log line |
+| `METRICS_TOKEN`      | —        | —                        | Enables Prometheus `/metrics` for requests bearing it ([docs/operations.md](docs/operations.md)) |
+| `WORKER_STALL_FACTOR` | —       | `3`                      | Intervals after which a worker loop counts as stalled or failing |
 | `DB_MAX_CONNECTIONS` | —        | `20`                     | Postgres pool size                  |
 | `LASTFM_API_KEY`     | —        | —                        | Enables artist bios, history imports and track lengths (worker) |
 
