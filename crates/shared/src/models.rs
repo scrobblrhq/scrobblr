@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -339,6 +339,88 @@ pub struct NowPlayingRich {
     pub source: String,
 }
 
+/*
+    Global rankings
+*/
+
+/// What every page of a global ranking says about the stored ranking it
+/// comes from.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+pub struct RankingInfo {
+    pub period: crate::ranking::Period,
+    /// The first UTC day the ranking covers.
+    pub from: NaiveDate,
+    /// The last UTC day it covers (included): the day it was computed.
+    pub to: NaiveDate,
+    /// When the server computed it. Week and month rankings are recomputed
+    /// every hour, the year's every day, and each when the UTC day changes.
+    pub computed_at: DateTime<Utc>,
+    /// Its recomputation is overdue by more than 15 minutes: this is the
+    /// last ranking the server managed to compute.
+    pub stale: bool,
+    /// Positions this ranking has; a page past them is empty.
+    pub total: i64,
+    pub offset: i64,
+    pub limit: i64,
+}
+
+/// An artist's place in a global ranking.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct RankedArtist {
+    /// 1 for the first.
+    pub position: i32,
+    pub artist_id: i64,
+    pub artist_name: String,
+    #[serde(serialize_with = "crate::media::serialize_opt_url")]
+    pub image_url: Option<String>,
+    /// Listeners in the period, rounded, the ranking's order: each account
+    /// counts once at most, and less when its plays don't look like real
+    /// listening.
+    pub listeners: i64,
+    /// Plays in the period, rounded, each weighed by how surely it was a
+    /// real listen.
+    pub plays: i64,
+}
+
+/// A track's place in a global ranking.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct RankedTrack {
+    /// 1 for the first.
+    pub position: i32,
+    pub track_id: i64,
+    pub track_title: String,
+    pub artist_id: i64,
+    pub artist_name: String,
+    #[serde(serialize_with = "crate::media::serialize_opt_url")]
+    pub album_image: Option<String>,
+    /// As in [`RankedArtist`].
+    pub listeners: i64,
+    /// As in [`RankedArtist`].
+    pub plays: i64,
+}
+
+/// A page of the global artist ranking.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct ArtistRanking {
+    #[serde(flatten)]
+    #[ts(flatten)]
+    pub info: RankingInfo,
+    pub entries: Vec<RankedArtist>,
+}
+
+/// A page of the global track ranking.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct TrackRanking {
+    #[serde(flatten)]
+    #[ts(flatten)]
+    pub info: RankingInfo,
+    pub entries: Vec<RankedTrack>,
+}
+
 /// A community-uploaded image candidate for an artist or album. Uploads add
 /// candidates rather than replacing the image; the most-liked candidate
 /// (once it clears the vote threshold) becomes the entity's displayed image.
@@ -652,6 +734,26 @@ mod tests {
                 album_image: image(),
                 play_count: 1,
                 unverified_count: None,
+            })
+            .unwrap(),
+            serde_json::to_value(RankedArtist {
+                position: 1,
+                artist_id: 1,
+                artist_name: "a".into(),
+                image_url: image(),
+                listeners: 5,
+                plays: 9,
+            })
+            .unwrap(),
+            serde_json::to_value(RankedTrack {
+                position: 1,
+                track_id: 1,
+                track_title: "t".into(),
+                artist_id: 1,
+                artist_name: "a".into(),
+                album_image: image(),
+                listeners: 5,
+                plays: 9,
             })
             .unwrap(),
             serde_json::to_value(TopListener {

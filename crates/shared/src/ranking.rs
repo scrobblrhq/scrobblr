@@ -336,6 +336,36 @@ impl Period {
     }
 }
 
+/// The public routes leave out entries credited with fewer listeners than
+/// this (`RANKING_MIN_LISTENERS`), so no position stands for one or two
+/// people's listening.
+pub const DEFAULT_MIN_LISTENERS: u32 = 5;
+
+/// `RANKING_MIN_LISTENERS`; `None` (unset or blank) is the default.
+pub fn parse_min_listeners(value: Option<&str>) -> Result<u32, String> {
+    let Some(v) = value.filter(|v| !v.trim().is_empty()) else {
+        return Ok(DEFAULT_MIN_LISTENERS);
+    };
+    match v.trim().parse::<u32>() {
+        Ok(n) if (1..=1_000_000).contains(&n) => Ok(n),
+        _ => Err(format!(
+            "RANKING_MIN_LISTENERS={v}: expected a whole number from 1"
+        )),
+    }
+}
+
+/// Whether the public routes serve an entry credited with `listeners`
+/// (thousandths): as many accounts at least, a credit being one at most.
+/// Entries are ordered by listeners, so the served ones are a prefix.
+pub fn is_served(listeners: i64, min_listeners: u32) -> bool {
+    listeners >= i64::from(min_listeners) * FULL
+}
+
+/// Thousandths to the nearest whole, as the public routes show them.
+pub fn whole(thousandths: i64) -> i64 {
+    (thousandths + FULL / 2).div_euclid(FULL)
+}
+
 /// How long past its due time a stored ranking counts as fresh: the worker
 /// checks every minute, and the year's refresh takes a while.
 pub const STALE_GRACE: TimeDelta = TimeDelta::minutes(15);
@@ -934,5 +964,20 @@ mod tests {
             Period::Week.stale_after(day("2026-10-10"), computed),
             at("2026-10-11T00:15:00Z")
         );
+    }
+
+    #[test]
+    fn served_entries_need_the_minimum_and_show_whole_numbers() {
+        assert_eq!(parse_min_listeners(None), Ok(5));
+        assert_eq!(parse_min_listeners(Some(" ")), Ok(5));
+        assert_eq!(parse_min_listeners(Some(" 3 ")), Ok(3));
+        for bad in ["0", "-1", "2.5", "many"] {
+            assert!(parse_min_listeners(Some(bad)).is_err(), "{bad}");
+        }
+        assert!(is_served(5_000, 5));
+        assert!(!is_served(4_999, 5));
+        assert_eq!(whole(4_499), 4);
+        assert_eq!(whole(4_500), 5);
+        assert_eq!(whole(0), 0);
     }
 }
