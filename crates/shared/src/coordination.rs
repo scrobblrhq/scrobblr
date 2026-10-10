@@ -1180,11 +1180,14 @@ struct ValueCells<K> {
     largest: Option<K>,
 }
 
-/// Members whose value (an origin, a client) is held by at least
-/// [`MIN_VALUE_MEMBERS`] of the group and more than both one member and
-/// what the value's share of the population (`counts` of `total`)
-/// predicts for `n` members. `None` unless the cell's excess is
-/// significant.
+/// Members whose value (an origin, a client) at least [`MIN_VALUE_MEMBERS`]
+/// of the group hold, more of them than chance explains. `None` unless the
+/// cell's excess is significant.
+///
+/// Only values held by enough members are looked at, so each is compared
+/// with what chance puts in the group *given* that many hold it: a
+/// household of three whose accounts all listen to a popular artist is
+/// exactly what chance predicts there, not three times its share.
 fn value_cells<K: Hash + Eq + Ord + Copy>(
     values: impl Iterator<Item = (usize, K)>,
     counts: &HashMap<K, i64>,
@@ -1203,16 +1206,19 @@ fn value_cells<K: Hash + Eq + Ord + Copy>(
     let mut cells: Vec<(K, Vec<usize>, i64)> = Vec::new();
     for (value, holders) in by_value {
         let obs = holders.len() as i64;
-        let exp = (counts.get(&value).copied().unwrap_or(0) * n).max(total);
-        if obs < MIN_VALUE_MEMBERS || obs * total <= exp {
+        if obs < MIN_VALUE_MEMBERS {
+            continue;
+        }
+        let held = counts.get(&value).copied().unwrap_or(0).max(obs);
+        let exp = expected_given_shared(held, n.min(total), total);
+        if obs * FULL <= exp {
             continue;
         }
         observed += obs;
         expected += exp;
-        let purity = (obs * total - exp) * FULL / (obs * total);
-        cells.push((value, holders, purity));
+        cells.push((value, holders, (obs * FULL - exp) * FULL / (obs * FULL)));
     }
-    if !significant(observed, expected, total, params) {
+    if !significant(observed, expected, FULL, params) {
         return None;
     }
     let largest = cells
@@ -1221,14 +1227,46 @@ fn value_cells<K: Hash + Eq + Ord + Copy>(
         .map(|c| c.0);
     Some(ValueCells {
         values: cells.len() as i64,
-        purity: (observed * total - expected) * FULL / (observed * total),
-        excess: observed * total - expected,
+        purity: (observed * FULL - expected) * FULL / (observed * FULL),
+        excess: observed * FULL - expected,
         members: cells
             .into_iter()
             .flat_map(|(_, holders, purity)| holders.into_iter().map(move |k| (k, purity)))
             .collect(),
         largest,
     })
+}
+
+/// How many of the `held` accounts holding a value a group of `n` of the
+/// `total` draws by chance, given that at least [`MIN_VALUE_MEMBERS`] are
+/// in it (binomial), in thousandths. Weights are taken relative to the
+/// most likely count so nothing overflows; the order of operations is
+/// fixed, so the result is the same everywhere.
+fn expected_given_shared(held: i64, n: i64, total: i64) -> i64 {
+    let min = MIN_VALUE_MEMBERS;
+    if held <= min || n >= total {
+        return held * FULL;
+    }
+    if n <= 0 {
+        return min * FULL;
+    }
+    let q = n as f64 / total as f64;
+    let r = q / (1.0 - q);
+    let mode = (((held + 1) as f64 * q).floor() as i64).clamp(min, held);
+    let (mut weights, mut counts) = (1.0, mode as f64);
+    let mut w = 1.0;
+    for k in mode..held {
+        w *= (held - k) as f64 / (k + 1) as f64 * r;
+        weights += w;
+        counts += (k + 1) as f64 * w;
+    }
+    w = 1.0;
+    for k in (min + 1..=mode).rev() {
+        w *= k as f64 / (held - k + 1) as f64 / r;
+        weights += w;
+        counts += (k - 1) as f64 * w;
+    }
+    (counts / weights * FULL as f64).round() as i64
 }
 
 #[cfg(test)]
@@ -1510,7 +1548,7 @@ mod tests {
             let a = assessment(&d, user);
             assert_eq!(a.factor, 0, "{a:?}");
             assert!(a.evidence.get(Signal::Age) > 900);
-            assert!(a.evidence.get(Signal::Origin) > 900);
+            assert!(a.evidence.get(Signal::Origin) > 800);
         }
         // An honest account registered the farm's week, in a group the
         // farm's filler joined, is dented as much as that cell is impure.
@@ -1519,7 +1557,9 @@ mod tests {
         assert_eq!(cohort.members, 40);
         assert_eq!(cohort.detail.targets[0].members, 40);
         assert!(cohort.detail.targets.iter().any(|t| t.entity_id == 9_001));
-        assert_eq!(cohort.detail.origin.as_ref().unwrap().values, 2);
+        // Two addresses in one network: the network explains more.
+        let origin = cohort.detail.origin.as_ref().unwrap();
+        assert_eq!((origin.value.as_str(), origin.values), ("network", 1));
     }
 
     #[test]
@@ -1765,7 +1805,7 @@ mod tests {
         );
         let d = detect(&w.input(), &params());
         let a = assessment(&d, 10_001);
-        assert!(a.evidence.get(Signal::Client) > 900, "{a:?}");
+        assert!(a.evidence.get(Signal::Client) > 850, "{a:?}");
         assert!(a.factor > 0, "one trait only dents");
     }
 
@@ -1832,7 +1872,7 @@ mod tests {
         );
         let d = detect(&w.input(), &params());
         // Two keys, 20 accounts each: still a shared origin under each.
-        assert!(assessment(&d, 10_001).evidence.get(Signal::Origin) > 900);
+        assert!(assessment(&d, 10_001).evidence.get(Signal::Origin) > 800);
         let mut w = World::new(47);
         w.honest(1, 600);
         w.farm(
@@ -1856,6 +1896,25 @@ mod tests {
                 .iter()
                 .all(|a| a.evidence.get(Signal::Origin) == 0)
         );
+    }
+
+    #[test]
+    fn a_shared_value_is_expected_given_that_it_is_shared() {
+        // Three accounts all in a group holding most of the population:
+        // what chance does once three are in.
+        assert_eq!(expected_given_shared(3, 900, 1000), 3000);
+        // 100 accounts on one address, 300 of 6,000 in the group: chance
+        // puts barely more than the 3 needed there.
+        let farm = expected_given_shared(100, 300, 6000);
+        assert!((5000..7000).contains(&farm), "{farm}");
+        // Half the population: about half of 150 students.
+        let campus = expected_given_shared(150, 3000, 6000);
+        assert!((74_000..76_000).contains(&campus), "{campus}");
+        assert_eq!(expected_given_shared(40, 0, 6000), 3000);
+        assert_eq!(expected_given_shared(40, 6000, 6000), 40_000);
+        // Large values with a near-certain draw stay finite.
+        let big = expected_given_shared(5000, 5990, 6000);
+        assert!((4_990_000..=5_000_000).contains(&big), "{big}");
     }
 
     #[test]

@@ -118,7 +118,9 @@ async fn a_farm_gets_factors_and_falls_out_of_the_rankings() {
         assert_eq!(cohorts[0].members, 50);
         assert_eq!(cohorts[0].kind, Kind::Artist);
         assert_eq!(cohorts[0].name.as_deref(), Some("Farm Band"));
-        assert_eq!(cohorts[0].detail["origin"]["values"], 2);
+        // Two addresses in one network: the network explains more.
+        assert_eq!(cohorts[0].detail["origin"]["value"], "network");
+        assert_eq!(cohorts[0].detail["origin"]["values"], 1);
         assert_eq!(cdb::accounts(&pool, run_id).await.unwrap().len(), 50);
 
         let lw = RankingParams::default().listener_weight();
