@@ -1,4 +1,5 @@
 pub mod classification;
+pub mod coordination;
 pub mod crypto;
 pub mod import;
 pub mod lastfm;

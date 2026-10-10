@@ -247,6 +247,29 @@ impl RankingParams {
     }
 }
 
+/// What a global ranking orders.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Kind {
+    Artist,
+    Track,
+}
+
+impl Kind {
+    pub const ALL: [Kind; 2] = [Kind::Artist, Kind::Track];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Kind::Artist => "artist",
+            Kind::Track => "track",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Kind> {
+        Kind::ALL.into_iter().find(|k| k.as_str() == s)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Reason {
     Unclassified,

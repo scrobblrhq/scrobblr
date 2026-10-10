@@ -20,6 +20,7 @@ use sqlx::{PgConnection, PgExecutor, PgPool};
 
 use crate::queries::classification::{QueuedDay, parse_status};
 use shared::classification::Status;
+pub use shared::ranking::Kind;
 use shared::ranking::{self as weights, ClientClass, FULL, Play, RankingParams, Reason};
 
 #[derive(Debug, Clone)]
@@ -479,27 +480,6 @@ pub async fn list_days(
 // ---------------------------------------------------------------------------
 //  Rankings
 // ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Kind {
-    Artist,
-    Track,
-}
-
-impl Kind {
-    pub const ALL: [Kind; 2] = [Kind::Artist, Kind::Track];
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Kind::Artist => "artist",
-            Kind::Track => "track",
-        }
-    }
-
-    pub fn parse(s: &str) -> Option<Kind> {
-        Kind::ALL.into_iter().find(|k| k.as_str() == s)
-    }
-}
 
 /// One artist or track in a period: raw (every scrobble, every user who
 /// scrobbled it) and filtered (weights, listener credits).
