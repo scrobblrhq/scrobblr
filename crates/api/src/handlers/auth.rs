@@ -19,7 +19,7 @@ use crate::{
     middleware::rate_limit::ClientIp,
     state::AppState,
 };
-use db::queries::{auth as auth_db, users as users_db};
+use db::queries::{auth as auth_db, coordination as coordination_db, users as users_db};
 use shared::user::{hash_password, verify_password};
 use shared::validation::{
     self, PASSWORD_LOGIN_MAX_LEN, USERNAME_MAX_LEN, ValidationError, sanitize_display_name,
@@ -72,6 +72,7 @@ pub struct AuthResponse {
 /// POST /v1/register
 pub async fn register(
     State(state): State<AppState>,
+    ClientIp(ip): ClientIp,
     Json(body): Json<RegisterRequest>,
 ) -> ApiResult<(StatusCode, Json<AuthResponse>)> {
     let username = validation::normalize_username(&body.username);
@@ -115,6 +116,16 @@ pub async fn register(
         }
         _ => AppError::Database(e),
     })?;
+
+    // Shadow mode: losing the origin only weakens one detection signal.
+    if let (Some(key), Ok(addr)) = (&state.origin_key, ip.parse::<std::net::IpAddr>())
+        && let Err(e) = coordination_db::record_origin(&state.db, user.id, &key.origin(addr)).await
+    {
+        tracing::warn!(
+            user_id = user.id,
+            "failed to record the registration origin: {e}"
+        );
+    }
 
     let session = auth_db::create_session(&state.db, user.id, None, None).await?;
 
@@ -510,6 +521,74 @@ mod tests {
                 assert_eq!(me(&session).await, StatusCode::UNAUTHORIZED);
             }
         })
+        .await;
+    }
+
+    /// The origin is the address the API resolves for limits: a client
+    /// reaching it around the proxies can't name another in
+    /// `X-Forwarded-For`.
+    #[tokio::test]
+    #[ignore = "needs Postgres and Redis: just test-db"]
+    async fn registration_records_a_keyed_hash_of_the_clients_address() {
+        use crate::middleware::rate_limit::TrustedProxies;
+        use crate::test_app::with_custom_app;
+        use axum::body::Body;
+        use axum::extract::ConnectInfo;
+        use axum::http::{Request, header};
+        use serde_json::json;
+        use shared::origin::OriginKey;
+
+        let key = OriginKey::from_base64("CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk=").unwrap();
+        let configured = key.clone();
+        with_custom_app(
+            move |state| {
+                state.origin_key = Some(std::sync::Arc::new(configured));
+                state.proxies = std::sync::Arc::new(TrustedProxies::parse(Some("1"), None).unwrap());
+            },
+            |app| async move {
+                let register = async |name: &str, peer: &str, forwarded: &str| {
+                    let body = json!({
+                        "username": name,
+                        "email": format!("{name}@example.com"),
+                        "password": "correct horse battery staple 42!",
+                    });
+                    let mut req = Request::post("/v1/auth/register")
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .header("x-forwarded-for", forwarded)
+                        .body(Body::from(body.to_string()))
+                        .unwrap();
+                    req.extensions_mut()
+                        .insert(ConnectInfo(peer.parse::<std::net::SocketAddr>().unwrap()));
+                    let (status, _, body) = app.send(req).await;
+                    assert_eq!(status, StatusCode::CREATED, "{body}");
+                    let body: serde_json::Value = serde_json::from_str(&body).unwrap();
+                    let id = body["user_id"].as_i64().unwrap();
+                    sqlx::query_as::<_, (i32, i64, i64)>(
+                        "SELECT key_id, address, network FROM registration_origins WHERE user_id = $1",
+                    )
+                    .bind(id)
+                    .fetch_one(&app.pool)
+                    .await
+                    .unwrap()
+                };
+                let expected = |ip: &str| {
+                    let o = key.origin(ip.parse().unwrap());
+                    (o.key_id, o.address, o.network)
+                };
+                // Through the proxy, the client it names.
+                let via_proxy = register("viaproxy", "10.0.0.2:4000", "198.51.100.7").await;
+                assert_eq!(via_proxy, expected("198.51.100.7"));
+                // Around it, the peer itself, whatever it claims.
+                let direct = register("direct", "203.0.113.9:4000", "198.51.100.7").await;
+                assert_eq!(direct, expected("203.0.113.9"));
+                let stored: Vec<String> =
+                    sqlx::query_scalar("SELECT row_to_json(o)::text FROM registration_origins o")
+                        .fetch_all(&app.pool)
+                        .await
+                        .unwrap();
+                assert!(stored.iter().all(|row| !row.contains("198.51") && !row.contains("203.0")));
+            },
+        )
         .await;
     }
 

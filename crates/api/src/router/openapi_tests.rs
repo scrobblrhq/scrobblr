@@ -28,6 +28,7 @@ pub(super) fn offline_state() -> AppState {
         ))),
         app_keys: None,
         proxies: Default::default(),
+        origin_key: None,
         rate_limit: Default::default(),
         cors: Default::default(),
         clients: Default::default(),

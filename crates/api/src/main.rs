@@ -115,6 +115,18 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
+    let origin_key = shared::origin::OriginKey::from_env()?.map(std::sync::Arc::new);
+    match &origin_key {
+        Some(key) => tracing::info!(
+            "registrations record keyed hashes of their address (REGISTRATION_HASH_KEY id {:08x})",
+            key.id()
+        ),
+        None => tracing::info!(
+            "registrations record no origin (REGISTRATION_HASH_KEY unset): coordination \
+             detection works without the origin signal"
+        ),
+    }
+
     let rate_limit = middleware::rate_limit::RateLimit::from_env()?;
     if rate_limit.requests == 0 {
         tracing::warn!("no global per-address request limit (RATE_LIMIT_REQUESTS=0)");
@@ -157,6 +169,7 @@ async fn main() -> anyhow::Result<()> {
         media,
         app_keys,
         proxies: std::sync::Arc::new(proxies),
+        origin_key,
         rate_limit,
         cors: std::sync::Arc::new(cors),
         clients: Default::default(),

@@ -30,6 +30,9 @@ pub struct AppState {
     pub app_keys: Option<Arc<AppKeys>>,
     /// The reverse proxies whose `X-Forwarded-For` names the client.
     pub proxies: Arc<TrustedProxies>,
+    /// `REGISTRATION_HASH_KEY`: registrations record keyed hashes of the
+    /// client's address for the coordination detection; `None`, nothing.
+    pub origin_key: Option<Arc<shared::origin::OriginKey>>,
     /// The global per-address request limit.
     pub rate_limit: RateLimit,
     /// The pages that may call the native API from a browser.
