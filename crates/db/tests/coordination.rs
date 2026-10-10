@@ -49,7 +49,9 @@ async fn population(pool: &PgPool, farm: i64) -> i32 {
         "INSERT INTO ranking_days (user_id, day, ruleset_id, classified_at, plays, weighted,
              weight, unclassified, suspect, duplicate, no_data, imported, new_account,
              short_listen, no_listened, unknown_client, track_cap, artist_cap)
-         SELECT u.id, CURRENT_DATE - d, {ruleset}, NOW(), 10, 10, 10000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+         SELECT u.id, CURRENT_DATE - d, {ruleset}, NOW(), 10, 10,
+                CASE WHEN u.username LIKE 'farm%' THEN 5000 ELSE 10000 END,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
          FROM users u CROSS JOIN generate_series(0, 9) d",
         "INSERT INTO ranking_daily (user_id, day, track_id, artist_id, plays, weight)
          SELECT u.id, CURRENT_DATE - d, t.id, t.artist_id, 1, 1000

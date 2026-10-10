@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT w.weight AS \"weight!\", w.weight - x.cut AS \"coordinated!\",\n               x.accounts AS \"accounts!\", x.user_days AS \"user_days!\"\n        FROM (SELECT COALESCE(sum(weight), 0)::bigint AS weight\n              FROM ranking_days WHERE day BETWEEN $1 AND $2) w,\n             (SELECT COALESCE(sum(r.weight::bigint * ($3::bigint - c.factor) / $3::bigint), 0)::bigint\n                         AS cut,\n                     count(DISTINCT c.user_id) AS accounts, count(*) AS user_days\n              FROM coordination_days c\n              JOIN ranking_days r ON r.user_id = c.user_id AND r.day = c.day\n              WHERE c.day BETWEEN $1 AND $2) x\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "weight!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "coordinated!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "accounts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "user_days!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Date",
+        "Date",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "e1172c2657be432e436510108bb717739926cebfcae8a07da5f755a5dfc25775"
+}

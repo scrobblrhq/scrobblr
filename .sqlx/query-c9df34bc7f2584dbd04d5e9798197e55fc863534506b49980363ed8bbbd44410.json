@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH per_user AS (\n                SELECT user_id,\n                       CASE WHEN $3 THEN track_id ELSE artist_id END AS entity_id,\n                       sum(plays)::bigint AS plays,\n                       sum(weight)::bigint AS weight\n                FROM ranking_daily\n                WHERE day BETWEEN $1 AND $2\n                GROUP BY 1, 2\n            ), factors AS (\n                SELECT c.user_id,\n                       ($5::bigint - sum(r.weight::bigint * ($5::bigint - c.factor))::bigint\n                                     / NULLIF(t.weight, 0))::bigint AS factor\n                FROM coordination_days c\n                JOIN ranking_days r ON r.user_id = c.user_id AND r.day = c.day\n                JOIN (SELECT user_id, sum(weight)::bigint AS weight FROM ranking_days\n                      WHERE day BETWEEN $1 AND $2 GROUP BY 1) t ON t.user_id = c.user_id\n                WHERE c.day BETWEEN $1 AND $2\n                GROUP BY c.user_id, t.weight\n            ), per_entity AS (\n                SELECT p.entity_id,\n                       count(*)::int AS raw_listeners,\n                       sum(p.plays)::int AS raw_plays,\n                       sum(LEAST($5::bigint, p.weight * $5 / $4) * COALESCE(f.factor, $5) / $5)::bigint\n                           AS listeners,\n                       sum(p.weight * COALESCE(f.factor, $5) / $5)::bigint AS weight\n                FROM per_user p\n                LEFT JOIN factors f USING (user_id)\n                GROUP BY p.entity_id\n                HAVING sum(p.weight * COALESCE(f.factor, $5) / $5) > 0\n            ), top AS (\n                SELECT * FROM per_entity\n                ORDER BY listeners DESC, weight DESC, entity_id\n                LIMIT $8\n            ), inserted AS (\n                INSERT INTO ranking_entries\n                    (period, kind, position, entity_id, listeners, weight, raw_listeners, raw_plays)\n                SELECT $6, $7,\n                       row_number() OVER (ORDER BY listeners DESC, weight DESC, entity_id),\n                       entity_id, listeners, weight, raw_listeners, raw_plays\n                FROM top\n            )\n            SELECT count(*)::int AS \"ranked!\" FROM per_entity\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ranked!",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Date",
+        "Date",
+        "Bool",
+        "Int8",
+        "Int8",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "c9df34bc7f2584dbd04d5e9798197e55fc863534506b49980363ed8bbbd44410"
+}

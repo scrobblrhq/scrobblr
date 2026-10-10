@@ -515,10 +515,10 @@ pub struct Ranked {
 /// their coordination factor: the factor applies after the credit is
 /// capped, or a farm account with plenty of weight would stay a full
 /// listener at any factor. A day's factor is in `coordination_days` (1
-/// without a row); the period's is the days' factors weighed by weight.
-/// What the factors take away is summed over the flagged users' rows only
-/// (by primary key) and subtracted: joining every row to the factors made
-/// the planner scan the period in day order, 25 to 65 % slower.
+/// without a row); a user's for the period is their days' factors weighed
+/// by their weight on each day. Factors only differ between detection
+/// runs, so per (user, entity) it would rarely differ, and cost 45 to 80 %
+/// more than the query without factors where this costs 5 to 20 %.
 pub async fn rankings(
     pool: &PgPool,
     kind: Kind,
@@ -527,6 +527,8 @@ pub async fn rankings(
     listener_weight: i64,
     limit: i64,
 ) -> Result<Vec<Ranked>, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    avoid_merge_joins(&mut tx).await?;
     let rows = sqlx::query!(
         r#"
         WITH per_user AS (
@@ -537,27 +539,27 @@ pub async fn rankings(
             FROM ranking_daily
             WHERE day BETWEEN $1 AND $2
             GROUP BY 1, 2
-        ), cut AS (
-            SELECT d.user_id,
-                   CASE WHEN $3 THEN d.track_id ELSE d.artist_id END AS entity_id,
-                   sum(d.weight::bigint * ($5::bigint - c.factor) / $5::bigint)::bigint AS cut
+        ), factors AS (
+            SELECT c.user_id,
+                   ($5::bigint - sum(r.weight::bigint * ($5::bigint - c.factor))::bigint
+                                 / NULLIF(t.weight, 0))::bigint AS factor
             FROM coordination_days c
-            JOIN ranking_daily d ON d.user_id = c.user_id AND d.day = c.day
+            JOIN ranking_days r ON r.user_id = c.user_id AND r.day = c.day
+            JOIN (SELECT user_id, sum(weight)::bigint AS weight FROM ranking_days
+                  WHERE day BETWEEN $1 AND $2 GROUP BY 1) t ON t.user_id = c.user_id
             WHERE c.day BETWEEN $1 AND $2
-            GROUP BY 1, 2
+            GROUP BY c.user_id, t.weight
         ), per_entity AS (
             SELECT p.entity_id,
                    count(*) AS raw_listeners,
                    sum(p.plays)::bigint AS raw_plays,
-                   sum(CASE WHEN p.weight > 0
-                            THEN LEAST($5::bigint, p.weight * $5 / $4)
-                                 * (p.weight - COALESCE(x.cut, 0)) / p.weight
-                            ELSE 0 END)::bigint AS listeners,
-                   sum(p.weight - COALESCE(x.cut, 0))::bigint AS weight,
+                   sum(LEAST($5::bigint, p.weight * $5 / $4) * COALESCE(f.factor, $5) / $5)::bigint
+                       AS listeners,
+                   sum(p.weight * COALESCE(f.factor, $5) / $5)::bigint AS weight,
                    sum(LEAST($5::bigint, p.weight * $5 / $4))::bigint AS uncoordinated_listeners,
                    sum(p.weight)::bigint AS uncoordinated_weight
             FROM per_user p
-            LEFT JOIN cut x USING (user_id, entity_id)
+            LEFT JOIN factors f USING (user_id)
             GROUP BY p.entity_id
         ), ranked AS (
             SELECT *,
@@ -594,8 +596,9 @@ pub async fn rankings(
         FULL,
         limit,
     )
-    .fetch_all(pool)
+    .fetch_all(&mut *tx)
     .await?;
+    tx.commit().await?;
     Ok(rows
         .into_iter()
         .map(|r| Ranked {
@@ -615,6 +618,16 @@ pub async fn rankings(
             weight_rank: r.weight_rank,
         })
         .collect())
+}
+
+/// The planner merge-joins the period's per-user rows with the few users'
+/// factors by sorting a million rows to disk; hashing the factors is what
+/// keeps the factors' cost small.
+async fn avoid_merge_joins(tx: &mut PgConnection) -> Result<(), sqlx::Error> {
+    sqlx::query("SET LOCAL enable_mergejoin = off")
+        .execute(tx)
+        .await?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -721,6 +734,7 @@ pub async fn refresh_snapshots(
     sqlx::query("SET LOCAL statement_timeout = '10min'")
         .execute(&mut *tx)
         .await?;
+    avoid_merge_joins(&mut tx).await?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('rankings:' || $1, 0))")
         .bind(period.as_str())
         .execute(&mut *tx)
@@ -760,27 +774,27 @@ pub async fn refresh_snapshots(
                 FROM ranking_daily
                 WHERE day BETWEEN $1 AND $2
                 GROUP BY 1, 2
-            ), cut AS (
-                SELECT d.user_id,
-                       CASE WHEN $3 THEN d.track_id ELSE d.artist_id END AS entity_id,
-                       sum(d.weight::bigint * ($5::bigint - c.factor) / $5::bigint)::bigint AS cut
+            ), factors AS (
+                SELECT c.user_id,
+                       ($5::bigint - sum(r.weight::bigint * ($5::bigint - c.factor))::bigint
+                                     / NULLIF(t.weight, 0))::bigint AS factor
                 FROM coordination_days c
-                JOIN ranking_daily d ON d.user_id = c.user_id AND d.day = c.day
+                JOIN ranking_days r ON r.user_id = c.user_id AND r.day = c.day
+                JOIN (SELECT user_id, sum(weight)::bigint AS weight FROM ranking_days
+                      WHERE day BETWEEN $1 AND $2 GROUP BY 1) t ON t.user_id = c.user_id
                 WHERE c.day BETWEEN $1 AND $2
-                GROUP BY 1, 2
+                GROUP BY c.user_id, t.weight
             ), per_entity AS (
                 SELECT p.entity_id,
                        count(*)::int AS raw_listeners,
                        sum(p.plays)::int AS raw_plays,
-                       sum(CASE WHEN p.weight > 0
-                                THEN LEAST($5::bigint, p.weight * $5 / $4)
-                                     * (p.weight - COALESCE(x.cut, 0)) / p.weight
-                                ELSE 0 END)::bigint AS listeners,
-                       sum(p.weight - COALESCE(x.cut, 0))::bigint AS weight
+                       sum(LEAST($5::bigint, p.weight * $5 / $4) * COALESCE(f.factor, $5) / $5)::bigint
+                           AS listeners,
+                       sum(p.weight * COALESCE(f.factor, $5) / $5)::bigint AS weight
                 FROM per_user p
-                LEFT JOIN cut x USING (user_id, entity_id)
+                LEFT JOIN factors f USING (user_id)
                 GROUP BY p.entity_id
-                HAVING sum(p.weight - COALESCE(x.cut, 0)) > 0
+                HAVING sum(p.weight * COALESCE(f.factor, $5) / $5) > 0
             ), top AS (
                 SELECT * FROM per_entity
                 ORDER BY listeners DESC, weight DESC, entity_id
@@ -1122,20 +1136,16 @@ pub async fn coordination_totals(
 ) -> Result<CoordinationTotals, sqlx::Error> {
     let r = sqlx::query!(
         r#"
-        WITH cut AS (
-            SELECT c.user_id, c.day, sum(d.weight::bigint * ($3::bigint - c.factor) / $3::bigint) AS cut
-            FROM coordination_days c
-            JOIN ranking_daily d ON d.user_id = c.user_id AND d.day = c.day
-            WHERE c.day BETWEEN $1 AND $2
-            GROUP BY 1, 2
-        )
         SELECT w.weight AS "weight!", w.weight - x.cut AS "coordinated!",
                x.accounts AS "accounts!", x.user_days AS "user_days!"
         FROM (SELECT COALESCE(sum(weight), 0)::bigint AS weight
-              FROM ranking_daily WHERE day BETWEEN $1 AND $2) w,
-             (SELECT COALESCE(sum(cut), 0)::bigint AS cut, count(DISTINCT user_id) AS accounts,
-                     count(*) AS user_days
-              FROM cut) x
+              FROM ranking_days WHERE day BETWEEN $1 AND $2) w,
+             (SELECT COALESCE(sum(r.weight::bigint * ($3::bigint - c.factor) / $3::bigint), 0)::bigint
+                         AS cut,
+                     count(DISTINCT c.user_id) AS accounts, count(*) AS user_days
+              FROM coordination_days c
+              JOIN ranking_days r ON r.user_id = c.user_id AND r.day = c.day
+              WHERE c.day BETWEEN $1 AND $2) x
         "#,
         from,
         to,
