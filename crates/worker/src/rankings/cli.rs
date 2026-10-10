@@ -658,64 +658,47 @@ async fn print_cohorts(
             share(i64::from(c.factor))
         );
         let d = &c.detail;
-        for signal in Signal::ALL {
-            let value = c.evidence.get(signal);
-            let what = match signal {
-                Signal::Age => d["age"]
-                    .as_array()
-                    .map(|cells| {
-                        cells
-                            .iter()
-                            .map(|w| {
-                                format!(
-                                    "registered {}..{}: {} accounts, purity {}",
-                                    w["from"].as_str().unwrap_or("?"),
-                                    w["to"].as_str().unwrap_or("?"),
-                                    w["members"],
-                                    share(w["purity"].as_i64().unwrap_or(0))
-                                )
-                            })
-                            .collect::<Vec<_>>()
-                            .join("; ")
-                    })
-                    .unwrap_or_default(),
-                Signal::Origin | Signal::Client => {
-                    let cell = &d[signal.as_str()];
-                    if cell.is_null() {
-                        String::new()
-                    } else {
-                        format!(
-                            "{} ({} values): {} accounts, purity {}",
-                            cell["value"].as_str().unwrap_or("?"),
-                            cell["values"],
-                            cell["members"],
-                            share(cell["purity"].as_i64().unwrap_or(0))
-                        )
-                    }
-                }
-                Signal::Sync => {
-                    let cell = &d["sync"];
-                    if cell.is_null() {
-                        String::new()
-                    } else {
-                        format!(
-                            "lockstep: {} accounts, median {} days with crowds",
-                            cell["members"], cell["median_days"]
-                        )
-                    }
-                }
-                Signal::Shape => String::new(),
-                Signal::Burst => format!(
-                    "new listeners: {}% of the group",
-                    d["new_share"].as_i64().unwrap_or(0) / 10
-                ),
-            };
-            if value == 0 && what.is_empty() {
-                println!("  {:<7} -", signal.as_str());
-            } else {
-                println!("  {:<7} {}  {}", signal.as_str(), share(value), what);
+        let means: Vec<String> = Signal::ALL
+            .into_iter()
+            .map(|s| format!("{} {}", s.as_str(), share(c.evidence.get(s))))
+            .collect();
+        println!("  evidence (members' mean): {}", means.join(" · "));
+        let mut cells = Vec::new();
+        if let Some(windows) = d["age"].as_array() {
+            for w in windows {
+                cells.push(format!(
+                    "age: {} accounts registered {}..{}, purity {}",
+                    w["members"],
+                    w["from"].as_str().unwrap_or("?"),
+                    w["to"].as_str().unwrap_or("?"),
+                    share(w["purity"].as_i64().unwrap_or(0))
+                ));
             }
         }
+        for signal in [Signal::Origin, Signal::Client] {
+            let cell = &d[signal.as_str()];
+            if !cell.is_null() {
+                cells.push(format!(
+                    "{}: {} accounts on {} {} value(s), purity {}",
+                    signal.as_str(),
+                    cell["members"],
+                    cell["values"],
+                    cell["value"].as_str().unwrap_or("?"),
+                    share(cell["purity"].as_i64().unwrap_or(0))
+                ));
+            }
+        }
+        if !d["sync"].is_null() {
+            cells.push(format!(
+                "sync: {} accounts in lockstep, median {} days with crowds",
+                d["sync"]["members"], d["sync"]["median_days"]
+            ));
+        }
+        cells.push(format!(
+            "new listeners: {}%",
+            d["new_share"].as_i64().unwrap_or(0) / 10
+        ));
+        println!("  in its group: {}", cells.join("; "));
         if let Some(targets) = d["targets"].as_array() {
             for (n, t) in targets.iter().filter_map(target).enumerate() {
                 println!(
