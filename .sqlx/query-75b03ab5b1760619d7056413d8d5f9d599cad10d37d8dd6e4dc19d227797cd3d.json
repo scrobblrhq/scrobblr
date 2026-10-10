@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT from_day, to_day, computed_at FROM ranking_snapshots WHERE period = $1 AND kind = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "from_day",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 1,
+        "name": "to_day",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 2,
+        "name": "computed_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "75b03ab5b1760619d7056413d8d5f9d599cad10d37d8dd6e4dc19d227797cd3d"
+}

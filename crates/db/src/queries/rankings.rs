@@ -1,6 +1,5 @@
-//! Ranking weights and global rankings, shadow mode (see `shared::ranking`
-//! for the weights and `migrations/0018_ranking_weights.sql` for the
-//! schema).
+//! Ranking weights and global rankings (see `shared::ranking` for the
+//! weights and `migrations/0018_ranking_weights.sql` for the schema).
 //!
 //! Work is per (user, UTC day), after the day's classification: weighing
 //! reads the day's scrobbles with their labels and rewrites the day's rows
@@ -8,9 +7,9 @@
 //! their classification is written and from a sweep that compares stored
 //! days with the classification, so a lost queue entry or new params are
 //! picked up again. Rankings sum `ranking_daily` over a period; the worker
-//! keeps each [`Period`]'s in `ranking_snapshots` (migration `0022`).
-//! Nothing user-facing reads them yet. Weights are kept only for the days a
-//! period can reach ([`retained_from`]).
+//! keeps each [`Period`]'s in `ranking_snapshots` (migration `0022`),
+//! which the public routes serve ([`served_page`]). Weights are kept only
+//! for the days a period can reach ([`retained_from`]).
 
 use std::collections::HashMap;
 use std::time::Instant;
@@ -867,8 +866,8 @@ pub struct Entry {
     pub raw_plays: i32,
 }
 
-/// Positions `offset + 1 ..= offset + limit` of a stored ranking, what a
-/// route would serve.
+/// Positions `offset + 1 ..= offset + limit` of a stored ranking, with the
+/// raw counts and the entries the routes leave out ([`served_page`]).
 pub async fn snapshot_entries(
     pool: &PgPool,
     period: Period,
@@ -898,6 +897,136 @@ pub async fn snapshot_entries(
     )
     .fetch_all(pool)
     .await
+}
+
+/// Which stored ranking a route serves: changes whenever it is recomputed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SnapshotVersion {
+    pub from_day: NaiveDate,
+    pub to_day: NaiveDate,
+    pub computed_at: DateTime<Utc>,
+}
+
+pub async fn snapshot_version(
+    pool: &PgPool,
+    period: Period,
+    kind: Kind,
+) -> Result<Option<SnapshotVersion>, sqlx::Error> {
+    sqlx::query_as!(
+        SnapshotVersion,
+        "SELECT from_day, to_day, computed_at FROM ranking_snapshots WHERE period = $1 AND kind = $2",
+        period.as_str(),
+        kind.as_str(),
+    )
+    .fetch_optional(pool)
+    .await
+}
+
+/// A position as the public routes serve it. For an artist, `name` and
+/// `artist_name` are both its name and `image` its own; for a track,
+/// `image` is its album's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServedEntry {
+    pub position: i32,
+    pub entity_id: i64,
+    pub name: String,
+    pub artist_id: i64,
+    pub artist_name: String,
+    pub image: Option<String>,
+    /// Thousandths.
+    pub listeners: i64,
+    pub weight: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct ServedPage {
+    pub version: SnapshotVersion,
+    /// Positions served at all.
+    pub total: i64,
+    pub entries: Vec<ServedEntry>,
+}
+
+/// Positions after `offset`, up to `limit` of them, of the stored ranking,
+/// keeping only entries credited with at least `min_listeners`
+/// (thousandths): as many accounts at least, a credit being one at most.
+/// Ordered by listeners, those are a prefix of the ranking. `None` before
+/// the first snapshot. One statement, so the page and its version come from
+/// the same snapshot even while a refresh commits.
+pub async fn served_page(
+    pool: &PgPool,
+    period: Period,
+    kind: Kind,
+    min_listeners: i64,
+    offset: i64,
+    limit: i64,
+) -> Result<Option<ServedPage>, sqlx::Error> {
+    let rows = sqlx::query!(
+        r#"
+        SELECT s.from_day, s.to_day, s.computed_at,
+               (SELECT count(*) FROM ranking_entries c
+                WHERE c.period = s.period AND c.kind = s.kind AND c.listeners >= $3) AS "total!",
+               e.position AS "position?", e.entity_id AS "entity_id?", e.name AS "name?",
+               e.artist_id AS "artist_id?", e.artist_name AS "artist_name?", e.image AS "image?",
+               e.listeners AS "listeners?", e.weight AS "weight?"
+        FROM ranking_snapshots s
+        LEFT JOIN LATERAL (
+            SELECT e.position, e.entity_id,
+                   COALESCE(t.title, a.name) AS name,
+                   COALESCE(ta.id, a.id) AS artist_id,
+                   COALESCE(ta.name, a.name) AS artist_name,
+                   CASE WHEN s.kind = 'track' THEN al.image_url ELSE a.image_url END AS image,
+                   e.listeners, e.weight
+            FROM ranking_entries e
+            LEFT JOIN tracks t   ON s.kind = 'track' AND t.id = e.entity_id
+            LEFT JOIN artists ta ON ta.id = t.artist_id
+            LEFT JOIN albums al  ON al.id = t.album_id
+            LEFT JOIN artists a  ON s.kind = 'artist' AND a.id = e.entity_id
+            WHERE e.period = s.period AND e.kind = s.kind
+              AND e.position > $4 AND e.listeners >= $3
+              AND COALESCE(ta.id, a.id) IS NOT NULL
+            ORDER BY e.position
+            LIMIT $5
+        ) e ON true
+        WHERE s.period = $1 AND s.kind = $2
+        ORDER BY e.position
+        "#,
+        period.as_str(),
+        kind.as_str(),
+        min_listeners,
+        offset.clamp(0, i32::MAX as i64) as i32,
+        limit,
+    )
+    .fetch_all(pool)
+    .await?;
+    let Some(first) = rows.first() else {
+        return Ok(None);
+    };
+    let version = SnapshotVersion {
+        from_day: first.from_day,
+        to_day: first.to_day,
+        computed_at: first.computed_at,
+    };
+    let total = first.total;
+    let entries = rows
+        .into_iter()
+        .filter_map(|r| {
+            Some(ServedEntry {
+                position: r.position?,
+                entity_id: r.entity_id?,
+                name: r.name?,
+                artist_id: r.artist_id?,
+                artist_name: r.artist_name?,
+                image: r.image,
+                listeners: r.listeners?,
+                weight: r.weight?,
+            })
+        })
+        .collect();
+    Ok(Some(ServedPage {
+        version,
+        total,
+        entries,
+    }))
 }
 
 // ---------------------------------------------------------------------------
