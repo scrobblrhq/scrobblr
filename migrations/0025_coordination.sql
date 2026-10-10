@@ -88,7 +88,8 @@ CREATE TABLE coordination_accounts (
 -- The factor of each (user, day) below 1, as the latest run covering the
 -- day judged it: a run rewrites its window's days and leaves earlier days
 -- as runs left them, so a farm that stopped keeps its days dented in the
--- year's ranking. Rankings join it to ranking_daily; kept as long.
+-- year's ranking. Rankings weigh a user's days' factors by ranking_days
+-- into one factor per period; kept as long as the weights.
 CREATE TABLE coordination_days (
     user_id  BIGINT  NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     day      DATE    NOT NULL,
