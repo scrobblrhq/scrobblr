@@ -6,6 +6,7 @@ mod fake_lastfm;
 mod heartbeat;
 mod lastfm_import;
 mod rankings;
+mod status;
 #[cfg(test)]
 mod test_support;
 mod tracks;
@@ -30,7 +31,8 @@ async fn main() -> anyhow::Result<()> {
         Some("help" | "--help" | "-h")
     ) {
         println!(
-            "{USAGE}\n{}\n{}\n{}\n{}\n{}",
+            "{USAGE}\n{}\n{}\n{}\n{}\n{}\n{}",
+            status::USAGE,
             classification::cli::USAGE,
             rankings::cli::USAGE,
             lastfm_import::cli::USAGE,
@@ -58,6 +60,13 @@ async fn main() -> anyhow::Result<()> {
     match args.first().map(String::as_str) {
         None => {}
         Some("migrate") => return migrate(&db, &args[1..]).await,
+        Some("status") => {
+            db::migrate::ensure_current(&db).await?;
+            if !status::run(&db, &args[1..]).await? {
+                std::process::exit(1);
+            }
+            return Ok(());
+        }
         Some("classify") => {
             db::migrate::ensure_current(&db).await?;
             return classification::cli::run(&db, &args[1..]).await;
