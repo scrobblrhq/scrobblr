@@ -15,16 +15,12 @@ use std::time::{Duration, Instant};
 
 use fred::interfaces::ClientLike;
 use fred::types::Builder as RedisBuilder;
-use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
 
-    tracing_subscriber::registry()
-        .with(EnvFilter::from_default_env())
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    shared::logging::init().map_err(anyhow::Error::msg)?;
     shared::panic::log_panics();
 
     let args: Vec<String> = std::env::args().skip(1).collect();

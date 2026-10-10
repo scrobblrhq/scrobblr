@@ -53,6 +53,7 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-scrobblr}@db:5432/${POSTGRES_DB:-scrobblr}
       PGPASSWORD: ${POSTGRES_PASSWORD:-scrobblr}
       RUST_LOG: ${RUST_LOG:-info,sqlx=warn}
+      LOG_FORMAT: ${LOG_FORMAT:-}
     depends_on:
       db:
         condition: service_healthy
@@ -79,6 +80,7 @@ services:
       UPLOAD_DIR: /data/uploads
       UPLOAD_PUBLIC_URL: ${UPLOAD_PUBLIC_URL:-}
       RUST_LOG: ${RUST_LOG:-info,sqlx=warn,tower_http=warn}
+      LOG_FORMAT: ${LOG_FORMAT:-}
       DB_MAX_CONNECTIONS: ${DB_MAX_CONNECTIONS:-}
       AUTH_APP_KEYS: ${AUTH_APP_KEYS:-}
       SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID:-}
@@ -122,6 +124,7 @@ services:
       REDIS_URL: redis://redis:6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-scrobblr}
       RUST_LOG: ${RUST_LOG:-info,sqlx=warn}
+      LOG_FORMAT: ${LOG_FORMAT:-}
       DB_MAX_CONNECTIONS: ${DB_MAX_CONNECTIONS:-}
       # The now playing it re-publishes carries image URLs, built like the API's.
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
