@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            INSERT INTO ranking_snapshots\n                (period, kind, from_day, to_day, ruleset_id, ranked, pending_days, took_ms)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n            RETURNING computed_at\n            ",
+  "query": "\n            INSERT INTO ranking_snapshots\n                (period, kind, from_day, to_day, ruleset_id, ranked, pending_days,\n                 coordination_run_id, took_ms)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)\n            RETURNING computed_at\n            ",
   "describe": {
     "columns": [
       {
@@ -18,6 +18,7 @@
         "Int4",
         "Int4",
         "Int4",
+        "Int4",
         "Int4"
       ]
     },
@@ -25,5 +26,5 @@
       false
     ]
   },
-  "hash": "62d33b058be1dc0143a7092c8aab374f714319cb90c27a40fbc9d6afbbe35c2c"
+  "hash": "b94a00c4e3f44f93417100f9fae4afe05ec0df22c88c65c21b894c1955453c68"
 }

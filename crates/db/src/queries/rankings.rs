@@ -491,13 +491,18 @@ pub struct Ranked {
     pub artist_name: Option<String>,
     pub raw_listeners: i64,
     pub raw_plays: i64,
-    /// Sum of listener credits, in thousandths.
+    /// Sum of listener credits, in thousandths, each times its account's
+    /// coordination factor.
     pub listeners: i64,
-    /// Sum of weights, in thousandths.
+    /// Sum of weights, in thousandths, times the factors.
     pub weight: i64,
+    /// The same before the coordination factors.
+    pub uncoordinated_listeners: i64,
+    pub uncoordinated_weight: i64,
     /// By listeners, then plays (the rankings' order).
     pub raw_rank: i64,
     pub rank: i64,
+    pub uncoordinated_rank: i64,
     /// By plays alone.
     pub raw_play_rank: i64,
     pub weight_rank: i64,
@@ -505,8 +510,12 @@ pub struct Ranked {
 
 /// Raw and filtered rankings of artists or tracks over the UTC days
 /// `[from, to]`, side by side: the entries in the top `limit` of any of the
-/// four orders. A user's credit as a listener is their weight for the
-/// entity over the period against `listener_weight` (at most one).
+/// five orders. A user's credit as a listener is their weight for the
+/// entity over the period against `listener_weight` (at most one), times
+/// their coordination factor: the factor applies after the credit is
+/// capped, or a farm account with plenty of weight would stay a full
+/// listener at any factor. A day's factor is in `coordination_days` (1
+/// without a row); the period's is the days' factors weighed by weight.
 pub async fn rankings(
     pool: &PgPool,
     kind: Kind,
@@ -518,25 +527,33 @@ pub async fn rankings(
     let rows = sqlx::query!(
         r#"
         WITH per_user AS (
-            SELECT user_id,
-                   CASE WHEN $3 THEN track_id ELSE artist_id END AS entity_id,
-                   sum(plays)::bigint AS plays,
-                   sum(weight)::bigint AS weight
-            FROM ranking_daily
-            WHERE day BETWEEN $1 AND $2
+            SELECT d.user_id,
+                   CASE WHEN $3 THEN d.track_id ELSE d.artist_id END AS entity_id,
+                   sum(d.plays)::bigint AS plays,
+                   sum(d.weight)::bigint AS weight,
+                   sum(d.weight::bigint * COALESCE(c.factor::bigint, $5::bigint) / $5::bigint)::bigint AS coordinated
+            FROM ranking_daily d
+            LEFT JOIN coordination_days c ON c.user_id = d.user_id AND c.day = d.day
+            WHERE d.day BETWEEN $1 AND $2
             GROUP BY 1, 2
         ), per_entity AS (
             SELECT entity_id,
                    count(*) AS raw_listeners,
                    sum(plays)::bigint AS raw_plays,
-                   sum(LEAST($5::bigint, weight * $5 / $4))::bigint AS listeners,
-                   sum(weight)::bigint AS weight
+                   sum(CASE WHEN weight > 0
+                            THEN LEAST($5::bigint, weight * $5 / $4) * coordinated / weight
+                            ELSE 0 END)::bigint AS listeners,
+                   sum(coordinated)::bigint AS weight,
+                   sum(LEAST($5::bigint, weight * $5 / $4))::bigint AS uncoordinated_listeners,
+                   sum(weight)::bigint AS uncoordinated_weight
             FROM per_user
             GROUP BY entity_id
         ), ranked AS (
             SELECT *,
                    row_number() OVER (ORDER BY raw_listeners DESC, raw_plays DESC, entity_id) AS raw_rank,
                    row_number() OVER (ORDER BY listeners DESC, weight DESC, entity_id) AS rank,
+                   row_number() OVER (ORDER BY uncoordinated_listeners DESC, uncoordinated_weight DESC,
+                                               entity_id) AS uncoordinated_rank,
                    row_number() OVER (ORDER BY raw_plays DESC, raw_listeners DESC, entity_id) AS raw_play_rank,
                    row_number() OVER (ORDER BY weight DESC, listeners DESC, entity_id) AS weight_rank
             FROM per_entity
@@ -546,13 +563,17 @@ pub async fn rankings(
                ta.name AS "artist_name?",
                r.raw_listeners AS "raw_listeners!", r.raw_plays AS "raw_plays!",
                r.listeners AS "listeners!", r.weight AS "weight!",
+               r.uncoordinated_listeners AS "uncoordinated_listeners!",
+               r.uncoordinated_weight AS "uncoordinated_weight!",
                r.raw_rank AS "raw_rank!", r.rank AS "rank!",
+               r.uncoordinated_rank AS "uncoordinated_rank!",
                r.raw_play_rank AS "raw_play_rank!", r.weight_rank AS "weight_rank!"
         FROM ranked r
         LEFT JOIN tracks t   ON $3 AND t.id = r.entity_id
         LEFT JOIN artists ta ON ta.id = t.artist_id
         LEFT JOIN artists a  ON NOT $3 AND a.id = r.entity_id
-        WHERE r.raw_rank <= $6 OR r.rank <= $6 OR r.raw_play_rank <= $6 OR r.weight_rank <= $6
+        WHERE r.raw_rank <= $6 OR r.rank <= $6 OR r.uncoordinated_rank <= $6
+           OR r.raw_play_rank <= $6 OR r.weight_rank <= $6
         ORDER BY r.rank
         "#,
         from,
@@ -574,8 +595,11 @@ pub async fn rankings(
             raw_plays: r.raw_plays,
             listeners: r.listeners,
             weight: r.weight,
+            uncoordinated_listeners: r.uncoordinated_listeners,
+            uncoordinated_weight: r.uncoordinated_weight,
             raw_rank: r.raw_rank,
             rank: r.rank,
+            uncoordinated_rank: r.uncoordinated_rank,
             raw_play_rank: r.raw_play_rank,
             weight_rank: r.weight_rank,
         })
@@ -632,8 +656,9 @@ pub fn retained_from(today: NaiveDate) -> NaiveDate {
     today - TimeDelta::days(RETAINED_DAYS - 1)
 }
 
-/// Deletes the weights of days before [`retained_from`]`(today)`; returns
-/// the user-days removed. No period reaches them.
+/// Deletes the weights and coordination factors of days before
+/// [`retained_from`]`(today)`; returns the user-days removed. No period
+/// reaches them.
 pub async fn purge_expired(pool: &PgPool, today: NaiveDate) -> Result<u64, sqlx::Error> {
     let first = retained_from(today);
     let mut tx = pool.begin().await?;
@@ -644,6 +669,9 @@ pub async fn purge_expired(pool: &PgPool, today: NaiveDate) -> Result<u64, sqlx:
         .execute(&mut *tx)
         .await?
         .rows_affected();
+    sqlx::query!("DELETE FROM coordination_days WHERE day < $1", first)
+        .execute(&mut *tx)
+        .await?;
     tx.commit().await?;
     Ok(days)
 }
@@ -660,13 +688,16 @@ pub struct Snapshot {
     pub ranked: i32,
     /// User-days of the period still queued for weighing when it ran.
     pub pending_days: i32,
+    /// The coordination run whose factors it applied.
+    pub coordination_run_id: Option<i32>,
     pub computed_at: DateTime<Utc>,
     pub took_ms: i32,
 }
 
 /// Ranks `period`'s artists and tracks as [`rankings`] orders them
-/// filtered, leaving out entities without weight, and replaces the
-/// period's snapshots with the first `top` of each in one transaction.
+/// filtered, coordination factors applied, leaving out entities without
+/// weight, and replaces the period's snapshots with the first `top` of
+/// each in one transaction.
 pub async fn refresh_snapshots(
     pool: &PgPool,
     ruleset: &Ruleset,
@@ -690,6 +721,14 @@ pub async fn refresh_snapshots(
     )
     .fetch_one(&mut *tx)
     .await?;
+    // A run writes its factors under its lock: read them after it commits.
+    sqlx::query("SELECT pg_advisory_xact_lock_shared(hashtextextended('coordination', 0))")
+        .execute(&mut *tx)
+        .await?;
+    let coordination_run_id =
+        sqlx::query_scalar!(r#"SELECT max(id) AS "id" FROM coordination_runs"#)
+            .fetch_one(&mut *tx)
+            .await?;
     sqlx::query!(
         "DELETE FROM ranking_snapshots WHERE period = $1",
         period.as_str()
@@ -703,22 +742,26 @@ pub async fn refresh_snapshots(
         let ranked = sqlx::query_scalar!(
             r#"
             WITH per_user AS (
-                SELECT user_id,
-                       CASE WHEN $3 THEN track_id ELSE artist_id END AS entity_id,
-                       sum(plays)::bigint AS plays,
-                       sum(weight)::bigint AS weight
-                FROM ranking_daily
-                WHERE day BETWEEN $1 AND $2
+                SELECT d.user_id,
+                       CASE WHEN $3 THEN d.track_id ELSE d.artist_id END AS entity_id,
+                       sum(d.plays)::bigint AS plays,
+                       sum(d.weight)::bigint AS weight,
+                       sum(d.weight::bigint * COALESCE(c.factor::bigint, $5::bigint) / $5::bigint)::bigint AS coordinated
+                FROM ranking_daily d
+                LEFT JOIN coordination_days c ON c.user_id = d.user_id AND c.day = d.day
+                WHERE d.day BETWEEN $1 AND $2
                 GROUP BY 1, 2
             ), per_entity AS (
                 SELECT entity_id,
                        count(*)::int AS raw_listeners,
                        sum(plays)::int AS raw_plays,
-                       sum(LEAST($5::bigint, weight * $5 / $4))::bigint AS listeners,
-                       sum(weight)::bigint AS weight
+                       sum(CASE WHEN weight > 0
+                                THEN LEAST($5::bigint, weight * $5 / $4) * coordinated / weight
+                                ELSE 0 END)::bigint AS listeners,
+                       sum(coordinated)::bigint AS weight
                 FROM per_user
                 GROUP BY entity_id
-                HAVING sum(weight) > 0
+                HAVING sum(coordinated) > 0
             ), top AS (
                 SELECT * FROM per_entity
                 ORDER BY listeners DESC, weight DESC, entity_id
@@ -748,8 +791,9 @@ pub async fn refresh_snapshots(
         let computed_at = sqlx::query_scalar!(
             r#"
             INSERT INTO ranking_snapshots
-                (period, kind, from_day, to_day, ruleset_id, ranked, pending_days, took_ms)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                (period, kind, from_day, to_day, ruleset_id, ranked, pending_days,
+                 coordination_run_id, took_ms)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING computed_at
             "#,
             period.as_str(),
@@ -759,6 +803,7 @@ pub async fn refresh_snapshots(
             ruleset.id,
             ranked,
             pending_days,
+            coordination_run_id,
             took_ms,
         )
         .fetch_one(&mut *tx)
@@ -771,6 +816,7 @@ pub async fn refresh_snapshots(
             ruleset_id: ruleset.id,
             ranked,
             pending_days,
+            coordination_run_id,
             computed_at,
             took_ms,
         });
@@ -783,7 +829,7 @@ pub async fn snapshots(pool: &PgPool) -> Result<Vec<Snapshot>, sqlx::Error> {
     let rows = sqlx::query!(
         r#"
         SELECT period, kind, from_day, to_day, ruleset_id, ranked, pending_days,
-               computed_at, took_ms
+               coordination_run_id, computed_at, took_ms
         FROM ranking_snapshots
         ORDER BY period, kind
         "#
@@ -801,6 +847,7 @@ pub async fn snapshots(pool: &PgPool) -> Result<Vec<Snapshot>, sqlx::Error> {
                 ruleset_id: r.ruleset_id,
                 ranked: r.ranked,
                 pending_days: r.pending_days,
+                coordination_run_id: r.coordination_run_id,
                 computed_at: r.computed_at,
                 took_ms: r.took_ms,
             })
@@ -1036,6 +1083,47 @@ pub async fn contributors(
             })
             .collect(),
     ))
+}
+
+/// The range's filtered weight before and after the coordination factors.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct CoordinationTotals {
+    /// Thousandths.
+    pub weight: i64,
+    pub coordinated: i64,
+    /// Accounts and user-days with a factor below 1.
+    pub accounts: i64,
+    pub user_days: i64,
+}
+
+pub async fn coordination_totals(
+    pool: &PgPool,
+    from: NaiveDate,
+    to: NaiveDate,
+) -> Result<CoordinationTotals, sqlx::Error> {
+    let r = sqlx::query!(
+        r#"
+        SELECT COALESCE(sum(d.weight), 0)::bigint AS "weight!",
+               COALESCE(sum(d.weight::bigint * COALESCE(c.factor::bigint, $3::bigint) / $3::bigint),
+                        0)::bigint AS "coordinated!",
+               count(DISTINCT c.user_id) AS "accounts!",
+               count(DISTINCT (c.user_id, c.day)) AS "user_days!"
+        FROM ranking_daily d
+        LEFT JOIN coordination_days c ON c.user_id = d.user_id AND c.day = d.day
+        WHERE d.day BETWEEN $1 AND $2
+        "#,
+        from,
+        to,
+        FULL,
+    )
+    .fetch_one(pool)
+    .await?;
+    Ok(CoordinationTotals {
+        weight: r.weight,
+        coordinated: r.coordinated,
+        accounts: r.accounts,
+        user_days: r.user_days,
+    })
 }
 
 /// The first and last weighed days, for reports over all history.

@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH per_user AS (\n                SELECT d.user_id,\n                       CASE WHEN $3 THEN d.track_id ELSE d.artist_id END AS entity_id,\n                       sum(d.plays)::bigint AS plays,\n                       sum(d.weight)::bigint AS weight,\n                       sum(d.weight::bigint * COALESCE(c.factor::bigint, $5::bigint) / $5::bigint)::bigint AS coordinated\n                FROM ranking_daily d\n                LEFT JOIN coordination_days c ON c.user_id = d.user_id AND c.day = d.day\n                WHERE d.day BETWEEN $1 AND $2\n                GROUP BY 1, 2\n            ), per_entity AS (\n                SELECT entity_id,\n                       count(*)::int AS raw_listeners,\n                       sum(plays)::int AS raw_plays,\n                       sum(CASE WHEN weight > 0\n                                THEN LEAST($5::bigint, weight * $5 / $4) * coordinated / weight\n                                ELSE 0 END)::bigint AS listeners,\n                       sum(coordinated)::bigint AS weight\n                FROM per_user\n                GROUP BY entity_id\n                HAVING sum(coordinated) > 0\n            ), top AS (\n                SELECT * FROM per_entity\n                ORDER BY listeners DESC, weight DESC, entity_id\n                LIMIT $8\n            ), inserted AS (\n                INSERT INTO ranking_entries\n                    (period, kind, position, entity_id, listeners, weight, raw_listeners, raw_plays)\n                SELECT $6, $7,\n                       row_number() OVER (ORDER BY listeners DESC, weight DESC, entity_id),\n                       entity_id, listeners, weight, raw_listeners, raw_plays\n                FROM top\n            )\n            SELECT count(*)::int AS \"ranked!\" FROM per_entity\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ranked!",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Date",
+        "Date",
+        "Bool",
+        "Int8",
+        "Int8",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "2ed7ec6c798338534b9da93aa185d562c1e727316b138f054e4ff35ff178feda"
+}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM coordination_days WHERE day BETWEEN $1 AND $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Date",
+        "Date"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "efce9cb7abb364f9f38af95441651d2bef8e14ca729129408a65f91980cf3ad9"
+}

@@ -6,7 +6,8 @@
 //! Two loops, like classification's: one drains `ranking_queue` (fed when a
 //! day's classification is written), the other periodically queues what
 //! the queue missed or new params made stale. A third keeps each period's
-//! ranking precomputed in `ranking_snapshots`.
+//! ranking precomputed in `ranking_snapshots`, with the coordination
+//! factors of the latest run applied.
 
 pub mod cli;
 
@@ -43,11 +44,18 @@ fn refresh_every(period: Period) -> TimeDelta {
     }
 }
 
-fn snapshot_due(period: Period, stored: &[Snapshot], ruleset_id: i32, now: DateTime<Utc>) -> bool {
+fn snapshot_due(
+    period: Period,
+    stored: &[Snapshot],
+    ruleset_id: i32,
+    coordination_run: Option<i32>,
+    now: DateTime<Utc>,
+) -> bool {
     let mine: Vec<&Snapshot> = stored.iter().filter(|s| s.period == period).collect();
     mine.len() < Kind::ALL.len()
         || mine.iter().any(|s| {
             s.ruleset_id != ruleset_id
+                || s.coordination_run_id != coordination_run
                 || s.to_day != now.date_naive()
                 || now - s.computed_at >= refresh_every(period)
         })
@@ -190,8 +198,13 @@ impl Weigher {
         interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
         loop {
             interval.tick().await;
-            let stored = match rdb::snapshots(&self.db).await {
-                Ok(stored) => stored,
+            let state = async {
+                let stored = rdb::snapshots(&self.db).await?;
+                let run = db::queries::coordination::latest_run(&self.db).await?;
+                Ok::<_, sqlx::Error>((stored, run.map(|r| r.id)))
+            };
+            let (stored, coordination_run) = match state.await {
+                Ok(state) => state,
                 Err(e) => {
                     tracing::error!("rankings: failed to read snapshots: {e}");
                     beat.failed(e).await;
@@ -202,7 +215,7 @@ impl Weigher {
             let mut failure = None;
             for period in Period::ALL {
                 if retry_at.get(&period).is_some_and(|at| Instant::now() < *at)
-                    || !snapshot_due(period, &stored, self.ruleset.id, now)
+                    || !snapshot_due(period, &stored, self.ruleset.id, coordination_run, now)
                 {
                     continue;
                 }
@@ -218,6 +231,7 @@ impl Weigher {
                                 kind = s.kind.as_str(),
                                 ranked = s.ranked,
                                 pending_days = s.pending_days,
+                                coordination_run = s.coordination_run_id,
                                 "rankings: snapshot refreshed in {} ms",
                                 s.took_ms
                             );
@@ -263,6 +277,7 @@ mod tests {
             ruleset_id: 1,
             ranked: 10,
             pending_days: 0,
+            coordination_run_id: Some(3),
             computed_at,
             took_ms: 5,
         }
@@ -277,7 +292,7 @@ mod tests {
     }
 
     #[test]
-    fn snapshots_are_due_when_missing_old_from_another_day_or_params() {
+    fn snapshots_are_due_when_missing_old_from_another_day_params_or_run() {
         let computed = at(9, 10, 0);
         let both = |period| {
             vec![
@@ -285,22 +300,26 @@ mod tests {
                 snapshot(period, Kind::Track, computed),
             ]
         };
-        assert!(snapshot_due(Period::Week, &[], 1, computed));
+        let run = Some(3);
+        assert!(snapshot_due(Period::Week, &[], 1, run, computed));
         assert!(snapshot_due(
             Period::Week,
             &both(Period::Week)[..1],
             1,
+            run,
             computed
         ));
 
         let week = both(Period::Week);
-        assert!(!snapshot_due(Period::Week, &week, 1, at(9, 10, 59)));
-        assert!(snapshot_due(Period::Week, &week, 1, at(9, 11, 0)));
-        assert!(snapshot_due(Period::Week, &week, 2, at(9, 10, 1)));
-        assert!(snapshot_due(Period::Month, &week, 1, at(9, 10, 1)));
+        assert!(!snapshot_due(Period::Week, &week, 1, run, at(9, 10, 59)));
+        assert!(snapshot_due(Period::Week, &week, 1, run, at(9, 11, 0)));
+        assert!(snapshot_due(Period::Week, &week, 2, run, at(9, 10, 1)));
+        assert!(snapshot_due(Period::Month, &week, 1, run, at(9, 10, 1)));
+        // A newer coordination run brings other factors.
+        assert!(snapshot_due(Period::Week, &week, 1, Some(4), at(9, 10, 1)));
 
         let year = both(Period::Year);
-        assert!(!snapshot_due(Period::Year, &year, 1, at(9, 23, 59)));
-        assert!(snapshot_due(Period::Year, &year, 1, at(10, 0, 0)));
+        assert!(!snapshot_due(Period::Year, &year, 1, run, at(9, 23, 59)));
+        assert!(snapshot_due(Period::Year, &year, 1, run, at(10, 0, 0)));
     }
 }

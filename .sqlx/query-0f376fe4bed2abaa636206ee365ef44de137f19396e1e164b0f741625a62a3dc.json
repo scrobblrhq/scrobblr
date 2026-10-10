@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT user_id, track_id, artist_id, played_at, client_id\n        FROM scrobbles\n        WHERE played_at >= $1 AND played_at < $2 AND import_id IS NULL\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "track_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "artist_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "played_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "client_id",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "0f376fe4bed2abaa636206ee365ef44de137f19396e1e164b0f741625a62a3dc"
+}

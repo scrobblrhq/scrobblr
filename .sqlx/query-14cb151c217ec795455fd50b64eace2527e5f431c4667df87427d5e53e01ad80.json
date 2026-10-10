@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT period, kind, from_day, to_day, ruleset_id, ranked, pending_days,\n               computed_at, took_ms\n        FROM ranking_snapshots\n        ORDER BY period, kind\n        ",
+  "query": "\n        SELECT period, kind, from_day, to_day, ruleset_id, ranked, pending_days,\n               coordination_run_id, computed_at, took_ms\n        FROM ranking_snapshots\n        ORDER BY period, kind\n        ",
   "describe": {
     "columns": [
       {
@@ -40,11 +40,16 @@
       },
       {
         "ordinal": 7,
+        "name": "coordination_run_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 8,
         "name": "computed_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "took_ms",
         "type_info": "Int4"
       }
@@ -60,9 +65,10 @@
       false,
       false,
       false,
+      true,
       false,
       false
     ]
   },
-  "hash": "9bc6b9bb7a97e786df29fb800156a6e534beaa2529b77b4859df6c9ae93a85ba"
+  "hash": "14cb151c217ec795455fd50b64eace2527e5f431c4667df87427d5e53e01ad80"
 }

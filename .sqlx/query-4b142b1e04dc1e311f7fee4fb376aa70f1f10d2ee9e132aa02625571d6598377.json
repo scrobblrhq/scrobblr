@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM coordination_days",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "4b142b1e04dc1e311f7fee4fb376aa70f1f10d2ee9e132aa02625571d6598377"
+}

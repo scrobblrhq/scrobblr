@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT DISTINCT user_id, track_id, artist_id\n        FROM ranking_daily\n        WHERE day BETWEEN $1 AND $2 AND weight > 0\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "track_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "artist_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Date",
+        "Date"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "a8d200943bd280f7277d99f7ef168ee2a24b9341167390909e6f9ccd3cc7d4c8"
+}

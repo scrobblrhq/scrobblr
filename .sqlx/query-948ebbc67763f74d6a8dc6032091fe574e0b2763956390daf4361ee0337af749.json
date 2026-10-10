@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        DELETE FROM coordination_runs\n        WHERE finished_at < NOW() - make_interval(days => $1)\n          AND id <> (SELECT max(id) FROM coordination_runs)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "948ebbc67763f74d6a8dc6032091fe574e0b2763956390daf4361ee0337af749"
+}

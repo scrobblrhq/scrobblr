@@ -1,0 +1,92 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id, fingerprint, mode, window_from, window_to, accounts, groups, flagged,\n               cohorts, too_small, started_at, took_ms, finished_at\n        FROM coordination_runs\n        ORDER BY id DESC\n        LIMIT 1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "fingerprint",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "mode",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "window_from",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 4,
+        "name": "window_to",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 5,
+        "name": "accounts",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "groups",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "flagged",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 8,
+        "name": "cohorts",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 9,
+        "name": "too_small",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "started_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 11,
+        "name": "took_ms",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 12,
+        "name": "finished_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "64bfee524ad699a0a675692f387e8079c1b6b8a7a85f8088f276b747bf4cebd4"
+}

@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO coordination_days (user_id, day, factor, run_id)\n                SELECT d.user_id, d.day, f.factor, $5\n                FROM ranking_days d\n                JOIN UNNEST($1::bigint[], $2::int[]) AS f(user_id, factor) USING (user_id)\n                WHERE d.day BETWEEN $3 AND $4\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "Int4Array",
+        "Date",
+        "Date",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "dffd0a07bc67990a7ea9d995202599fe6e6ae165ab171df71a2e0e301539d1fe"
+}

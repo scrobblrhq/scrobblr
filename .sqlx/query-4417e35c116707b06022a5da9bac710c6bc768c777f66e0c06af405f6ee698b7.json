@@ -1,0 +1,88 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT a.user_id, u.username, (u.created_at AT TIME ZONE 'UTC')::date AS \"registered!\",\n               a.cohort, a.suspicion, a.factor,\n               a.age, a.origin, a.client, a.sync, a.shape, a.burst\n        FROM coordination_accounts a\n        JOIN users u ON u.id = a.user_id\n        WHERE a.run_id = $1\n        ORDER BY a.cohort, a.suspicion DESC, a.user_id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "username",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "registered!",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 3,
+        "name": "cohort",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "suspicion",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "factor",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "age",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "origin",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 8,
+        "name": "client",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 9,
+        "name": "sync",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 10,
+        "name": "shape",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 11,
+        "name": "burst",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "4417e35c116707b06022a5da9bac710c6bc768c777f66e0c06af405f6ee698b7"
+}

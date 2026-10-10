@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT user_id, track_id, artist_id, sum(weight)::bigint AS \"weight!\"\n        FROM ranking_daily\n        WHERE day BETWEEN $1 AND $2\n        GROUP BY user_id, track_id, artist_id\n        HAVING sum(weight) > 0\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "track_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "artist_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "weight!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Date",
+        "Date"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "de087343425a7d2c3b5d31e58ace1a07b8e67fc39465432e45389431d8239464"
+}

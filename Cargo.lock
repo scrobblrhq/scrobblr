@@ -625,6 +625,7 @@ dependencies = [
  "dotenvy",
  "futures-util",
  "hex",
+ "serde_json",
  "sha2 0.11.0",
  "shared",
  "sqlx",

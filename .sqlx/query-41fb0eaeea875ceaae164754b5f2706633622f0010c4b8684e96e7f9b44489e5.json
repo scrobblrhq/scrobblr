@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT u.id, (u.created_at AT TIME ZONE 'UTC')::date AS \"registered!\",\n               o.key_id AS \"key_id?\", o.address AS \"address?\", o.network AS \"network?\"\n        FROM users u\n        LEFT JOIN registration_origins o ON o.user_id = u.id\n        WHERE u.id = ANY($1)\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "registered!",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 2,
+        "name": "key_id?",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "address?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "network?",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "41fb0eaeea875ceaae164754b5f2706633622f0010c4b8684e96e7f9b44489e5"
+}

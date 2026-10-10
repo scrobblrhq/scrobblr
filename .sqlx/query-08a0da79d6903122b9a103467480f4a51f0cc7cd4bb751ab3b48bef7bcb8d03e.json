@@ -1,0 +1,106 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT c.cohort, c.kind, c.entity_id, c.members, c.score, c.factor,\n               c.age, c.origin, c.client, c.sync, c.shape, c.burst, c.detail,\n               COALESCE(t.title, a.name) AS \"name?\", ta.name AS \"artist_name?\"\n        FROM coordination_cohorts c\n        LEFT JOIN tracks t   ON c.kind = 'track' AND t.id = c.entity_id\n        LEFT JOIN artists ta ON ta.id = t.artist_id\n        LEFT JOIN artists a  ON c.kind = 'artist' AND a.id = c.entity_id\n        WHERE c.run_id = $1\n        ORDER BY c.cohort\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "cohort",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "entity_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "members",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "score",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "factor",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "age",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "origin",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 8,
+        "name": "client",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 9,
+        "name": "sync",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 10,
+        "name": "shape",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 11,
+        "name": "burst",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 12,
+        "name": "detail",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 13,
+        "name": "name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "artist_name?",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      null,
+      false
+    ]
+  },
+  "hash": "08a0da79d6903122b9a103467480f4a51f0cc7cd4bb751ab3b48bef7bcb8d03e"
+}
