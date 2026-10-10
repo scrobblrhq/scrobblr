@@ -20,8 +20,8 @@ use sqlx::{PgConnection, PgExecutor, PgPool};
 
 use crate::queries::classification::{QueuedDay, parse_status};
 use shared::classification::Status;
-pub use shared::ranking::Kind;
 use shared::ranking::{self as weights, ClientClass, FULL, Play, RankingParams, Reason};
+pub use shared::ranking::{Kind, Period};
 
 #[derive(Debug, Clone)]
 pub struct Ruleset {
@@ -633,43 +633,6 @@ async fn avoid_merge_joins(tx: &mut PgConnection) -> Result<(), sqlx::Error> {
 // ---------------------------------------------------------------------------
 //  Snapshots: each period's ranking, precomputed
 // ---------------------------------------------------------------------------
-
-/// A rolling window of UTC days ending today, today included.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Period {
-    Week,
-    Month,
-    Year,
-}
-
-impl Period {
-    pub const ALL: [Period; 3] = [Period::Week, Period::Month, Period::Year];
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Period::Week => "week",
-            Period::Month => "month",
-            Period::Year => "year",
-        }
-    }
-
-    pub fn parse(s: &str) -> Option<Period> {
-        Period::ALL.into_iter().find(|p| p.as_str() == s)
-    }
-
-    pub const fn days(self) -> i64 {
-        match self {
-            Period::Week => 7,
-            Period::Month => 30,
-            Period::Year => 365,
-        }
-    }
-
-    /// The first and last day of the period ending `today`.
-    pub fn range(self, today: NaiveDate) -> (NaiveDate, NaiveDate) {
-        (today - TimeDelta::days(self.days() - 1), today)
-    }
-}
 
 /// Days of weights kept: the longest period, and a week more so a snapshot
 /// computed around midnight, or by a lagging clock, finds its first day.

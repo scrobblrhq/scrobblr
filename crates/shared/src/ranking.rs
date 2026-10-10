@@ -30,8 +30,11 @@
 
 use std::collections::{BTreeSet, HashMap};
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, NaiveTime, TimeDelta, Utc};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use ts_rs::TS;
 
 use crate::classification::{Status, scrobble_point_ms};
 use crate::scrobble::MIN_LISTEN_MS;
@@ -270,6 +273,73 @@ impl Kind {
     }
 }
 
+/// A global ranking's period: a rolling window of UTC days ending today,
+/// today included.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "lowercase")]
+#[schemars(rename = "RankingPeriod")]
+#[ts(export, rename = "RankingPeriod")]
+pub enum Period {
+    /// 7 days.
+    Week,
+    /// 30 days.
+    Month,
+    /// 365 days.
+    Year,
+}
+
+impl Period {
+    pub const ALL: [Period; 3] = [Period::Week, Period::Month, Period::Year];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Period::Week => "week",
+            Period::Month => "month",
+            Period::Year => "year",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Period> {
+        Period::ALL.into_iter().find(|p| p.as_str() == s)
+    }
+
+    pub const fn days(self) -> i64 {
+        match self {
+            Period::Week => 7,
+            Period::Month => 30,
+            Period::Year => 365,
+        }
+    }
+
+    /// The first and last day of the period ending `today`.
+    pub fn range(self, today: NaiveDate) -> (NaiveDate, NaiveDate) {
+        (today - TimeDelta::days(self.days() - 1), today)
+    }
+
+    /// How old its stored ranking may get. It is also recomputed when the
+    /// UTC day changes, which moves the window.
+    pub fn refresh_every(self) -> TimeDelta {
+        match self {
+            Period::Week | Period::Month => TimeDelta::hours(1),
+            Period::Year => TimeDelta::days(1),
+        }
+    }
+
+    /// When a stored ranking of the days up to `to_day`, computed at
+    /// `computed_at`, is late: its refresh was due ([`Self::refresh_every`]
+    /// after it, or when the day after `to_day` began) [`STALE_GRACE`] ago.
+    pub fn stale_after(self, to_day: NaiveDate, computed_at: DateTime<Utc>) -> DateTime<Utc> {
+        let next_day = (to_day + TimeDelta::days(1))
+            .and_time(NaiveTime::MIN)
+            .and_utc();
+        (computed_at + self.refresh_every()).min(next_day) + STALE_GRACE
+    }
+}
+
+/// How long past its due time a stored ranking counts as fresh: the worker
+/// checks every minute, and the year's refresh takes a while.
+pub const STALE_GRACE: TimeDelta = TimeDelta::minutes(15);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Reason {
     Unclassified,
@@ -469,8 +539,6 @@ fn base_weight(play: &Play, account_age_days: i64, params: &RankingParams) -> (i
 
 #[cfg(test)]
 mod tests {
-    use chrono::TimeDelta;
-
     use super::*;
 
     fn t0() -> DateTime<Utc> {
@@ -837,5 +905,34 @@ mod tests {
         .unwrap();
         assert_ne!(params.fingerprint(), other.fingerprint());
         assert!(params.fingerprint().starts_with("weights/v1 "));
+    }
+
+    #[test]
+    fn a_stored_ranking_goes_stale_after_its_refresh_was_due() {
+        let at = |s: &str| s.parse::<DateTime<Utc>>().unwrap();
+        let day = |s: &str| s.parse::<NaiveDate>().unwrap();
+        // Hourly, and at midnight whatever its age.
+        let computed = at("2026-10-10T12:30:00Z");
+        assert_eq!(
+            Period::Week.stale_after(day("2026-10-10"), computed),
+            at("2026-10-10T13:45:00Z")
+        );
+        let computed = at("2026-10-10T23:30:00Z");
+        assert_eq!(
+            Period::Month.stale_after(day("2026-10-10"), computed),
+            at("2026-10-11T00:15:00Z")
+        );
+        // Daily: the next midnight comes first.
+        let computed = at("2026-10-10T00:02:00Z");
+        assert_eq!(
+            Period::Year.stale_after(day("2026-10-10"), computed),
+            at("2026-10-11T00:15:00Z")
+        );
+        // Computed for a day already over: late from the start.
+        let computed = at("2026-10-11T00:05:00Z");
+        assert_eq!(
+            Period::Week.stale_after(day("2026-10-10"), computed),
+            at("2026-10-11T00:15:00Z")
+        );
     }
 }

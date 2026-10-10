@@ -18,7 +18,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{DateTime, TimeDelta, Utc};
+use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use tokio::time::{Instant, MissedTickBehavior};
 
@@ -36,15 +36,6 @@ pub const SNAPSHOT_TOP: i64 = 1_000;
 const SNAPSHOT_TICK: Duration = Duration::from_secs(60);
 const SNAPSHOT_RETRY: Duration = Duration::from_secs(5 * 60);
 
-/// How old a period's snapshots may get. They are also recomputed when the
-/// UTC day changes, which moves the window, and with new params.
-fn refresh_every(period: Period) -> TimeDelta {
-    match period {
-        Period::Week | Period::Month => TimeDelta::hours(1),
-        Period::Year => TimeDelta::days(1),
-    }
-}
-
 fn snapshot_due(
     period: Period,
     stored: &[Snapshot],
@@ -58,7 +49,7 @@ fn snapshot_due(
             s.ruleset_id != ruleset_id
                 || s.coordination_run_id != coordination_run
                 || s.to_day != now.date_naive()
-                || now - s.computed_at >= refresh_every(period)
+                || now - s.computed_at >= period.refresh_every()
         })
 }
 

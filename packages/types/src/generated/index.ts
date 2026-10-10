@@ -12,6 +12,7 @@ export * from "./ImageCandidate.js";
 export * from "./ImportStatus.js";
 export * from "./NowPlaying.js";
 export * from "./NowPlayingRich.js";
+export * from "./RankingPeriod.js";
 export * from "./Scrobble.js";
 export * from "./ScrobbleBreakdown.js";
 export * from "./ScrobbleImport.js";
