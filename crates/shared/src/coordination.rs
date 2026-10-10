@@ -60,6 +60,11 @@ pub const COORDINATION_VERSION: u32 = 1;
 const MIN_VALUE_MEMBERS: i64 = 3;
 /// Registration windows taken per group: a farm registered in batches.
 const MAX_AGE_WINDOWS: usize = 4;
+/// A cohort gathers around the group of its members' strongest primary
+/// evidence; closer than this (thousandths of suspicion), the larger group
+/// wins, so a farm meets on its main target rather than scattering over
+/// groups that differ by rounding.
+const HOME_STEP: i64 = 50;
 /// Others needed around a play for it to be a crowd.
 const MIN_CROWD: i64 = 3;
 const DAY_SECS: i64 = 86_400;
@@ -112,6 +117,15 @@ impl Evidence {
 
     pub fn set(&mut self, signal: Signal, value: i64) {
         self.0[signal as usize] = value;
+    }
+
+    /// The signals that compare a group with the population, without the
+    /// account's own behaviour.
+    fn primary(&self) -> Evidence {
+        let mut primary = *self;
+        primary.set(Signal::Shape, 0);
+        primary.set(Signal::Burst, 0);
+        primary
     }
 }
 
@@ -366,12 +380,13 @@ impl CoordinationParams {
         }
     }
 
-    fn suspicion(&self, evidence: &Evidence) -> i64 {
-        let sum: i64 = Signal::ALL
+    /// The weighted sum of the evidence; suspicion is this capped at 1.
+    fn weighted(&self, evidence: &Evidence) -> i64 {
+        Signal::ALL
             .into_iter()
             .map(|s| self.weights.get(s) * evidence.get(s))
-            .sum();
-        (sum / FULL).min(FULL)
+            .sum::<i64>()
+            / FULL
     }
 }
 
@@ -492,7 +507,7 @@ pub struct Target {
     pub weight_share: i64,
 }
 
-/// What fired in the group a cohort was assigned to.
+/// What fired in the group a cohort is named after.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct CohortDetail {
     pub age: Vec<AgeCell>,
@@ -504,7 +519,9 @@ pub struct CohortDetail {
     pub targets: Vec<Target>,
 }
 
-/// Flagged accounts whose highest suspicion is for the same group.
+/// Flagged accounts whose strongest primary evidence is in the same group,
+/// [`HOME_STEP`] apart counting as equal and the larger group winning, so a
+/// farm's accounts meet on one of its targets.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Cohort {
     pub kind: Kind,
@@ -553,7 +570,8 @@ pub fn detect(input: &Input, params: &CoordinationParams) -> Detection {
 
     let mut groups: Vec<&Group> = input.groups.iter().collect();
     groups.sort_by_key(|g| (g.kind, g.entity_id));
-    let mut best: Vec<Option<(i64, usize, Evidence)>> = vec![None; accounts.len()];
+    let mut best: Vec<Option<Best>> = vec![None; accounts.len()];
+    let mut home: Vec<Option<(i64, usize, usize)>> = vec![None; accounts.len()];
     let mut details: HashMap<usize, CohortDetail> = HashMap::new();
     let mut examined: Vec<(usize, Vec<(usize, i64)>)> = Vec::new();
     for (g, group) in groups.iter().enumerate() {
@@ -570,31 +588,47 @@ pub fn detect(input: &Input, params: &CoordinationParams) -> Detection {
         detection.groups += 1;
         let (evidence, detail) = evaluate(group, &members, &accounts, &population, &plays, params);
         for ((i, _), e) in members.iter().zip(&evidence) {
-            let suspicion = params.suspicion(e);
-            if suspicion > best[*i].map_or(0, |(s, _, _)| s) {
-                best[*i] = Some((suspicion, g, *e));
+            let raw = params.weighted(e);
+            let candidate = Best {
+                suspicion: raw.min(FULL),
+                raw,
+                size: members.len(),
+                group: g,
+                evidence: *e,
+            };
+            if best[*i].as_ref().is_none_or(|b| candidate.beats(b)) {
+                best[*i] = Some(candidate);
+            }
+            let primary = params.weighted(&e.primary());
+            let step = primary / HOME_STEP;
+            if primary > 0 && home[*i].is_none_or(|(s, n, _)| (step, members.len()) > (s, n)) {
+                home[*i] = Some((step, members.len(), g));
             }
         }
         details.insert(g, detail);
         examined.push((g, members.iter().map(|(i, m)| (*i, m.weight)).collect()));
     }
 
-    // Cohorts: flagged accounts by the group of their highest suspicion.
+    // Cohorts: flagged accounts by the group of their strongest primary
+    // evidence.
     let mut by_group: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
     for (i, b) in best.iter().enumerate() {
-        if let Some((suspicion, g, _)) = b
-            && params.factor(*suspicion) < FULL
+        if let Some(b) = b
+            && params.factor(b.suspicion) < FULL
         {
-            by_group.entry(*g).or_default().push(i);
+            let group = home[i].map_or(b.group, |(_, _, g)| g);
+            by_group.entry(group).or_default().push(i);
         }
     }
-    let cohort_of: HashMap<usize, usize> = by_group
-        .keys()
+    let components: Vec<(usize, Vec<usize>)> = by_group.into_iter().collect();
+    let cohort_of: HashMap<usize, usize> = components
+        .iter()
         .enumerate()
-        .flat_map(|(c, g)| by_group[g].iter().map(move |i| (*i, c)))
+        .flat_map(|(c, (_, members))| members.iter().map(move |i| (*i, c)))
         .collect();
+
     // Each examined group's listeners and weight per cohort among them.
-    let mut targets: Vec<Vec<Target>> = vec![Vec::new(); by_group.len()];
+    let mut targets: Vec<Vec<Target>> = vec![Vec::new(); components.len()];
     for (g, members) in &examined {
         let total: i64 = members.iter().map(|(_, w)| w).sum();
         let mut per_cohort: BTreeMap<usize, (i64, i64)> = BTreeMap::new();
@@ -617,7 +651,7 @@ pub fn detect(input: &Input, params: &CoordinationParams) -> Detection {
     }
 
     let mut cohorts: Vec<(Cohort, Vec<usize>)> = Vec::new();
-    for ((g, members), mut tops) in by_group.into_iter().zip(targets) {
+    for ((main, members), mut tops) in components.into_iter().zip(targets) {
         tops.sort_by(|a, b| {
             (b.members, b.weight_share)
                 .cmp(&(a.members, a.weight_share))
@@ -628,22 +662,22 @@ pub fn detect(input: &Input, params: &CoordinationParams) -> Detection {
         let mut evidence = Evidence::default();
         let (mut score, mut factor) = (0, 0);
         for i in &members {
-            let (s, _, e) = best[*i].expect("flagged accounts have a best group");
-            score += s;
-            factor += params.factor(s);
+            let b = best[*i].as_ref().expect("flagged");
+            score += b.suspicion;
+            factor += params.factor(b.suspicion);
             for signal in Signal::ALL {
-                evidence.0[signal as usize] += e.get(signal);
+                evidence.0[signal as usize] += b.evidence.get(signal);
             }
         }
         for v in evidence.0.iter_mut() {
             *v /= n;
         }
-        let mut detail = details.remove(&g).unwrap_or_default();
+        let mut detail = details.remove(&main).unwrap_or_default();
         detail.targets = tops;
         cohorts.push((
             Cohort {
-                kind: groups[g].kind,
-                entity_id: groups[g].entity_id,
+                kind: groups[main].kind,
+                entity_id: groups[main].entity_id,
                 members: n,
                 score: score / n,
                 factor: factor / n,
@@ -660,19 +694,36 @@ pub fn detect(input: &Input, params: &CoordinationParams) -> Detection {
     });
     for (c, (cohort, members)) in cohorts.into_iter().enumerate() {
         for i in members {
-            let (suspicion, _, evidence) = best[i].expect("flagged");
+            let b = best[i].as_ref().expect("flagged");
             detection.accounts.push(Assessment {
                 user_id: accounts[i].user_id,
                 cohort: c,
-                suspicion,
-                factor: params.factor(suspicion),
-                evidence,
+                suspicion: b.suspicion,
+                factor: params.factor(b.suspicion),
+                evidence: b.evidence,
             });
         }
         detection.cohorts.push(cohort);
     }
     detection.accounts.sort_by_key(|a| a.user_id);
     detection
+}
+
+/// An account's highest suspicion so far, and where.
+#[derive(Debug, Clone)]
+struct Best {
+    suspicion: i64,
+    /// The evidence uncapped, then the group's size, break ties at the cap.
+    raw: i64,
+    size: usize,
+    group: usize,
+    evidence: Evidence,
+}
+
+impl Best {
+    fn beats(&self, other: &Best) -> bool {
+        (self.suspicion, self.raw, self.size) > (other.suspicion, other.raw, other.size)
+    }
 }
 
 /// What every group is compared with.
@@ -1507,6 +1558,53 @@ mod tests {
         };
         let d = detect(&w.input(), &without_behaviour);
         assert!((10_001..10_041).all(|u| factor_of(&d, u) >= 890));
+    }
+
+    fn cohort_of(d: &Detection, user: i64) -> usize {
+        assessment(d, user).cohort
+    }
+
+    #[test]
+    fn a_farm_is_one_cohort_and_two_farms_sharing_filler_are_two() {
+        let mut w = World::new(53);
+        w.honest(1, 600);
+        let origin = |base: i64| {
+            move |u: i64| {
+                Some(Origin {
+                    key_id: 1,
+                    address: base + u % 2,
+                    network: base,
+                })
+            }
+        };
+        w.farm(
+            10_001,
+            40,
+            |u| day(45 + u % 2),
+            origin(77),
+            &[9_001, 9_002, 9_003],
+            0,
+            false,
+        );
+        // Registered the same week, playing the same popular filler.
+        w.farm(
+            20_001,
+            30,
+            |_| day(47),
+            origin(88),
+            &[9_101, 9_102],
+            0,
+            false,
+        );
+        let d = detect(&w.input(), &params());
+        let a = cohort_of(&d, 10_001);
+        let b = cohort_of(&d, 20_001);
+        assert_ne!(a, b);
+        assert!((10_001..10_041).all(|u| cohort_of(&d, u) == a));
+        assert!((20_001..20_031).all(|u| cohort_of(&d, u) == b));
+        assert_eq!(d.cohorts[a].kind, Kind::Artist);
+        assert!([9_001, 9_002, 9_003].contains(&d.cohorts[a].entity_id));
+        assert!([9_101, 9_102].contains(&d.cohorts[b].entity_id));
     }
 
     #[test]
