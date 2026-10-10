@@ -516,6 +516,9 @@ pub struct Ranked {
 /// capped, or a farm account with plenty of weight would stay a full
 /// listener at any factor. A day's factor is in `coordination_days` (1
 /// without a row); the period's is the days' factors weighed by weight.
+/// What the factors take away is summed over the flagged users' rows only
+/// (by primary key) and subtracted: joining every row to the factors made
+/// the planner scan the period in day order, 25 to 65 % slower.
 pub async fn rankings(
     pool: &PgPool,
     kind: Kind,
@@ -527,27 +530,35 @@ pub async fn rankings(
     let rows = sqlx::query!(
         r#"
         WITH per_user AS (
+            SELECT user_id,
+                   CASE WHEN $3 THEN track_id ELSE artist_id END AS entity_id,
+                   sum(plays)::bigint AS plays,
+                   sum(weight)::bigint AS weight
+            FROM ranking_daily
+            WHERE day BETWEEN $1 AND $2
+            GROUP BY 1, 2
+        ), cut AS (
             SELECT d.user_id,
                    CASE WHEN $3 THEN d.track_id ELSE d.artist_id END AS entity_id,
-                   sum(d.plays)::bigint AS plays,
-                   sum(d.weight)::bigint AS weight,
-                   sum(d.weight::bigint * COALESCE(c.factor::bigint, $5::bigint) / $5::bigint)::bigint AS coordinated
-            FROM ranking_daily d
-            LEFT JOIN coordination_days c ON c.user_id = d.user_id AND c.day = d.day
-            WHERE d.day BETWEEN $1 AND $2
+                   sum(d.weight::bigint * ($5::bigint - c.factor) / $5::bigint)::bigint AS cut
+            FROM coordination_days c
+            JOIN ranking_daily d ON d.user_id = c.user_id AND d.day = c.day
+            WHERE c.day BETWEEN $1 AND $2
             GROUP BY 1, 2
         ), per_entity AS (
-            SELECT entity_id,
+            SELECT p.entity_id,
                    count(*) AS raw_listeners,
-                   sum(plays)::bigint AS raw_plays,
-                   sum(CASE WHEN weight > 0
-                            THEN LEAST($5::bigint, weight * $5 / $4) * coordinated / weight
+                   sum(p.plays)::bigint AS raw_plays,
+                   sum(CASE WHEN p.weight > 0
+                            THEN LEAST($5::bigint, p.weight * $5 / $4)
+                                 * (p.weight - COALESCE(x.cut, 0)) / p.weight
                             ELSE 0 END)::bigint AS listeners,
-                   sum(coordinated)::bigint AS weight,
-                   sum(LEAST($5::bigint, weight * $5 / $4))::bigint AS uncoordinated_listeners,
-                   sum(weight)::bigint AS uncoordinated_weight
-            FROM per_user
-            GROUP BY entity_id
+                   sum(p.weight - COALESCE(x.cut, 0))::bigint AS weight,
+                   sum(LEAST($5::bigint, p.weight * $5 / $4))::bigint AS uncoordinated_listeners,
+                   sum(p.weight)::bigint AS uncoordinated_weight
+            FROM per_user p
+            LEFT JOIN cut x USING (user_id, entity_id)
+            GROUP BY p.entity_id
         ), ranked AS (
             SELECT *,
                    row_number() OVER (ORDER BY raw_listeners DESC, raw_plays DESC, entity_id) AS raw_rank,
@@ -742,26 +753,34 @@ pub async fn refresh_snapshots(
         let ranked = sqlx::query_scalar!(
             r#"
             WITH per_user AS (
+                SELECT user_id,
+                       CASE WHEN $3 THEN track_id ELSE artist_id END AS entity_id,
+                       sum(plays)::bigint AS plays,
+                       sum(weight)::bigint AS weight
+                FROM ranking_daily
+                WHERE day BETWEEN $1 AND $2
+                GROUP BY 1, 2
+            ), cut AS (
                 SELECT d.user_id,
                        CASE WHEN $3 THEN d.track_id ELSE d.artist_id END AS entity_id,
-                       sum(d.plays)::bigint AS plays,
-                       sum(d.weight)::bigint AS weight,
-                       sum(d.weight::bigint * COALESCE(c.factor::bigint, $5::bigint) / $5::bigint)::bigint AS coordinated
-                FROM ranking_daily d
-                LEFT JOIN coordination_days c ON c.user_id = d.user_id AND c.day = d.day
-                WHERE d.day BETWEEN $1 AND $2
+                       sum(d.weight::bigint * ($5::bigint - c.factor) / $5::bigint)::bigint AS cut
+                FROM coordination_days c
+                JOIN ranking_daily d ON d.user_id = c.user_id AND d.day = c.day
+                WHERE c.day BETWEEN $1 AND $2
                 GROUP BY 1, 2
             ), per_entity AS (
-                SELECT entity_id,
+                SELECT p.entity_id,
                        count(*)::int AS raw_listeners,
-                       sum(plays)::int AS raw_plays,
-                       sum(CASE WHEN weight > 0
-                                THEN LEAST($5::bigint, weight * $5 / $4) * coordinated / weight
+                       sum(p.plays)::int AS raw_plays,
+                       sum(CASE WHEN p.weight > 0
+                                THEN LEAST($5::bigint, p.weight * $5 / $4)
+                                     * (p.weight - COALESCE(x.cut, 0)) / p.weight
                                 ELSE 0 END)::bigint AS listeners,
-                       sum(coordinated)::bigint AS weight
-                FROM per_user
-                GROUP BY entity_id
-                HAVING sum(coordinated) > 0
+                       sum(p.weight - COALESCE(x.cut, 0))::bigint AS weight
+                FROM per_user p
+                LEFT JOIN cut x USING (user_id, entity_id)
+                GROUP BY p.entity_id
+                HAVING sum(p.weight - COALESCE(x.cut, 0)) > 0
             ), top AS (
                 SELECT * FROM per_entity
                 ORDER BY listeners DESC, weight DESC, entity_id
@@ -1103,14 +1122,20 @@ pub async fn coordination_totals(
 ) -> Result<CoordinationTotals, sqlx::Error> {
     let r = sqlx::query!(
         r#"
-        SELECT COALESCE(sum(d.weight), 0)::bigint AS "weight!",
-               COALESCE(sum(d.weight::bigint * COALESCE(c.factor::bigint, $3::bigint) / $3::bigint),
-                        0)::bigint AS "coordinated!",
-               count(DISTINCT c.user_id) AS "accounts!",
-               count(DISTINCT (c.user_id, c.day)) AS "user_days!"
-        FROM ranking_daily d
-        LEFT JOIN coordination_days c ON c.user_id = d.user_id AND c.day = d.day
-        WHERE d.day BETWEEN $1 AND $2
+        WITH cut AS (
+            SELECT c.user_id, c.day, sum(d.weight::bigint * ($3::bigint - c.factor) / $3::bigint) AS cut
+            FROM coordination_days c
+            JOIN ranking_daily d ON d.user_id = c.user_id AND d.day = c.day
+            WHERE c.day BETWEEN $1 AND $2
+            GROUP BY 1, 2
+        )
+        SELECT w.weight AS "weight!", w.weight - x.cut AS "coordinated!",
+               x.accounts AS "accounts!", x.user_days AS "user_days!"
+        FROM (SELECT COALESCE(sum(weight), 0)::bigint AS weight
+              FROM ranking_daily WHERE day BETWEEN $1 AND $2) w,
+             (SELECT COALESCE(sum(cut), 0)::bigint AS cut, count(DISTINCT user_id) AS accounts,
+                     count(*) AS user_days
+              FROM cut) x
         "#,
         from,
         to,
