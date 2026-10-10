@@ -288,6 +288,23 @@ pub async fn fail_job(pool: &PgPool, job_id: i64, error: &str) -> Result<(), sql
     Ok(())
 }
 
+/// Deletes jobs that finished `done` more than `days` days ago. Such a row
+/// decides nothing: its entity is stamped `enriched_at`, and the enqueues
+/// that would reset it to pending insert the same job without it. `failed`
+/// rows stay, so the backfill doesn't retry them.
+pub async fn delete_done_jobs(pool: &PgPool, days: i32) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query!(
+        r#"
+        DELETE FROM enrichment_jobs
+        WHERE status = 'done' AND finished_at < NOW() - make_interval(days => $1)
+        "#,
+        days,
+    )
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
+}
+
 /// Returns `running` jobs whose worker likely died back to `pending`.
 pub async fn reset_stuck_jobs(pool: &PgPool, stuck_after_mins: i32) -> Result<u64, sqlx::Error> {
     let result = sqlx::query!(

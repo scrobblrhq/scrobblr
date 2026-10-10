@@ -47,6 +47,7 @@ const MAX_ATTEMPTS: i32 = 5;
 const STUCK_AFTER_MINS: i32 = 15;
 const BACKFILL_PER_TABLE: i64 = 500;
 const RESWEEP_PER_TABLE: i64 = 200;
+const DONE_JOBS_KEPT_DAYS: i32 = 7;
 
 /// Per-provider minimum request intervals.
 const MUSICBRAINZ_INTERVAL: Duration = Duration::from_millis(1100); // hard 1 req/s limit
@@ -196,6 +197,11 @@ impl Enricher {
                     Ok(n) if n > 0 => tracing::info!("enrichment: re-sweep enqueued {n} jobs"),
                     Ok(_) => {}
                     Err(e) => tracing::error!("enrichment: re-sweep failed: {e}"),
+                }
+                match edb::delete_done_jobs(&self.db, DONE_JOBS_KEPT_DAYS).await {
+                    Ok(n) if n > 0 => tracing::info!("enrichment: deleted {n} finished jobs"),
+                    Ok(_) => {}
+                    Err(e) => tracing::error!("enrichment: deleting finished jobs failed: {e}"),
                 }
             }
             tick += 1;

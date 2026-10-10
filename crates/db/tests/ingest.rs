@@ -3,7 +3,7 @@ mod common;
 use chrono::{DateTime, TimeDelta, Utc};
 use common::with_db;
 use db::queries::scrobble_clients::{self as clients_db, ClientIdentity, PROTOCOL_LISTENBRAINZ};
-use db::queries::scrobbles as scrobbles_db;
+use db::queries::{enrichment as edb, scrobbles as scrobbles_db};
 use shared::scrobble::ScrobbleInput;
 use sqlx::PgPool;
 
@@ -263,6 +263,55 @@ async fn client_mbids_become_hints_and_the_first_one_wins() {
         .await
         .unwrap();
         assert_eq!(status, "pending");
+    })
+    .await;
+}
+
+#[tokio::test]
+#[ignore = "needs Postgres: just test-db"]
+async fn finished_enrichment_jobs_go_after_a_week() {
+    with_db(true, |pool| async move {
+        let user_id = user(&pool, "enricher").await;
+        let hint: uuid::Uuid = "8f2bc1b0-9c33-4f25-8e65-d2dbd1c9a5b1".parse().unwrap();
+        let play = |minutes: i64, mbid: Option<uuid::Uuid>| ScrobbleInput {
+            album_title: Some("Album".into()),
+            recording_mbid: mbid,
+            ..input("Song", Utc::now() - TimeDelta::minutes(minutes), None)
+        };
+        scrobbles_db::ingest_scrobble(&pool, user_id, &play(30, None))
+            .await
+            .unwrap();
+        sqlx::query("UPDATE tracks SET enriched_at = NOW()")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "UPDATE enrichment_jobs SET
+                 status = CASE entity_type WHEN 'album' THEN 'failed' ELSE 'done' END,
+                 finished_at = NOW() - CASE entity_type WHEN 'artist' THEN INTERVAL '1 day' ELSE INTERVAL '8 days' END",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let jobs = async || -> Vec<(String, String)> {
+            sqlx::query_as("SELECT entity_type, status FROM enrichment_jobs ORDER BY entity_type")
+                .fetch_all(&pool)
+                .await
+                .unwrap()
+        };
+
+        assert_eq!(edb::delete_done_jobs(&pool, 7).await.unwrap(), 1);
+        let kept = vec![("album".into(), "failed".into()), ("artist".into(), "done".into())];
+        assert_eq!(jobs().await, kept);
+        // The enriched track isn't queued again, until a hint arrives.
+        scrobbles_db::ingest_scrobble(&pool, user_id, &play(20, None))
+            .await
+            .unwrap();
+        assert_eq!(jobs().await, kept);
+        scrobbles_db::ingest_scrobble(&pool, user_id, &play(10, Some(hint)))
+            .await
+            .unwrap();
+        assert_eq!(jobs().await.last(), Some(&("track".into(), "pending".into())));
     })
     .await;
 }
