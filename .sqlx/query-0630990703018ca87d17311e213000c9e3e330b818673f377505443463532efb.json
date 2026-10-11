@@ -1,0 +1,92 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT s.from_day, s.to_day, s.computed_at, c.total AS \"total!\",\n               e.position AS \"position?\", e.entity_id AS \"entity_id?\", e.name AS \"name?\",\n               e.artist_id AS \"artist_id?\", e.artist_name AS \"artist_name?\", e.image AS \"image?\",\n               e.listeners AS \"listeners?\", e.weight AS \"weight?\"\n        FROM ranking_snapshots s\n        CROSS JOIN LATERAL (\n            SELECT count(*) AS total FROM ranking_entries c\n            WHERE c.period = s.period AND c.kind = s.kind AND c.listeners >= $3\n        ) c\n        LEFT JOIN LATERAL (\n            SELECT e.position, e.entity_id,\n                   COALESCE(t.title, a.name) AS name,\n                   COALESCE(ta.id, a.id) AS artist_id,\n                   COALESCE(ta.name, a.name) AS artist_name,\n                   COALESCE(al.image_url, a.image_url) AS image,\n                   e.listeners, e.weight\n            FROM ranking_entries e\n            LEFT JOIN tracks t   ON $2 = 'track' AND t.id = e.entity_id\n            LEFT JOIN artists ta ON ta.id = t.artist_id\n            LEFT JOIN albums al  ON al.id = t.album_id\n            LEFT JOIN artists a  ON $2 = 'artist' AND a.id = e.entity_id\n            WHERE e.period = s.period AND e.kind = s.kind\n              AND e.position > $4 AND e.listeners >= $3\n              AND COALESCE(ta.id, a.id) IS NOT NULL\n            ORDER BY e.position\n            LIMIT $5\n        ) e ON true\n        WHERE s.period = $1 AND s.kind = $2\n        ORDER BY e.position\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "from_day",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 1,
+        "name": "to_day",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 2,
+        "name": "computed_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "total!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "position?",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "entity_id?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "artist_id?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "artist_name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "image?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "listeners?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "weight?",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null,
+      false,
+      false,
+      null,
+      null,
+      null,
+      null,
+      false,
+      false
+    ]
+  },
+  "hash": "0630990703018ca87d17311e213000c9e3e330b818673f377505443463532efb"
+}

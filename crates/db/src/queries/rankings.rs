@@ -962,25 +962,27 @@ pub async fn served_page(
 ) -> Result<Option<ServedPage>, sqlx::Error> {
     let rows = sqlx::query!(
         r#"
-        SELECT s.from_day, s.to_day, s.computed_at,
-               (SELECT count(*) FROM ranking_entries c
-                WHERE c.period = s.period AND c.kind = s.kind AND c.listeners >= $3) AS "total!",
+        SELECT s.from_day, s.to_day, s.computed_at, c.total AS "total!",
                e.position AS "position?", e.entity_id AS "entity_id?", e.name AS "name?",
                e.artist_id AS "artist_id?", e.artist_name AS "artist_name?", e.image AS "image?",
                e.listeners AS "listeners?", e.weight AS "weight?"
         FROM ranking_snapshots s
+        CROSS JOIN LATERAL (
+            SELECT count(*) AS total FROM ranking_entries c
+            WHERE c.period = s.period AND c.kind = s.kind AND c.listeners >= $3
+        ) c
         LEFT JOIN LATERAL (
             SELECT e.position, e.entity_id,
                    COALESCE(t.title, a.name) AS name,
                    COALESCE(ta.id, a.id) AS artist_id,
                    COALESCE(ta.name, a.name) AS artist_name,
-                   CASE WHEN s.kind = 'track' THEN al.image_url ELSE a.image_url END AS image,
+                   COALESCE(al.image_url, a.image_url) AS image,
                    e.listeners, e.weight
             FROM ranking_entries e
-            LEFT JOIN tracks t   ON s.kind = 'track' AND t.id = e.entity_id
+            LEFT JOIN tracks t   ON $2 = 'track' AND t.id = e.entity_id
             LEFT JOIN artists ta ON ta.id = t.artist_id
             LEFT JOIN albums al  ON al.id = t.album_id
-            LEFT JOIN artists a  ON s.kind = 'artist' AND a.id = e.entity_id
+            LEFT JOIN artists a  ON $2 = 'artist' AND a.id = e.entity_id
             WHERE e.period = s.period AND e.kind = s.kind
               AND e.position > $4 AND e.listeners >= $3
               AND COALESCE(ta.id, a.id) IS NOT NULL
