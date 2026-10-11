@@ -1,13 +1,14 @@
-# Global rankings and anti-botting (shadow mode)
+# Global rankings and anti-botting
 
 Scrobblr labels every scrobble (the classifier: `counted`, `suspect`,
-`duplicate`, `no_data`) and weighs it for global rankings. **Shadow mode:**
-no route serves a global ranking yet. The worker computes the weights,
-looks for accounts pushing the same entities together ([Coordination](#coordination)),
-and keeps each period's ranking precomputed; `worker rank report` compares
-raw and filtered rankings and `worker rank top` prints a stored one;
-nothing else reads them. Profiles do read the labels: they leave
-duplicates out and say how much of a user's listening is verified (below).
+`duplicate`, `no_data`) and weighs it for global rankings. The worker
+computes the weights, looks for accounts pushing the same entities together
+([Coordination](#coordination)), and keeps each period's ranking
+precomputed; the API serves those at `/v1/rankings/artists` and
+`/v1/rankings/tracks` ([Public routes](#public-routes)), `worker rank
+report` compares raw and filtered rankings and `worker rank top` prints a
+stored one. Profiles read the labels: they leave duplicates out and say how
+much of a user's listening is verified (below).
 
 ## Profiles
 
@@ -116,8 +117,9 @@ accounts share. Every 6 hours the worker looks for accounts pushing the
 same artists and tracks together (`shared::coordination`) and gives each a
 factor from 0 to 1 that global rankings multiply its listener credits and
 weight by. It blocks, deletes and relabels nothing, and profiles never
-read it. Like the rest of this page, it is shadow mode: only `worker rank
-report`, `worker rank cohorts` and the stored snapshots read it.
+read it: only the stored snapshots (hence the public routes), `worker rank
+report` and `worker rank cohorts` do. The routes show the factors' effect,
+never the factors, cohorts or flagged accounts.
 
 ### Groups, not pairs
 
@@ -211,7 +213,7 @@ cohorts and flagged accounts are kept 30 days for review.
 
 `RANKING_COORDINATION=report` lists cohorts without applying any factor
 (every stored factor is removed); `off` doesn't run (and removes them);
-`apply`, the default, applies them to the shadow rankings. Below 200 active
+`apply`, the default, applies them to the rankings. Below 200 active
 accounts (`_MIN_ACCOUNTS`) nothing is judged: every signal compares with
 the population, which is then too small to be a baseline.
 
@@ -521,9 +523,9 @@ rolls back: the previous snapshot stays as it was and the period is tried
 again 5 minutes later. Nothing marks a snapshot invalid; a reader judges
 how fresh it is from `computed_at` and `to_day`, and `pending_days` says how
 many user-days of the period were still waiting to be weighed when it ran
-(after new settings, history is reweighed over several sweeps). A route
-would read `db::queries::rankings::snapshot_entries`: a primary-key range
-and a lookup per entry for its name.
+(after new settings, history is reweighed over several sweeps). The
+routes read `db::queries::rankings::served_page`: a primary-key range and
+a lookup per entry for its name and image.
 
 Measured on the same kind of population (4,000 users, 60 days, the four
 attacks of [Synthetic scenario](#synthetic-scenario) with `farm=4000`:
@@ -543,6 +545,119 @@ this population, and the snapshots hold 6,000 rows (1.4 MB). Reading all
 1,000 positions takes 16 ms. None of the four attack targets is in the
 stored week ranking. The year's cost grows with the history: it reads
 every `ranking_daily` row of the year.
+
+## Public routes
+
+`GET /v1/rankings/artists` and `GET /v1/rankings/tracks`
+(`crates/api/src/handlers/rankings.rs`) serve the stored snapshots as
+they are: one statement reads the page and the snapshot it comes from,
+nothing is computed per request.
+
+| parameter | | |
+| --- | --- | --- |
+| `period` | `week` (default), `month`, `year` | anything else: 400 |
+| `limit` | 50 by default, 200 at most | clamped to 1–200, like other lists |
+| `offset` | positions to skip, 0 by default | negative: 400; past the end: an empty page |
+
+```json
+{
+  "period": "week",
+  "from": "2026-10-04",
+  "to": "2026-10-10",
+  "computed_at": "2026-10-10T22:01:07.512Z",
+  "stale": false,
+  "total": 812,
+  "offset": 0,
+  "limit": 2,
+  "entries": [
+    { "position": 1, "track_id": 1841, "track_title": "Teardrop", "artist_id": 97,
+      "artist_name": "Massive Attack", "album_image": "https://…/albums/3f/….jpg",
+      "listeners": 412, "plays": 1290 },
+    { "position": 2, "track_id": 77, "track_title": "Windowlicker", "artist_id": 12,
+      "artist_name": "Aphex Twin", "album_image": null, "listeners": 398, "plays": 1517 }
+  ]
+}
+```
+
+Artists' entries carry `artist_id`, `artist_name` and `image_url`
+instead, like `TopArtist`; tracks' are shaped like `TopTrack` (the album's
+cover as the track's image). Names and images are the catalog's at the
+time of the request; image keys become URLs as everywhere else.
+
+- **Numbers.** `listeners` (the order) and `plays` are the listener credits
+  and weights of [Listeners and plays](#listeners-and-plays), coordination
+  factors applied, rounded to whole numbers: with a handful of listeners,
+  fractions come close to saying whose plays were discounted, and by how
+  much. Raw counts aren't served: beside
+  the filtered ones they would tell a farm how much of its push was
+  discounted, a free oracle for tuning it.
+- **Pagination.** Offset, not a cursor: positions are a primary-key range,
+  so a deep page costs what the first does, and a cursor would pin nothing
+  (a refresh replaces the whole snapshot). `total` is how many positions
+  are served.
+- **Small groups.** Entries credited with fewer than
+  `RANKING_MIN_LISTENERS` (5) listeners aren't served. A credit is one at
+  most, so a served entry stands for at least 5 accounts; ordered by
+  listeners, the served entries are a prefix of the stored 1,000, and the
+  cut needs no recomputation when the setting changes. `worker rank top`
+  marks it. Without it a weekly chart on a small instance would list what
+  each user played that week.
+- **Private profiles.** Their plays count, as they do in every catalog
+  aggregate (`scrobble_count`, `listener_count`, top tracks): a private
+  profile hides who listens, not that listening happened. Nothing in a page
+  names or counts a user, and the minimum keeps one account's listening
+  from being a position of its own. There is no other opt-out setting.
+- **Public.** No credential: the same page for everyone, so any proxy may
+  cache it. The global per-address limit applies like everywhere (a 304
+  counts as a request). CORS follows `CORS_ALLOWED_ORIGINS` like the rest
+  of the native API.
+
+### Freshness
+
+| the snapshot | the route |
+| --- | --- |
+| not computed yet (new install, worker not running yet) | 404 `{ "error": "no week ranking has been computed yet" }`, cacheable 60 s |
+| fresh | 200, `stale: false` |
+| refresh overdue by more than 15 min (worker behind, stopped or failing) | 200 with the last snapshot, `stale: true` |
+
+`from` and `to` are the UTC days it covers, both included (`to` the day it
+was computed); `computed_at` when. A refresh is due an hour after the
+last for weeks and months, a day after for years, and at every UTC
+midnight; `stale` is true 15 minutes past that (`Period::stale_after`), so
+clients can say "updated 3 h ago" instead of showing nothing. A failed
+refresh changes nothing that is served: it rolls back and is retried, and
+`/health/worker` reports the loop failing.
+
+### Caching
+
+Every 200 and 304 carries `Cache-Control: public, max-age=300,
+stale-while-revalidate=300` and a weak `ETag` made of the snapshot's
+`computed_at`, the minimum and whether it is stale: whatever changes the
+body of a URL. A request with that tag in `If-None-Match` (or `*`) gets a
+304 after a primary-key lookup of the snapshot, without reading entries.
+The tag is weak because compression changes the bytes.
+
+### Measured
+
+On the synthetic population ([Synthetic scenario](#synthetic-scenario),
+4,000 users over 60 days, 3.95M scrobbles, 20,000 artists and 160,000
+tracks; every period has 1,000 positions with 5 listeners or more), the
+release API on the same 8-core desktop as the database (TimescaleDB 2.29.2
+in a container, `shared_buffers=512MB`), one client at a time, gzip,
+2,000 requests each:
+
+| request | p50 | p99 |
+| --- | --- | --- |
+| first 50 positions | 2.2–2.4 ms | 4.8–6.3 ms |
+| positions 951–1,000 | 2.2–2.5 ms | 4.9–9.3 ms |
+| positions 801–1,000 (`limit=200`) | 4.2–4.6 ms | 7.0–8.0 ms |
+| `If-None-Match` hit (304) | 0.48–0.54 ms | 1.7–2.0 ms |
+
+The same for every period and both kinds: a page reads the same rows
+whatever the history behind it. With 16 clients at once, 1,275 pages a
+second (p50 12 ms) or 5,274 304s a second. The first version counted the
+served positions once per entry of the page: 14.6 ms for 50, 52 ms for
+200.
 
 ## Commands
 
@@ -568,8 +683,9 @@ synchronously with the current `RANKING_*` settings; run it with other
 settings on a scratch copy of the database to preview them. Days before
 the retention window have no weights: `report` shows none for them, and
 `recompute` previews them only with `--dry-run`. `refresh`
-recomputes the stored rankings now and `top` prints one as a route would
-read it. `detect` runs a coordination detection now with the current
+recomputes the stored rankings now and `top` prints one with the raw
+counts the routes leave out, marking where they stop serving
+(`RANKING_MIN_LISTENERS`, read from the same environment). `detect` runs a coordination detection now with the current
 `RANKING_COORDINATION*` settings and stores it (the worker does every 6
 hours); `cohorts` lists the latest stored run's cohorts. With `--dry-run`
 both detect now and store nothing, which previews other settings;
@@ -683,7 +799,9 @@ independent).
   per-day lock), but the worker starts one.
 - **Snapshots are recomputed whole.** Nothing is incremental, and a
   snapshot keeps no earlier positions, so a chart's movement since last
-  week would need snapshots kept by date.
+  week would need snapshots kept by date. For the same reason a client
+  paging through a ranking while it is recomputed can see a position twice
+  or miss one; `computed_at` changes when that happens.
 - **Profile freshness.** A play counts on the profile as soon as it is
   stored and loses its place only when its day is classified (after a 30 s
   settle); top lists subtract duplicates from `scrobble_flags`, one row per
