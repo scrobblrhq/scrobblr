@@ -1,4 +1,4 @@
-//! Ranking weights (anti-botting, shadow mode).
+//! Ranking weights (anti-botting).
 //!
 //! Every scrobble keeps its classification label; for global rankings it
 //! also gets a weight from 0 to 1 (in thousandths), the product of:

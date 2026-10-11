@@ -209,7 +209,7 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    // Labels scrobbles counted / suspect / duplicate / no_data (shadow mode).
+    // Labels scrobbles counted / suspect / duplicate / no_data.
     let classifier = Arc::new(classification::Classifier::from_env(db.clone()).await?);
     let classification_handle = supervise(&db, "classification", {
         let classifier = classifier.clone();
@@ -220,7 +220,7 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // Weighs classified days for global rankings and keeps each period's
-    // ranking precomputed (shadow mode).
+    // ranking precomputed, which the API serves.
     let weigher = Arc::new(rankings::Weigher::from_env(db.clone()).await?);
     let rankings_handle = supervise(&db, "rankings", {
         let weigher = weigher.clone();
@@ -235,7 +235,7 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // Looks for accounts pushing the same entities together and stores the
-    // factors rankings apply (shadow mode).
+    // factors rankings apply.
     let detector = Arc::new(rankings::coordination::Detector::from_env(db.clone())?);
     let coordination_handle =
         supervise(&db, "coordination", move |beat| detector.clone().run(beat));

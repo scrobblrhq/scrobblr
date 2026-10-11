@@ -1,4 +1,4 @@
-//! Cross-account coordination (anti-botting, shadow mode).
+//! Cross-account coordination (anti-botting).
 //!
 //! The per-play weights ([`crate::ranking`]) judge one account at a time,
 //! so a farm of accounts older than the minimum age, each playing like a

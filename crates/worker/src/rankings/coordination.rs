@@ -1,4 +1,4 @@
-//! Cross-account coordination, shadow mode: every few hours, looks for
+//! Cross-account coordination: every few hours, looks for
 //! accounts pushing the same artists and tracks together and stores a
 //! factor for each flagged account's days, which global rankings apply.
 //! Detection lives in `shared::coordination`, storage in

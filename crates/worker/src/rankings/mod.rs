@@ -1,6 +1,6 @@
-//! Ranking weights, shadow mode: weighs every classified day's scrobbles
-//! for global rankings; nothing user-facing reads them yet. The weights live
-//! in `shared::ranking`, storage, queue and rankings in
+//! Ranking weights: weighs every classified day's scrobbles for global
+//! rankings, which the API serves from the snapshots kept here. The weights
+//! live in `shared::ranking`, storage, queue and rankings in
 //! `db::queries::rankings`.
 //!
 //! Two loops, like classification's: one drains `ranking_queue` (fed when a

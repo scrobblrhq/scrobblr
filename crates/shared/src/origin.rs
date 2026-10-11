@@ -1,5 +1,5 @@
-//! Where an account registered from, kept only as keyed hashes (anti-botting,
-//! shadow mode). The coordination detection compares them for equality and
+//! Where an account registered from, kept only as keyed hashes
+//! (anti-botting). The coordination detection compares them for equality and
 //! nothing else, so the address itself is never stored.
 //!
 //! An [`Origin`] holds two 64-bit HMAC-SHA256 values under

@@ -1,4 +1,4 @@
-//! Scrobble classification rules (anti-botting, shadow mode).
+//! Scrobble classification rules (anti-botting).
 //!
 //! Pure: the worker loads one user's scrobbles for a UTC day plus the
 //! lookback before it, and stores what [`classify`] returns. The result

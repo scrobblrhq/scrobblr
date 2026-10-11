@@ -1,4 +1,4 @@
-//! Cross-account coordination, shadow mode (see `shared::coordination` for
+//! Cross-account coordination (see `shared::coordination` for
 //! the detection and `migrations/0025_coordination.sql` for the schema).
 //!
 //! A run loads the window's weights from `ranking_daily` (never the
