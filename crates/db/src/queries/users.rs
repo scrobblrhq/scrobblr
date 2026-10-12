@@ -120,11 +120,47 @@ pub async fn search_users(
     .await
 }
 
+/// What a follow came to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Followed {
+    Now,
+    Already,
+    /// The follower already follows `max` accounts.
+    AtLimit,
+}
+
+/// Follows `followee_id` unless `follower_id` already follows `max`
+/// accounts (every follow counts, private and leaving accounts' too).
+/// Serialized per follower, so concurrent follows can't pass the cap
+/// together.
 pub async fn follow_user(
     pool: &PgPool,
     follower_id: i64,
     followee_id: i64,
-) -> Result<(), sqlx::Error> {
+    max: i64,
+) -> Result<Followed, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('follow:' || $1, 0))")
+        .bind(follower_id.to_string())
+        .execute(&mut *tx)
+        .await?;
+    let r = sqlx::query!(
+        r#"
+        SELECT EXISTS (SELECT 1 FROM user_follows
+                       WHERE follower_id = $1 AND followee_id = $2) AS "already!",
+               (SELECT count(*) FROM user_follows WHERE follower_id = $1) AS "following!"
+        "#,
+        follower_id,
+        followee_id,
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    if r.already {
+        return Ok(Followed::Already);
+    }
+    if r.following >= max {
+        return Ok(Followed::AtLimit);
+    }
     sqlx::query!(
         r#"
         INSERT INTO user_follows (follower_id, followee_id)
@@ -134,9 +170,10 @@ pub async fn follow_user(
         follower_id,
         followee_id,
     )
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
-    Ok(())
+    tx.commit().await?;
+    Ok(Followed::Now)
 }
 
 pub async fn unfollow_user(

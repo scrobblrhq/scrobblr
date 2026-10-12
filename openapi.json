@@ -7865,7 +7865,7 @@
         ]
       },
       "post": {
-        "description": "Follows the specified user on behalf of the authenticated user. Returns 400 if attempting to follow yourself.",
+        "description": "Follows the specified user on behalf of the authenticated user; following an account already followed changes nothing. Following takes no approval, and opens nothing a private profile hides: its owner alone sees it. An account may follow 2000 accounts at most, and follow 100 times an hour (300 from one address), refused attempts included; unfollowing is free.",
         "parameters": [
           {
             "in": "path",
@@ -7879,7 +7879,7 @@
         ],
         "responses": {
           "204": {
-            "description": "Successfully followed"
+            "description": "Followed, now or before"
           },
           "400": {
             "content": {
@@ -7921,6 +7921,16 @@
             },
             "description": "Target user not found"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Already following 2000 accounts"
+          },
           "429": {
             "content": {
               "application/json": {
@@ -7929,7 +7939,7 @@
                 }
               }
             },
-            "description": "Over the request limit for this address"
+            "description": "Over 100 follows an hour for this account or 300 from this address, or over the request limit for this address"
           },
           "default": {
             "content": {

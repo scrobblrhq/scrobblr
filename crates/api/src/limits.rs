@@ -1,7 +1,7 @@
 //! Limits counted in Redis: password logins and the scrobbles an account
 //! may submit per UTC day (shared by the native API and the
-//! scrobbler-compatible ones), image uploads, account exports and deletion
-//! requests. Windows are part of the
+//! scrobbler-compatible ones), image uploads, follows, account exports and
+//! deletion requests. Windows are part of the
 //! keys, so a key that missed its expiry still stops counting when its
 //! window ends.
 
@@ -71,26 +71,53 @@ pub const UPLOADS_PER_IP: i64 = 30;
 /// global rate limit.
 pub async fn upload_attempt(state: &AppState, user_id: i64, ip: &str) -> bool {
     let window = Utc::now().timestamp() / UPLOAD_WINDOW_SECS;
-    let limits = [
+    let keys = [
         (format!("upload:user:{user_id}:{window}"), UPLOADS_PER_USER),
         (
             format!("upload:ip:{}:{window}", network(ip)),
             UPLOADS_PER_IP,
         ),
     ];
+    take_or_pass(state, keys, UPLOAD_WINDOW_SECS, "upload").await
+}
+
+const FOLLOW_WINDOW_SECS: i64 = 3600;
+pub const FOLLOWS_PER_USER: i64 = 100;
+pub const FOLLOWS_PER_IP: i64 = 300;
+
+/// Counts a follow and says whether it may go ahead: at most
+/// [`FOLLOWS_PER_USER`] per account and [`FOLLOWS_PER_IP`] per address an
+/// hour, refused ones included, so a farm can't follow its way around
+/// quickly. Unfollowing is free. Fails open, like uploads.
+pub async fn follow_attempt(state: &AppState, user_id: i64, ip: &str) -> bool {
+    let window = Utc::now().timestamp() / FOLLOW_WINDOW_SECS;
+    let keys = [
+        (format!("follow:user:{user_id}:{window}"), FOLLOWS_PER_USER),
+        (
+            format!("follow:ip:{}:{window}", network(ip)),
+            FOLLOWS_PER_IP,
+        ),
+    ];
+    take_or_pass(state, keys, FOLLOW_WINDOW_SECS, "follow").await
+}
+
+/// Counts before the work; a Redis failure lets it through.
+async fn take_or_pass(
+    state: &AppState,
+    keys: [(String, i64); 2],
+    window_secs: i64,
+    what: &str,
+) -> bool {
     let mut allowed = true;
-    for (key, limit) in limits {
+    for (key, limit) in keys {
         match state.redis.incr::<i64, _>(&key).await {
             Ok(count) => {
                 if count == 1 {
-                    let _ = state
-                        .redis
-                        .expire::<i64, _>(&key, UPLOAD_WINDOW_SECS, None)
-                        .await;
+                    let _ = state.redis.expire::<i64, _>(&key, window_secs, None).await;
                 }
                 allowed &= count <= limit;
             }
-            Err(e) => tracing::warn!("upload limit unavailable: {e}"),
+            Err(e) => tracing::warn!("{what} limit unavailable: {e}"),
         }
     }
     allowed

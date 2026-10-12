@@ -11,10 +11,11 @@ use serde::{Deserialize, Serialize};
 use super::UsernamePath;
 use crate::{
     errors::{ApiResult, AppError, ErrorJson},
-    middleware::auth::AuthUser,
+    limits,
+    middleware::{auth::AuthUser, rate_limit::ClientIp},
     state::AppState,
 };
-use db::queries::users::{self as users_db, FollowList};
+use db::queries::users::{self as users_db, FollowList, Followed};
 use shared::cursor::Cursor;
 use shared::models::{FollowEntry, FollowPage, ScrobbleBreakdown, UserProfile};
 
@@ -348,12 +349,20 @@ fn follow_list_doc<'t>(
         .response_with::<404, ErrorJson, _>(|r| r.description("User not found"))
 }
 
+/// The most accounts one may follow: a feed of more is noise, and a cap
+/// bounds what a follow farm's accounts cost the server.
+pub const MAX_FOLLOWING: i64 = 2000;
+
 /// POST /v1/user/:username/follow
 pub async fn follow(
     State(state): State<AppState>,
     Extension(auth_user): Extension<AuthUser>,
+    ClientIp(ip): ClientIp,
     Path(UsernamePath { username }): Path<UsernamePath>,
 ) -> ApiResult<StatusCode> {
+    if !limits::follow_attempt(&state, auth_user.id, &ip).await {
+        return Err(AppError::RateLimited);
+    }
     let target = users_db::find_by_username(&state.db, &username)
         .await?
         .filter(|u| u.delete_after.is_none())
@@ -363,18 +372,32 @@ pub async fn follow(
         return Err(AppError::BadRequest("cannot follow yourself".into()));
     }
 
-    users_db::follow_user(&state.db, auth_user.id, target.id).await?;
-    Ok(StatusCode::NO_CONTENT)
+    match users_db::follow_user(&state.db, auth_user.id, target.id, MAX_FOLLOWING).await? {
+        Followed::Now | Followed::Already => Ok(StatusCode::NO_CONTENT),
+        Followed::AtLimit => Err(AppError::Conflict(format!(
+            "you already follow {MAX_FOLLOWING} accounts, the most allowed"
+        ))),
+    }
 }
 
 pub fn _follow_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Follow a user")
-        .description("Follows the specified user on behalf of the authenticated user. Returns 400 if attempting to follow yourself.")
+        .description(&format!("Follows the specified user on behalf of the authenticated user; following an account already followed changes nothing. Following takes no approval, and opens nothing a private profile hides: its owner alone sees it. An account may follow {MAX_FOLLOWING} accounts at most, and follow {} times an hour ({} from one address), refused attempts included; unfollowing is free.", limits::FOLLOWS_PER_USER, limits::FOLLOWS_PER_IP))
         .tag("Users")
-        .response_with::<204, (), _>(|r| r.description("Successfully followed"))
+        .response_with::<204, (), _>(|r| r.description("Followed, now or before"))
         .response_with::<400, ErrorJson, _>(|r| r.description("Cannot follow yourself"))
         .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
         .response_with::<404, ErrorJson, _>(|r| r.description("Target user not found"))
+        .response_with::<409, ErrorJson, _>(|r| {
+            r.description(&format!("Already following {MAX_FOLLOWING} accounts"))
+        })
+        .response_with::<429, ErrorJson, _>(|r| {
+            r.description(&format!(
+                "Over {} follows an hour for this account or {} from this address, or over the request limit for this address",
+                limits::FOLLOWS_PER_USER,
+                limits::FOLLOWS_PER_IP
+            ))
+        })
 }
 
 /// DELETE /v1/user/:username/follow
@@ -411,7 +434,7 @@ mod tests {
     use axum::http::{Method, StatusCode};
     use serde_json::json;
 
-    use crate::test_app::with_app;
+    use crate::test_app::{with_app, with_custom_app};
 
     #[tokio::test]
     #[ignore = "needs Postgres and Redis: just test-db"]
@@ -531,6 +554,69 @@ mod tests {
             assert_eq!(app.get(&gone).await.0, StatusCode::NOT_FOUND);
             let private = format!("/v1/user/{}/following", fans[2].1);
             assert_eq!(app.get(&private).await.0, StatusCode::FORBIDDEN);
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    #[ignore = "needs Postgres and Redis: just test-db"]
+    async fn follows_are_capped_and_rate_limited() {
+        let unlimited = |state: &mut crate::state::AppState| {
+            state.rate_limit = crate::middleware::rate_limit::RateLimit {
+                requests: 0,
+                window_secs: 60,
+            }
+        };
+        with_custom_app(unlimited, |app| async move {
+            // One short of the cap, followed directly.
+            let base = format!("c{}", &app.username[4..]);
+            sqlx::query(
+                "WITH new AS (
+                     INSERT INTO users (username, email, password_hash)
+                     SELECT $1 || n, $1 || n || '@test', 'x' FROM generate_series(1, $2) n
+                     RETURNING id)
+                 INSERT INTO user_follows (follower_id, followee_id) SELECT $3, id FROM new",
+            )
+            .bind(&base)
+            .bind((super::MAX_FOLLOWING - 1) as i32)
+            .bind(app.user_id)
+            .execute(&app.pool)
+            .await
+            .unwrap();
+            let (_, a, _) = app.other_user("a").await;
+            let (_, b, _) = app.other_user("b").await;
+            let follow = |name: &str| format!("/v1/user/{name}/follow");
+            assert_eq!(
+                app.api(Method::POST, &follow(&a), None).await.0,
+                StatusCode::NO_CONTENT
+            );
+            let (status, body) = app.api(Method::POST, &follow(&b), None).await;
+            assert_eq!(status, StatusCode::CONFLICT, "{body}");
+            // Following again is no new follow; unfollowing makes room.
+            assert_eq!(
+                app.api(Method::POST, &follow(&a), None).await.0,
+                StatusCode::NO_CONTENT
+            );
+            assert_eq!(
+                app.api(Method::DELETE, &follow(&a), None).await.0,
+                StatusCode::NO_CONTENT
+            );
+            assert_eq!(
+                app.api(Method::POST, &follow(&b), None).await.0,
+                StatusCode::NO_CONTENT
+            );
+
+            // Four attempts so far; the hour's allowance ends at 100,
+            // refused ones included, and unfollows don't count.
+            for _ in 4..crate::limits::FOLLOWS_PER_USER {
+                app.api(Method::DELETE, &follow(&b), None).await;
+                let (status, _) = app.api(Method::POST, &follow(&b), None).await;
+                assert_eq!(status, StatusCode::NO_CONTENT);
+            }
+            let (status, _) = app.api(Method::POST, &follow(&a), None).await;
+            assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+            let (status, _) = app.api(Method::DELETE, &follow(&b), None).await;
+            assert_eq!(status, StatusCode::NO_CONTENT);
         })
         .await;
     }
