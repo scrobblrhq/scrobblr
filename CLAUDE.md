@@ -220,7 +220,7 @@ Operator guide: `docs/uploads.md`. The database stores an upload's **key**, neve
 - **Artist/album art** is last.fm-style community voting, **add-only**: an upload creates a row in `image_candidates` (uploader auto-likes their own). Likes go through `image_candidate_votes`; the most-liked candidate becomes the entity's displayed image once it reaches `MIN_VOTES_TO_DEFAULT` (3), which sets `image_url` + `image_locked`. Promotion only — a withdrawn like never demotes the shown image.
 - **Comments** (`comments` table) attach to artists or tracks; reads are public, writes authed, deletes owner-only.
 
-Listener/social sections and the private-profile rules: `artist_listeners`/`track_listeners`/`search_users` all exclude `is_private` users, so a private account stays undiscoverable in aggregate surfaces (its profile also 403s via `middleware/visibility.rs`). They, comments and image candidates also leave out accounts waiting to be erased.
+Listener/social sections and the private-profile rules: `artist_listeners`/`track_listeners`/`search_users` and follow lists all exclude `is_private` users (follow lists but to the account itself), so a private account stays undiscoverable in aggregate surfaces. Its profile and everything under it 403 to everyone but its owner (`middleware/visibility.rs`), followers included: following takes no approval, so a follower is anyone who asked. They, comments and image candidates also leave out accounts waiting to be erased.
 
 ### Track credits (multiple artists)
 

@@ -51,7 +51,7 @@ pub async fn get_profile(
 
 pub fn _get_profile_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Get user profile")
-        .description("Returns the public profile for a user. If the viewer is authenticated, also includes `is_following`. `scrobble_count` leaves out the scrobbles the classifier found to be the same listen reported again (duplicates); `scrobble_breakdown` divides it into verified plays and unverified ones (over the listening time real time allows, of tracks with no known length, or not classified yet). Private profiles return 403 to non-owners.")
+        .description("Returns the public profile for a user. If the viewer is authenticated, also includes `is_following`. `scrobble_count` leaves out the scrobbles the classifier found to be the same listen reported again (duplicates); `scrobble_breakdown` divides it into verified plays and unverified ones (over the listening time real time allows, of tracks with no known length, or not classified yet). Private profiles return 403 to everyone but their owner, followers included (following takes no approval).")
         .tag("Users")
         .response::<200, Json<ProfileResponse>>()
         .response_with::<403, ErrorJson, _>(|r| r.description("Profile is private"))
@@ -198,13 +198,13 @@ pub async fn get_friends(
     let viewer_id = auth_user.map(|Extension(a)| a.id);
     crate::middleware::visibility::ensure_profile_visible(&state, viewer_id, &user).await?;
 
-    let followers = users_db::get_followers(&state.db, user.id)
+    let followers = users_db::get_followers(&state.db, user.id, viewer_id)
         .await?
         .into_iter()
         .map(UserProfile::from)
         .collect();
 
-    let following = users_db::get_following(&state.db, user.id)
+    let following = users_db::get_following(&state.db, user.id, viewer_id)
         .await?
         .into_iter()
         .map(UserProfile::from)
@@ -218,7 +218,7 @@ pub async fn get_friends(
 
 pub fn _get_friends_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Get followers and following")
-        .description("Returns both the follower list and the following list for a given user.")
+        .description("Returns both the follower list and the following list for a given user, newest follow first. Private accounts are left out of both, except the viewer's own, and so are accounts waiting to be deleted. Private profiles return 403 to everyone but their owner.")
         .tag("Users")
         .response::<200, Json<FriendsResponse>>()
         .response_with::<403, ErrorJson, _>(|r| r.description("Profile is private"))
@@ -281,4 +281,76 @@ pub fn _unfollow_doc(op: TransformOperation) -> TransformOperation {
         .response_with::<400, ErrorJson, _>(|r| r.description("Cannot unfollow yourself"))
         .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
         .response_with::<404, ErrorJson, _>(|r| r.description("Target user not found"))
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::http::{Method, StatusCode};
+    use serde_json::json;
+
+    use crate::test_app::with_app;
+
+    #[tokio::test]
+    #[ignore = "needs Postgres and Redis: just test-db"]
+    async fn a_private_profile_is_its_owners_alone() {
+        with_app(Default::default(), |app| async move {
+            let (_, follower, follower_session) = app.other_user("follower").await;
+            let (_, public, _) = app.other_user("public").await;
+            let follow = format!("/v1/user/{}/follow", app.username);
+            let (status, _) = app
+                .api_as(&follower_session, Method::POST, &follow, None)
+                .await;
+            assert_eq!(status, StatusCode::NO_CONTENT);
+            app.api(Method::POST, &format!("/v1/user/{public}/follow"), None)
+                .await;
+            let (status, _) = app
+                .api(
+                    Method::PATCH,
+                    "/v1/user/me",
+                    Some(json!({ "is_private": true })),
+                )
+                .await;
+            assert_eq!(status, StatusCode::OK);
+
+            // Following took no approval, so it opens nothing.
+            let profile = format!("/v1/user/{}", app.username);
+            for path in [
+                profile.clone(),
+                format!("{profile}/friends"),
+                format!("{profile}/recent"),
+                format!("{profile}/top-artists"),
+            ] {
+                let (status, _) = app
+                    .api_as(&follower_session, Method::GET, &path, None)
+                    .await;
+                assert_eq!(status, StatusCode::FORBIDDEN, "{path}");
+                assert_eq!(app.get(&path).await.0, StatusCode::FORBIDDEN, "{path}");
+                assert_eq!(
+                    app.api(Method::GET, &path, None).await.0,
+                    StatusCode::OK,
+                    "{path}"
+                );
+            }
+
+            // Nor is the private account named in anyone's follow lists, but
+            // to itself.
+            let lists = format!("/v1/user/{public}/friends");
+            let (_, friends) = app
+                .api_as(&follower_session, Method::GET, &lists, None)
+                .await;
+            assert_eq!(friends["followers"], json!([]));
+            let (_, friends) = app.api(Method::GET, &lists, None).await;
+            assert_eq!(friends["followers"][0]["username"], app.username.as_str());
+            let (_, friends) = app
+                .api_as(
+                    &follower_session,
+                    Method::GET,
+                    &format!("/v1/user/{follower}/friends"),
+                    None,
+                )
+                .await;
+            assert_eq!(friends["following"], json!([]));
+        })
+        .await;
+    }
 }

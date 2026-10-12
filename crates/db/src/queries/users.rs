@@ -152,8 +152,14 @@ pub async fn unfollow_user(
     Ok(())
 }
 
-/// Accounts waiting to be erased are left out, here and in [`get_following`].
-pub async fn get_followers(pool: &PgPool, user_id: i64) -> Result<Vec<User>, sqlx::Error> {
+/// Only accounts `viewer_id` may see: private ones are left out unless they
+/// are the viewer's own, and accounts waiting to be erased always are, here
+/// and in [`get_following`].
+pub async fn get_followers(
+    pool: &PgPool,
+    user_id: i64,
+    viewer_id: Option<i64>,
+) -> Result<Vec<User>, sqlx::Error> {
     sqlx::query_as!(
         User,
         r#"
@@ -164,15 +170,21 @@ pub async fn get_followers(pool: &PgPool, user_id: i64) -> Result<Vec<User>, sql
         FROM user_follows f
         JOIN users u ON u.id = f.follower_id
         WHERE f.followee_id = $1 AND u.delete_after IS NULL
+          AND (NOT u.is_private OR u.id = $2)
         ORDER BY f.created_at DESC
         "#,
         user_id,
+        viewer_id,
     )
     .fetch_all(pool)
     .await
 }
 
-pub async fn get_following(pool: &PgPool, user_id: i64) -> Result<Vec<User>, sqlx::Error> {
+pub async fn get_following(
+    pool: &PgPool,
+    user_id: i64,
+    viewer_id: Option<i64>,
+) -> Result<Vec<User>, sqlx::Error> {
     sqlx::query_as!(
         User,
         r#"
@@ -183,9 +195,11 @@ pub async fn get_following(pool: &PgPool, user_id: i64) -> Result<Vec<User>, sql
         FROM user_follows f
         JOIN users u ON u.id = f.followee_id
         WHERE f.follower_id = $1 AND u.delete_after IS NULL
+          AND (NOT u.is_private OR u.id = $2)
         ORDER BY f.created_at DESC
         "#,
         user_id,
+        viewer_id,
     )
     .fetch_all(pool)
     .await

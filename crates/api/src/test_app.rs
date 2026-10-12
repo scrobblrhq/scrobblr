@@ -208,6 +208,24 @@ impl TestApp {
             .await
     }
 
+    /// Another user, `name` made unique, and a session of theirs.
+    pub async fn other_user(&self, name: &str) -> (i64, String, String) {
+        let username = format!("{name}{}", &Uuid::new_v4().simple().to_string()[..6]);
+        let id: i64 = sqlx::query_scalar(
+            "INSERT INTO users (username, email, password_hash) VALUES ($1, $1 || '@test', 'x') RETURNING id",
+        )
+        .bind(&username)
+        .fetch_one(&self.pool)
+        .await
+        .unwrap();
+        let session = auth_db::create_session(&self.pool, id, None, None)
+            .await
+            .unwrap()
+            .id
+            .to_string();
+        (id, username, session)
+    }
+
     /// A native API call with `bearer`, a session or an API token.
     pub async fn api_as(
         &self,

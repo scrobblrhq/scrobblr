@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT u.id, u.username, u.email, u.password_hash, u.display_name, u.bio,\n               u.image_url, u.website_url, u.country, u.scrobble_count,\n               u.is_private, u.is_verified, u.last_seen_at, u.created_at, u.updated_at,\n               u.delete_after\n        FROM user_follows f\n        JOIN users u ON u.id = f.follower_id\n        WHERE f.followee_id = $1 AND u.delete_after IS NULL\n        ORDER BY f.created_at DESC\n        ",
+  "query": "\n        SELECT u.id, u.username, u.email, u.password_hash, u.display_name, u.bio,\n               u.image_url, u.website_url, u.country, u.scrobble_count,\n               u.is_private, u.is_verified, u.last_seen_at, u.created_at, u.updated_at,\n               u.delete_after\n        FROM user_follows f\n        JOIN users u ON u.id = f.follower_id\n        WHERE f.followee_id = $1 AND u.delete_after IS NULL\n          AND (NOT u.is_private OR u.id = $2)\n        ORDER BY f.created_at DESC\n        ",
   "describe": {
     "columns": [
       {
@@ -86,6 +86,7 @@
     ],
     "parameters": {
       "Left": [
+        "Int8",
         "Int8"
       ]
     },
@@ -108,5 +109,5 @@
       true
     ]
   },
-  "hash": "c98db8298c1d352b7cee2e8d91eaea1180d606571ddaeb6f2bd1f990887a77e4"
+  "hash": "beacc67ea1dd61c41711627cbcfca76d574dc1c500d64ebc7f350cdaf6390e01"
 }

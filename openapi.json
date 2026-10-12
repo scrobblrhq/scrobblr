@@ -7545,7 +7545,7 @@
     },
     "/v1/user/{username}": {
       "get": {
-        "description": "Returns the public profile for a user. If the viewer is authenticated, also includes `is_following`. `scrobble_count` leaves out the scrobbles the classifier found to be the same listen reported again (duplicates); `scrobble_breakdown` divides it into verified plays and unverified ones (over the listening time real time allows, of tracks with no known length, or not classified yet). Private profiles return 403 to non-owners.",
+        "description": "Returns the public profile for a user. If the viewer is authenticated, also includes `is_following`. `scrobble_count` leaves out the scrobbles the classifier found to be the same listen reported again (duplicates); `scrobble_breakdown` divides it into verified plays and unverified ones (over the listening time real time allows, of tracks with no known length, or not classified yet). Private profiles return 403 to everyone but their owner, followers included (following takes no approval).",
         "parameters": [
           {
             "in": "path",
@@ -7801,7 +7801,7 @@
     },
     "/v1/user/{username}/friends": {
       "get": {
-        "description": "Returns both the follower list and the following list for a given user.",
+        "description": "Returns both the follower list and the following list for a given user, newest follow first. Private accounts are left out of both, except the viewer's own, and so are accounts waiting to be deleted. Private profiles return 403 to everyone but their owner.",
         "parameters": [
           {
             "in": "path",
