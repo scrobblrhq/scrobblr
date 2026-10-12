@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT id, artist_id, album_id, title, title_normalized, mbid,\n               duration_ms, scrobble_count, created_at\n        FROM tracks\n        WHERE title % $1\n        ORDER BY similarity(title, $1) DESC, scrobble_count DESC\n        LIMIT $2\n        ",
+  "query": "\n        UPDATE tracks\n        SET album_id    = COALESCE(album_id, $2),\n            duration_ms = COALESCE(duration_ms, $3)\n        WHERE id = $1\n        RETURNING id, artist_id, album_id, title, title_normalized, mbid,\n                  duration_ms, NULL::bigint AS \"scrobble_count?\", created_at\n        ",
   "describe": {
     "columns": [
       {
@@ -40,7 +40,7 @@
       },
       {
         "ordinal": 7,
-        "name": "scrobble_count",
+        "name": "scrobble_count?",
         "type_info": "Int8"
       },
       {
@@ -51,8 +51,9 @@
     ],
     "parameters": {
       "Left": [
-        "Text",
-        "Int8"
+        "Int8",
+        "Int8",
+        "Int4"
       ]
     },
     "nullable": [
@@ -63,9 +64,9 @@
       false,
       true,
       true,
-      false,
+      null,
       false
     ]
   },
-  "hash": "9fde023c08d639fd5413357590c46da8176010afa8c4a2d85c61d4cfb4d954fb"
+  "hash": "93dacb27060e6cd2028884ddce6c154e9a3d5d7ecf78d814ec8599aaa72e5f5c"
 }

@@ -16,12 +16,18 @@ use crate::{
 use db::queries::{enrichment as enrichment_db, tracks as tracks_db, users as users_db};
 use shared::models::{Artist, TopListener, TopTrack, Track, TrackWithCredits, UserProfile};
 
+fn min_listeners(state: &AppState) -> i32 {
+    i32::try_from(state.rankings.min_listeners).unwrap_or(i32::MAX)
+}
+
+const COUNTS_RULE: &str = "Catalog-wide counts include every user's plays, private profiles' too, so they are served only for entities at least `RANKING_MIN_LISTENERS` (5 by default) distinct users have played, counted from the daily aggregates (a new listener counts from their next refresh, within the hour; today's plays from tomorrow): a count is never one or two people's listening.";
+
 /// GET /v1/track/:id
 pub async fn get_track(
     State(state): State<AppState>,
     Path(IdPath { id }): Path<IdPath>,
 ) -> ApiResult<Json<TrackWithCredits>> {
-    let track = tracks_db::find_track_by_id(&state.db, id)
+    let track = tracks_db::public_track(&state.db, id, min_listeners(&state))
         .await?
         .ok_or(AppError::NotFound)?;
     let artists = tracks_db::track_credits(&state.db, track.id).await?;
@@ -31,7 +37,7 @@ pub async fn get_track(
 
 pub fn _get_track_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Get a track")
-        .description("Returns catalog metadata for a single track by its internal ID, including title, album, duration and the full artist credit list (primary artist first, then featured collaborators in billing order).")
+        .description(&format!("Returns catalog metadata for a single track by its internal ID, including title, album, duration and the full artist credit list (primary artist first, then featured collaborators in billing order). `scrobble_count` is `null` for a track fewer than the minimum of listeners played. {COUNTS_RULE}"))
         .tag("Catalog")
         .response::<200, Json<TrackWithCredits>>()
         .response_with::<404, ErrorJson, _>(|r| r.description("Track not found"))
@@ -42,7 +48,7 @@ pub async fn get_artist(
     State(state): State<AppState>,
     Path(IdPath { id }): Path<IdPath>,
 ) -> ApiResult<Json<Artist>> {
-    tracks_db::find_artist_by_id(&state.db, id)
+    tracks_db::public_artist(&state.db, id, min_listeners(&state))
         .await?
         .map(Json)
         .ok_or(AppError::NotFound)
@@ -50,7 +56,7 @@ pub async fn get_artist(
 
 pub fn _get_artist_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Get an artist")
-        .description("Returns catalog metadata for a single artist by its internal ID.")
+        .description(&format!("Returns catalog metadata for a single artist by its internal ID. `scrobble_count` is `null` for an artist fewer than the minimum of listeners played; `listener_count` is always `null` (it was never kept). {COUNTS_RULE}"))
         .tag("Catalog")
         .response::<200, Json<Artist>>()
         .response_with::<404, ErrorJson, _>(|r| r.description("Artist not found"))
@@ -91,13 +97,13 @@ pub async fn search(
     let wants = |k: &str| kind == "all" || kind == k;
 
     let artists = if wants("artist") {
-        tracks_db::search_artists(&state.db, &q.q, limit).await?
+        tracks_db::search_artists(&state.db, &q.q, limit, min_listeners(&state)).await?
     } else {
         vec![]
     };
 
     let tracks = if wants("track") {
-        tracks_db::search_tracks(&state.db, &q.q, limit).await?
+        tracks_db::search_tracks(&state.db, &q.q, limit, min_listeners(&state)).await?
     } else {
         vec![]
     };
@@ -121,7 +127,7 @@ pub async fn search(
 
 pub fn _search_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Search catalog and users")
-        .description("Full-text search across artists, tracks and users. Use the `type` parameter to restrict results to `track`, `artist`, `user`, or `all` (default). Returns up to 30 results per type. Query must not be empty.")
+        .description(&format!("Full-text search across artists, tracks and users. Use the `type` parameter to restrict results to `track`, `artist`, `user`, or `all` (default). Returns up to 30 results per type. Query must not be empty. Users are public profiles only. Artists' and tracks' `scrobble_count` are as `GET /v1/artist/{{id}}` and `GET /v1/track/{{id}}` serve them. {COUNTS_RULE}"))
         .tag("Catalog")
         .response::<200, Json<SearchResponse>>()
         .response_with::<400, ErrorJson, _>(|r| r.description("Empty or overlong search query"))
@@ -146,15 +152,17 @@ pub async fn artist_top_tracks(
     tracks_db::find_artist_by_id(&state.db, id)
         .await?
         .ok_or(AppError::NotFound)?;
-    let tracks = tracks_db::artist_top_tracks(&state.db, id, section_limit(&q)).await?;
+    let tracks =
+        tracks_db::artist_top_tracks(&state.db, id, section_limit(&q), min_listeners(&state))
+            .await?;
     Ok(Json(tracks))
 }
 
 pub fn _artist_top_tracks_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Artist's top tracks")
-        .description(
-            "Returns the artist's most-scrobbled tracks across all users, ranked by play count.",
-        )
+        .description(&format!(
+            "Returns the artist's most-scrobbled tracks across all users, ranked by play count, leaving out tracks fewer than the minimum of listeners played (of the 200 most played). {COUNTS_RULE}"
+        ))
         .tag("Catalog")
         .response::<200, Json<Vec<TopTrack>>>()
         .response_with::<404, ErrorJson, _>(|r| r.description("Artist not found"))
@@ -307,6 +315,7 @@ mod tests {
                     .await
                     .unwrap();
 
+            // One listener: no catalog-wide count of theirs is served.
             let (_, top) = app
                 .api(
                     Method::GET,
@@ -314,9 +323,7 @@ mod tests {
                     None,
                 )
                 .await;
-            assert_eq!(top[0]["track_title"], "Hit");
-            assert_eq!(top[0]["play_count"], 2);
-            assert_eq!(top[1]["play_count"], 1);
+            assert_eq!(top, json!([]));
             let (_, listeners) = app
                 .api(
                     Method::GET,
@@ -337,6 +344,94 @@ mod tests {
                 )
                 .await;
             assert_eq!(listeners, json!([]));
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    #[ignore = "needs Postgres and Redis: just test-db"]
+    async fn catalog_counts_need_the_minimum_of_listeners() {
+        with_app(Default::default(), |app| async move {
+            let day = Utc::now() - TimeDelta::days(2);
+            let listen = async |user: &str, title: &str, plays: i64| {
+                let user_id: i64 = sqlx::query_scalar(
+                    "INSERT INTO users (username, email, password_hash) VALUES ($1, $1 || '@t', 'x')
+                     ON CONFLICT (username) DO UPDATE SET username = EXCLUDED.username RETURNING id",
+                )
+                .bind(user)
+                .fetch_one(&app.pool)
+                .await
+                .unwrap();
+                let artist = db::queries::tracks::find_or_create_artist(&app.pool, "Quiet Band")
+                    .await
+                    .unwrap();
+                let track = db::queries::tracks::find_or_create_track(
+                    &app.pool, artist.id, None, title, None,
+                )
+                .await
+                .unwrap();
+                for n in 0..plays {
+                    sqlx::query(
+                        "INSERT INTO scrobbles (user_id, track_id, artist_id, played_at, source)
+                         VALUES ($1, $2, $3, $4, 'test')",
+                    )
+                    .bind(user_id)
+                    .bind(track.id)
+                    .bind(artist.id)
+                    .bind(day + TimeDelta::minutes(n * 4))
+                    .execute(&app.pool)
+                    .await
+                    .unwrap();
+                }
+                db::queries::scrobbles::refresh_scrobble_aggregates(&app.pool, day, day + TimeDelta::days(1))
+                    .await
+                    .unwrap();
+                (track.id, artist.id)
+            };
+            // One fan plays the rare track a lot; three others the hit.
+            let (rare, artist) = listen("fan0", "Rare", 40).await;
+            let mut hit = 0;
+            for n in 1..=3 {
+                hit = listen(&format!("fan{n}"), "Hit", 2).await.0;
+            }
+            let count = async |path: String| app.get(&path).await.2;
+            let track = |id| format!("/v1/track/{id}");
+            let served = |body: String| serde_json::from_str::<serde_json::Value>(&body).unwrap();
+            assert_eq!(served(count(track(hit)).await)["scrobble_count"], json!(null));
+            assert_eq!(
+                served(count(format!("/v1/artist/{artist}")).await)["scrobble_count"],
+                json!(null),
+                "four listeners aren't enough"
+            );
+
+            // A fifth listener of the artist: its count is served, not yet
+            // the hit's (four).
+            listen("fan4", "Hit", 2).await;
+            assert_eq!(
+                served(count(format!("/v1/artist/{artist}")).await)["scrobble_count"],
+                48
+            );
+            assert_eq!(served(count(track(hit)).await)["scrobble_count"], json!(null));
+            assert_eq!(
+                served(count(format!("/v1/artist/{artist}/top-tracks")).await),
+                json!([])
+            );
+
+            listen("fan5", "Hit", 1).await;
+            assert_eq!(served(count(track(hit)).await)["scrobble_count"], 9);
+            let artist_body = served(count(format!("/v1/artist/{artist}")).await);
+            assert_eq!(artist_body["scrobble_count"], 49);
+            assert_eq!(artist_body["listener_count"], json!(null));
+            // The rare track's 40 plays are one person's: still not served.
+            assert_eq!(served(count(track(rare)).await)["scrobble_count"], json!(null));
+            let top = served(count(format!("/v1/artist/{artist}/top-tracks")).await);
+            assert_eq!(top.as_array().unwrap().len(), 1);
+            assert_eq!(top[0]["track_title"], "Hit");
+            assert_eq!(top[0]["play_count"], 9);
+            let search = served(count("/v1/search?type=track&q=Rare".into()).await);
+            assert_eq!(search["tracks"][0]["scrobble_count"], json!(null));
+            let search = served(count("/v1/search?type=artist&q=Quiet%20Band".into()).await);
+            assert_eq!(search["artists"][0]["scrobble_count"], 49);
         })
         .await;
     }

@@ -95,8 +95,7 @@ pub async fn find_or_create_artist(pool: &PgPool, name: &str) -> Result<Artist, 
             Artist,
             r#"
             WITH found AS (
-                SELECT id, name, name_normalized, mbid, image_url, bio,
-                       scrobble_count, listener_count, created_at
+                SELECT id, name, name_normalized, mbid, image_url, bio, created_at
                 FROM artists
                 WHERE name_normalized = $2
             ), inserted AS (
@@ -104,16 +103,14 @@ pub async fn find_or_create_artist(pool: &PgPool, name: &str) -> Result<Artist, 
                 SELECT $1, $2
                 WHERE NOT EXISTS (SELECT 1 FROM found)
                 ON CONFLICT (name_normalized) DO NOTHING
-                RETURNING id, name, name_normalized, mbid, image_url, bio,
-                          scrobble_count, listener_count, created_at
+                RETURNING id, name, name_normalized, mbid, image_url, bio, created_at
             )
             SELECT id AS "id!", name AS "name!", name_normalized AS "name_normalized!",
-                   mbid, image_url, bio, scrobble_count AS "scrobble_count!",
-                   listener_count AS "listener_count!", created_at AS "created_at!"
+                   mbid, image_url, bio, NULL::bigint AS "scrobble_count?",
+                   NULL::bigint AS "listener_count?", created_at AS "created_at!"
             FROM found
             UNION ALL
-            SELECT id, name, name_normalized, mbid, image_url, bio,
-                   scrobble_count, listener_count, created_at
+            SELECT id, name, name_normalized, mbid, image_url, bio, NULL, NULL, created_at
             FROM inserted
             "#,
             name.trim(),
@@ -128,12 +125,13 @@ pub async fn find_or_create_artist(pool: &PgPool, name: &str) -> Result<Artist, 
     Err(sqlx::Error::RowNotFound)
 }
 
+/// Without counts: for lookups, not responses.
 pub async fn find_artist_by_id(pool: &PgPool, id: i64) -> Result<Option<Artist>, sqlx::Error> {
     sqlx::query_as!(
         Artist,
         r#"
         SELECT id, name, name_normalized, mbid, image_url, bio,
-               scrobble_count, listener_count, created_at
+               NULL::bigint AS "scrobble_count?", NULL::bigint AS "listener_count?", created_at
         FROM artists
         WHERE id = $1
         "#,
@@ -143,7 +141,31 @@ pub async fn find_artist_by_id(pool: &PgPool, id: i64) -> Result<Option<Artist>,
     .await
 }
 
-/// Searches artists by fuzzy name match using pg_trgm similarity.
+/// Its play count only when at least `min_listeners` users played it.
+pub async fn public_artist(
+    pool: &PgPool,
+    id: i64,
+    min_listeners: i32,
+) -> Result<Option<Artist>, sqlx::Error> {
+    sqlx::query_as!(
+        Artist,
+        r#"
+        SELECT id, name, name_normalized, mbid, image_url, bio,
+               CASE WHEN artist_has_listeners(id, $2) THEN scrobble_count END
+                   AS "scrobble_count?",
+               NULL::bigint AS "listener_count?", created_at
+        FROM artists
+        WHERE id = $1
+        "#,
+        id,
+        min_listeners,
+    )
+    .fetch_optional(pool)
+    .await
+}
+
+/// Searches artists by fuzzy name match using pg_trgm similarity, counts
+/// as [`public_artist`] serves them.
 ///
 /// Results are ranked by trigram similarity first, then by global popularity
 /// (`scrobble_count`) as a tiebreaker. The `%` operator applies a minimum
@@ -152,19 +174,26 @@ pub async fn search_artists(
     pool: &PgPool,
     query: &str,
     limit: i64,
+    min_listeners: i32,
 ) -> Result<Vec<Artist>, sqlx::Error> {
     sqlx::query_as!(
         Artist,
         r#"
         SELECT id, name, name_normalized, mbid, image_url, bio,
-               scrobble_count, listener_count, created_at
-        FROM artists
-        WHERE name % $1
-        ORDER BY similarity(name, $1) DESC, scrobble_count DESC
-        LIMIT $2
+               CASE WHEN artist_has_listeners(id, $3) THEN scrobble_count END
+                   AS "scrobble_count?",
+               NULL::bigint AS "listener_count?", created_at
+        FROM (
+            SELECT * FROM artists
+            WHERE name % $1
+            ORDER BY similarity(name, $1) DESC, scrobble_count DESC
+            LIMIT $2
+        ) a
+        ORDER BY similarity(name, $1) DESC, a.scrobble_count DESC
         "#,
         query,
         limit,
+        min_listeners,
     )
     .fetch_all(pool)
     .await
@@ -224,7 +253,7 @@ pub async fn find_or_create_track(
             r#"
             WITH found AS (
                 SELECT id, artist_id, album_id, title, title_normalized, mbid,
-                       duration_ms, scrobble_count, created_at
+                       duration_ms, created_at
                 FROM tracks
                 WHERE artist_id = $1 AND title_normalized = $4
             ), inserted AS (
@@ -233,15 +262,15 @@ pub async fn find_or_create_track(
                 WHERE NOT EXISTS (SELECT 1 FROM found)
                 ON CONFLICT (artist_id, title_normalized) DO NOTHING
                 RETURNING id, artist_id, album_id, title, title_normalized, mbid,
-                          duration_ms, scrobble_count, created_at
+                          duration_ms, created_at
             )
             SELECT id AS "id!", artist_id AS "artist_id!", album_id, title AS "title!",
                    title_normalized AS "title_normalized!", mbid, duration_ms,
-                   scrobble_count AS "scrobble_count!", created_at AS "created_at!"
+                   NULL::bigint AS "scrobble_count?", created_at AS "created_at!"
             FROM found
             UNION ALL
             SELECT id, artist_id, album_id, title, title_normalized, mbid,
-                   duration_ms, scrobble_count, created_at
+                   duration_ms, NULL, created_at
             FROM inserted
             "#,
             artist_id,
@@ -271,7 +300,7 @@ pub async fn find_or_create_track(
             duration_ms = COALESCE(duration_ms, $3)
         WHERE id = $1
         RETURNING id, artist_id, album_id, title, title_normalized, mbid,
-                  duration_ms, scrobble_count, created_at
+                  duration_ms, NULL::bigint AS "scrobble_count?", created_at
         "#,
         track.id,
         album_id,
@@ -344,16 +373,40 @@ pub async fn find_album_by_id(pool: &PgPool, id: i64) -> Result<Option<Album>, s
     .await
 }
 
+/// Without its count: for lookups, not responses.
 pub async fn find_track_by_id(pool: &PgPool, id: i64) -> Result<Option<Track>, sqlx::Error> {
     sqlx::query_as!(
         Track,
         r#"
         SELECT id, artist_id, album_id, title, title_normalized, mbid,
-               duration_ms, scrobble_count, created_at
+               duration_ms, NULL::bigint AS "scrobble_count?", created_at
         FROM tracks
         WHERE id = $1
         "#,
         id,
+    )
+    .fetch_optional(pool)
+    .await
+}
+
+/// Its play count only when at least `min_listeners` users played it.
+pub async fn public_track(
+    pool: &PgPool,
+    id: i64,
+    min_listeners: i32,
+) -> Result<Option<Track>, sqlx::Error> {
+    sqlx::query_as!(
+        Track,
+        r#"
+        SELECT id, artist_id, album_id, title, title_normalized, mbid, duration_ms,
+               CASE WHEN track_has_listeners(id, $2) THEN scrobble_count END
+                   AS "scrobble_count?",
+               created_at
+        FROM tracks
+        WHERE id = $1
+        "#,
+        id,
+        min_listeners,
     )
     .fetch_optional(pool)
     .await
@@ -364,30 +417,41 @@ pub async fn search_tracks(
     pool: &PgPool,
     query: &str,
     limit: i64,
+    min_listeners: i32,
 ) -> Result<Vec<Track>, sqlx::Error> {
     sqlx::query_as!(
         Track,
         r#"
-        SELECT id, artist_id, album_id, title, title_normalized, mbid,
-               duration_ms, scrobble_count, created_at
-        FROM tracks
-        WHERE title % $1
-        ORDER BY similarity(title, $1) DESC, scrobble_count DESC
-        LIMIT $2
+        SELECT id, artist_id, album_id, title, title_normalized, mbid, duration_ms,
+               CASE WHEN track_has_listeners(id, $3) THEN scrobble_count END
+                   AS "scrobble_count?",
+               created_at
+        FROM (
+            SELECT * FROM tracks
+            WHERE title % $1
+            ORDER BY similarity(title, $1) DESC, scrobble_count DESC
+            LIMIT $2
+        ) t
+        ORDER BY similarity(title, $1) DESC, t.scrobble_count DESC
         "#,
         query,
         limit,
+        min_listeners,
     )
     .fetch_all(pool)
     .await
 }
 
+const TOP_TRACK_CANDIDATES: i64 = 200;
+
 /// The artist's most-scrobbled tracks across all users, from the daily
-/// aggregate (migration 0015 indexes it by artist).
+/// aggregate, among its [`TOP_TRACK_CANDIDATES`] most played, leaving out
+/// tracks fewer than `min_listeners` users played.
 pub async fn artist_top_tracks(
     pool: &PgPool,
     artist_id: i64,
     limit: i64,
+    min_listeners: i32,
 ) -> Result<Vec<TopTrack>, sqlx::Error> {
     sqlx::query_as!(
         TopTrack,
@@ -400,11 +464,17 @@ pub async fn artist_top_tracks(
                s.play_count    AS "play_count!",
                NULL::BIGINT    AS "unverified_count?"
         FROM (
-            SELECT track_id, SUM(play_count)::BIGINT AS play_count
-            FROM scrobbles_daily_by_track
-            WHERE artist_id = $1
-            GROUP BY track_id
-            ORDER BY play_count DESC, track_id
+            SELECT c.track_id, c.play_count
+            FROM (
+                SELECT track_id, SUM(play_count)::BIGINT AS play_count
+                FROM scrobbles_daily_by_track
+                WHERE artist_id = $1
+                GROUP BY track_id
+                ORDER BY play_count DESC, track_id
+                LIMIT $4
+            ) c
+            WHERE track_has_listeners(c.track_id, $3)
+            ORDER BY c.play_count DESC, c.track_id
             LIMIT $2
         ) s
         JOIN tracks t       ON t.id = s.track_id
@@ -414,6 +484,8 @@ pub async fn artist_top_tracks(
         "#,
         artist_id,
         limit,
+        min_listeners,
+        TOP_TRACK_CANDIDATES,
     )
     .fetch_all(pool)
     .await

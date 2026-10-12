@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT id, name, name_normalized, mbid, image_url, bio,\n               scrobble_count, listener_count, created_at\n        FROM artists\n        WHERE name % $1\n        ORDER BY similarity(name, $1) DESC, scrobble_count DESC\n        LIMIT $2\n        ",
+  "query": "\n        SELECT id, name, name_normalized, mbid, image_url, bio,\n               NULL::bigint AS \"scrobble_count?\", NULL::bigint AS \"listener_count?\", created_at\n        FROM artists\n        WHERE id = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -35,12 +35,12 @@
       },
       {
         "ordinal": 6,
-        "name": "scrobble_count",
+        "name": "scrobble_count?",
         "type_info": "Int8"
       },
       {
         "ordinal": 7,
-        "name": "listener_count",
+        "name": "listener_count?",
         "type_info": "Int8"
       },
       {
@@ -51,7 +51,6 @@
     ],
     "parameters": {
       "Left": [
-        "Text",
         "Int8"
       ]
     },
@@ -62,10 +61,10 @@
       true,
       true,
       true,
-      false,
-      false,
+      null,
+      null,
       false
     ]
   },
-  "hash": "2c48d5a94d1c918e6d404ca536b1f9e8a3783515a880c708c88afea506f29470"
+  "hash": "71c0a6701dee2ddfce209cad4baa83ce2900ad9c116f20617dfb1215d97df2b1"
 }

@@ -95,8 +95,12 @@
             ]
           },
           "listener_count": {
+            "description": "Never computed: always `null`.",
             "format": "int64",
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "mbid": {
             "format": "uuid",
@@ -112,16 +116,18 @@
             "type": "string"
           },
           "scrobble_count": {
+            "description": "`null` unless at least `RANKING_MIN_LISTENERS` (5) users played it.",
             "format": "int64",
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
           }
         },
         "required": [
           "id",
           "name",
           "name_normalized",
-          "scrobble_count",
-          "listener_count",
           "created_at"
         ],
         "type": "object"
@@ -1708,8 +1714,12 @@
             ]
           },
           "scrobble_count": {
+            "description": "`null` unless at least `RANKING_MIN_LISTENERS` (5) users played it.",
             "format": "int64",
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "title": {
             "type": "string"
@@ -1723,7 +1733,6 @@
           "artist_id",
           "title",
           "title_normalized",
-          "scrobble_count",
           "created_at"
         ],
         "type": "object"
@@ -1868,8 +1877,12 @@
             ]
           },
           "scrobble_count": {
+            "description": "`null` unless at least `RANKING_MIN_LISTENERS` (5) users played it.",
             "format": "int64",
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "title": {
             "type": "string"
@@ -1883,7 +1896,6 @@
           "artist_id",
           "title",
           "title_normalized",
-          "scrobble_count",
           "created_at",
           "artists"
         ],
@@ -3454,7 +3466,7 @@
     },
     "/v1/artist/{id}": {
       "get": {
-        "description": "Returns catalog metadata for a single artist by its internal ID.",
+        "description": "Returns catalog metadata for a single artist by its internal ID. `scrobble_count` is `null` for an artist fewer than the minimum of listeners played; `listener_count` is always `null` (it was never kept). Catalog-wide counts include every user's plays, private profiles' too, so they are served only for entities at least `RANKING_MIN_LISTENERS` (5 by default) distinct users have played, counted from the daily aggregates (a new listener counts from their next refresh, within the hour; today's plays from tomorrow): a count is never one or two people's listening.",
         "parameters": [
           {
             "in": "path",
@@ -4058,7 +4070,7 @@
     },
     "/v1/artist/{id}/top-tracks": {
       "get": {
-        "description": "Returns the artist's most-scrobbled tracks across all users, ranked by play count.",
+        "description": "Returns the artist's most-scrobbled tracks across all users, ranked by play count, leaving out tracks fewer than the minimum of listeners played (of the 200 most played). Catalog-wide counts include every user's plays, private profiles' too, so they are served only for entities at least `RANKING_MIN_LISTENERS` (5 by default) distinct users have played, counted from the daily aggregates (a new listener counts from their next refresh, within the hour; today's plays from tomorrow): a count is never one or two people's listening.",
         "parameters": [
           {
             "in": "path",
@@ -6592,7 +6604,7 @@
     },
     "/v1/search": {
       "get": {
-        "description": "Full-text search across artists, tracks and users. Use the `type` parameter to restrict results to `track`, `artist`, `user`, or `all` (default). Returns up to 30 results per type. Query must not be empty.",
+        "description": "Full-text search across artists, tracks and users. Use the `type` parameter to restrict results to `track`, `artist`, `user`, or `all` (default). Returns up to 30 results per type. Query must not be empty. Users are public profiles only. Artists' and tracks' `scrobble_count` are as `GET /v1/artist/{id}` and `GET /v1/track/{id}` serve them. Catalog-wide counts include every user's plays, private profiles' too, so they are served only for entities at least `RANKING_MIN_LISTENERS` (5 by default) distinct users have played, counted from the daily aggregates (a new listener counts from their next refresh, within the hour; today's plays from tomorrow): a count is never one or two people's listening.",
         "parameters": [
           {
             "in": "query",
@@ -6677,7 +6689,7 @@
     },
     "/v1/track/{id}": {
       "get": {
-        "description": "Returns catalog metadata for a single track by its internal ID, including title, album, duration and the full artist credit list (primary artist first, then featured collaborators in billing order).",
+        "description": "Returns catalog metadata for a single track by its internal ID, including title, album, duration and the full artist credit list (primary artist first, then featured collaborators in billing order). `scrobble_count` is `null` for a track fewer than the minimum of listeners played. Catalog-wide counts include every user's plays, private profiles' too, so they are served only for entities at least `RANKING_MIN_LISTENERS` (5 by default) distinct users have played, counted from the daily aggregates (a new listener counts from their next refresh, within the hour; today's plays from tomorrow): a count is never one or two people's listening.",
         "parameters": [
           {
             "in": "path",

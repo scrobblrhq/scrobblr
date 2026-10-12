@@ -3,4 +3,12 @@
 /**
  * Artist
  */
-export type Artist = { id: number, name: string, name_normalized: string, mbid: string | null, image_url: string | null, bio: string | null, scrobble_count: number, listener_count: number, created_at: string, };
+export type Artist = { id: number, name: string, name_normalized: string, mbid: string | null, image_url: string | null, bio: string | null, 
+/**
+ * `null` unless at least `RANKING_MIN_LISTENERS` (5) users played it.
+ */
+scrobble_count: number | null, 
+/**
+ * Never computed: always `null`.
+ */
+listener_count: number | null, created_at: string, };

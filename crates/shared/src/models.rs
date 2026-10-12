@@ -97,8 +97,10 @@ pub struct Artist {
     #[serde(serialize_with = "crate::media::serialize_opt_url")]
     pub image_url: Option<String>,
     pub bio: Option<String>,
-    pub scrobble_count: i64,
-    pub listener_count: i64,
+    /// `null` unless at least `RANKING_MIN_LISTENERS` (5) users played it.
+    pub scrobble_count: Option<i64>,
+    /// Never computed: always `null`.
+    pub listener_count: Option<i64>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -129,7 +131,8 @@ pub struct Track {
     pub title_normalized: String,
     pub mbid: Option<Uuid>,
     pub duration_ms: Option<i32>,
-    pub scrobble_count: i64,
+    /// `null` unless at least `RANKING_MIN_LISTENERS` (5) users played it.
+    pub scrobble_count: Option<i64>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -678,8 +681,8 @@ mod tests {
                 mbid: None,
                 image_url: image(),
                 bio: None,
-                scrobble_count: 0,
-                listener_count: 0,
+                scrobble_count: None,
+                listener_count: None,
                 created_at: now,
             })
             .unwrap(),
