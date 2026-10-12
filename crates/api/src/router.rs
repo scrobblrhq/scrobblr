@@ -35,7 +35,7 @@ use crate::{
     compat,
     errors::ErrorJson,
     handlers::{
-        account, auth, community, connected_accounts, imports, rankings, scrobbles, tracks,
+        account, auth, charts, community, connected_accounts, imports, rankings, scrobbles, tracks,
         uploads, users,
     },
     limits,
@@ -480,6 +480,18 @@ pub fn build(state: AppState) -> Router {
         .api_route(
             "/v1/user/{username}/top-tracks",
             get_with(scrobbles::top_tracks, scrobbles::_top_tracks_doc),
+        )
+        .api_route(
+            "/v1/user/{username}/charts/artists",
+            get_with(charts::user_artists, charts::_user_artists_doc),
+        )
+        .api_route(
+            "/v1/user/{username}/charts/tracks",
+            get_with(charts::user_tracks, charts::_user_tracks_doc),
+        )
+        .api_route(
+            "/v1/user/{username}/charts/albums",
+            get_with(charts::user_albums, charts::_user_albums_doc),
         )
         .api_route(
             "/v1/user/{username}/heatmap",

@@ -3,9 +3,12 @@
 
 export * from "./ActivityDay.js";
 export * from "./Album.js";
+export * from "./AlbumChart.js";
 export * from "./ApiToken.js";
 export * from "./Artist.js";
+export * from "./ArtistChart.js";
 export * from "./ArtistRanking.js";
+export * from "./ChartPeriod.js";
 export * from "./Comment.js";
 export * from "./ConnectedAccountSummary.js";
 export * from "./CreatedScrobblerToken.js";
@@ -26,11 +29,13 @@ export * from "./ScrobblerAuthorization.js";
 export * from "./ScrobblerAuthorizationRedirect.js";
 export * from "./ScrobblerCredential.js";
 export * from "./ScrobbleRich.js";
+export * from "./TopAlbum.js";
 export * from "./TopArtist.js";
 export * from "./TopListener.js";
 export * from "./TopTrack.js";
 export * from "./Track.js";
 export * from "./TrackArtistRole.js";
+export * from "./TrackChart.js";
 export * from "./TrackCredit.js";
 export * from "./TrackRanking.js";
 export * from "./TrackWithCredits.js";

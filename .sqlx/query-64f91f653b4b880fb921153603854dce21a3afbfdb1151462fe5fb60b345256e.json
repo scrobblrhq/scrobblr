@@ -1,0 +1,70 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH flagged AS (\n            SELECT track_id,\n                   count(*) FILTER (WHERE status = 'duplicate') AS duplicates,\n                   count(*) FILTER (WHERE status IN ('suspect', 'no_data')) AS unverified\n            FROM scrobble_flags\n            WHERE user_id = $1 AND ($2::date IS NULL OR day >= $2) AND day <= $3\n            GROUP BY track_id\n        ), plays AS (\n            SELECT track_id, sum(play_count)::bigint AS play_count\n            FROM scrobbles_daily_by_track\n            WHERE user_id = $1 AND ($4::timestamptz IS NULL OR day >= $4) AND day < $5\n            GROUP BY track_id\n        ), counted AS (\n            SELECT p.track_id, p.play_count - COALESCE(fl.duplicates, 0) AS play_count,\n                   COALESCE(fl.unverified, 0) AS unverified\n            FROM plays p\n            LEFT JOIN flagged fl USING (track_id)\n            WHERE p.play_count > COALESCE(fl.duplicates, 0)\n        )\n        SELECT c.total AS \"total!\", e.track_id AS \"track_id?\", e.title AS \"title?\",\n               e.artist_id AS \"artist_id?\", e.artist_name AS \"artist_name?\",\n               e.album_image AS \"album_image?\", e.play_count AS \"play_count?\",\n               e.unverified AS \"unverified?\"\n        FROM (SELECT count(*) AS total FROM counted) c\n        LEFT JOIN LATERAL (\n            SELECT k.track_id, t.title, t.artist_id, a.name AS artist_name,\n                   al.image_url AS album_image, k.play_count::bigint, k.unverified::bigint\n            FROM counted k\n            JOIN tracks t       ON t.id = k.track_id\n            JOIN artists a      ON a.id = t.artist_id\n            LEFT JOIN albums al ON al.id = t.album_id\n            ORDER BY k.play_count DESC, k.track_id\n            LIMIT $6 OFFSET $7\n        ) e ON true\n        ORDER BY e.play_count DESC, e.track_id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "total!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "track_id?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "title?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "artist_id?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "artist_name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "album_image?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "play_count?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "unverified?",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Date",
+        "Date",
+        "Timestamptz",
+        "Timestamptz",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      true,
+      false,
+      false,
+      false,
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "64f91f653b4b880fb921153603854dce21a3afbfdb1151462fe5fb60b345256e"
+}

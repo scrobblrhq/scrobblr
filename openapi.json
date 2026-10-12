@@ -82,6 +82,62 @@
         ],
         "type": "object"
       },
+      "AlbumChart": {
+        "description": "A page of a user's top albums.",
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/TopAlbum"
+            },
+            "type": "array"
+          },
+          "from": {
+            "description": "The first UTC day covered; `null` for `all`.",
+            "format": "date",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "offset": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "period": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChartPeriod"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The period asked for; `null` for a custom range."
+          },
+          "to": {
+            "description": "The last UTC day covered, included: today for a period.",
+            "format": "date",
+            "type": "string"
+          },
+          "total": {
+            "description": "Entries the chart has; a page past them is empty.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "to",
+          "total",
+          "offset",
+          "limit",
+          "entries"
+        ],
+        "type": "object"
+      },
       "ApiToken": {
         "properties": {
           "created_at": {
@@ -192,6 +248,62 @@
           "name",
           "name_normalized",
           "created_at"
+        ],
+        "type": "object"
+      },
+      "ArtistChart": {
+        "description": "A page of a user's top artists.",
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/TopArtist"
+            },
+            "type": "array"
+          },
+          "from": {
+            "description": "The first UTC day covered; `null` for `all`.",
+            "format": "date",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "offset": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "period": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChartPeriod"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The period asked for; `null` for a custom range."
+          },
+          "to": {
+            "description": "The last UTC day covered, included: today for a period.",
+            "format": "date",
+            "type": "string"
+          },
+          "total": {
+            "description": "Entries the chart has; a page past them is empty.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "to",
+          "total",
+          "offset",
+          "limit",
+          "entries"
         ],
         "type": "object"
       },
@@ -310,6 +422,73 @@
         "required": [
           "authorize_url"
         ],
+        "type": "object"
+      },
+      "ChartPeriod": {
+        "description": "A rolling window of UTC days ending today, today included, or all of\n history.",
+        "oneOf": [
+          {
+            "enum": [
+              "7d",
+              "30d",
+              "90d",
+              "all"
+            ],
+            "type": "string"
+          },
+          {
+            "const": "12m",
+            "description": "365 days.",
+            "type": "string"
+          }
+        ]
+      },
+      "ChartQuery": {
+        "properties": {
+          "from": {
+            "description": "The first UTC day of a custom range (`YYYY-MM-DD`), with `to`.",
+            "format": "date",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "description": "Entries per page: 50 by default, 200 at most.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "offset": {
+            "description": "Entries to skip, 0 by default: `offset=50` starts at the 51st.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "period": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChartPeriod"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`7d` (the default), `30d`, `90d`, `12m` (365 days) or `all`: UTC days\n ending today, today included. Not with `from` and `to`."
+          },
+          "to": {
+            "description": "The last UTC day of a custom range, included, with `from`: not after\n today, and 366 days at most from `from`.",
+            "format": "date",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
         "type": "object"
       },
       "Comment": {
@@ -1816,6 +1995,49 @@
         ],
         "type": "object"
       },
+      "TopAlbum": {
+        "properties": {
+          "album_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "album_title": {
+            "type": "string"
+          },
+          "artist_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "artist_name": {
+            "type": "string"
+          },
+          "image_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "play_count": {
+            "description": "Plays of its tracks in the period, duplicates left out.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "unverified_count": {
+            "description": "As for [`TopArtist`].",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "album_id",
+          "album_title",
+          "artist_id",
+          "artist_name",
+          "play_count",
+          "unverified_count"
+        ],
+        "type": "object"
+      },
       "TopArtist": {
         "properties": {
           "artist_id": {
@@ -1995,6 +2217,62 @@
           "featured"
         ],
         "type": "string"
+      },
+      "TrackChart": {
+        "description": "A page of a user's top tracks.",
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/TopTrack"
+            },
+            "type": "array"
+          },
+          "from": {
+            "description": "The first UTC day covered; `null` for `all`.",
+            "format": "date",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "offset": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "period": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChartPeriod"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The period asked for; `null` for a custom range."
+          },
+          "to": {
+            "description": "The last UTC day covered, included: today for a period.",
+            "format": "date",
+            "type": "string"
+          },
+          "total": {
+            "description": "Entries the chart has; a page past them is empty.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "to",
+          "total",
+          "offset",
+          "limit",
+          "entries"
+        ],
+        "type": "object"
       },
       "TrackCredit": {
         "description": "One artist credited on a track. The `primary` credit always mirrors\n `tracks.artist_id`; everything else is a featured collaborator.",
@@ -7898,6 +8176,633 @@
         "summary": "Get user profile",
         "tags": [
           "Users"
+        ]
+      }
+    },
+    "/v1/user/{username}/charts/albums": {
+      "get": {
+        "description": "The albums a user played most over a period (`7d` by default, `30d`, `90d`, `12m` or `all`: UTC days ending today, today included) or a custom range of UTC days (`from` and `to`, both included, 366 days at most, not after today), most played first, ties by id. Plays are the profile's: suspect ones included and counted in `unverified_count` with those of tracks without a known length, duplicates (the same listen reported again) left out; today's count as they arrive, and a play counts as a play until it is classified. An album's plays are its tracks' (each track belongs to the album the catalog files it under).\n\nPaged by `limit` (50 by default, 200 at most) and `offset`; `total` is how many albums the chart has, and a page past them is empty. Pages carry a weak `ETag` and `Cache-Control: private, max-age=60`: send the tag back in `If-None-Match` for a 304 while the chart hasn't changed. Private profiles return 403 to everyone but their owner.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "username",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "The first UTC day of a custom range (`YYYY-MM-DD`), with `to`.",
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "description": "The first UTC day of a custom range (`YYYY-MM-DD`), with `to`.",
+              "format": "date",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "Entries per page: 50 by default, 200 at most.",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Entries per page: 50 by default, 200 at most.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "Entries to skip, 0 by default: `offset=50` starts at the 51st.",
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "description": "Entries to skip, 0 by default: `offset=50` starts at the 51st.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "`7d` (the default), `30d`, `90d`, `12m` (365 days) or `all`: UTC days\n ending today, today included. Not with `from` and `to`.",
+            "in": "query",
+            "name": "period",
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ChartPeriod"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`7d` (the default), `30d`, `90d`, `12m` (365 days) or `all`: UTC days\n ending today, today included. Not with `from` and `to`."
+            },
+            "style": "form"
+          },
+          {
+            "description": "The last UTC day of a custom range, included, with `from`: not after\n today, and 366 days at most from `from`.",
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "description": "The last UTC day of a custom range, included, with `from`: not after\n today, and 366 days at most from `from`.",
+              "format": "date",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "The `ETag` of a page fetched before: 304 if the chart hasn't changed since",
+            "in": "header",
+            "name": "If-None-Match",
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlbumChart"
+                }
+              }
+            },
+            "description": "A page of the chart",
+            "headers": {
+              "Cache-Control": {
+                "description": "`private, max-age=60`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              },
+              "ETag": {
+                "description": "The chart's version, for `If-None-Match`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified since the `ETag` in `If-None-Match`",
+            "headers": {
+              "Cache-Control": {
+                "description": "`private, max-age=60`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              },
+              "ETag": {
+                "description": "The chart's version, for `If-None-Match`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown period, a period with a range, an invalid or too long range, or a negative offset"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Profile is private"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "User not found"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "User's album chart",
+        "tags": [
+          "Charts"
+        ]
+      }
+    },
+    "/v1/user/{username}/charts/artists": {
+      "get": {
+        "description": "The artists a user played most over a period (`7d` by default, `30d`, `90d`, `12m` or `all`: UTC days ending today, today included) or a custom range of UTC days (`from` and `to`, both included, 366 days at most, not after today), most played first, ties by id. Plays are the profile's: suspect ones included and counted in `unverified_count` with those of tracks without a known length, duplicates (the same listen reported again) left out; today's count as they arrive, and a play counts as a play until it is classified. An album's plays are its tracks' (each track belongs to the album the catalog files it under).\n\nPaged by `limit` (50 by default, 200 at most) and `offset`; `total` is how many artists the chart has, and a page past them is empty. Pages carry a weak `ETag` and `Cache-Control: private, max-age=60`: send the tag back in `If-None-Match` for a 304 while the chart hasn't changed. Private profiles return 403 to everyone but their owner.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "username",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "The first UTC day of a custom range (`YYYY-MM-DD`), with `to`.",
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "description": "The first UTC day of a custom range (`YYYY-MM-DD`), with `to`.",
+              "format": "date",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "Entries per page: 50 by default, 200 at most.",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Entries per page: 50 by default, 200 at most.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "Entries to skip, 0 by default: `offset=50` starts at the 51st.",
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "description": "Entries to skip, 0 by default: `offset=50` starts at the 51st.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "`7d` (the default), `30d`, `90d`, `12m` (365 days) or `all`: UTC days\n ending today, today included. Not with `from` and `to`.",
+            "in": "query",
+            "name": "period",
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ChartPeriod"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`7d` (the default), `30d`, `90d`, `12m` (365 days) or `all`: UTC days\n ending today, today included. Not with `from` and `to`."
+            },
+            "style": "form"
+          },
+          {
+            "description": "The last UTC day of a custom range, included, with `from`: not after\n today, and 366 days at most from `from`.",
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "description": "The last UTC day of a custom range, included, with `from`: not after\n today, and 366 days at most from `from`.",
+              "format": "date",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "The `ETag` of a page fetched before: 304 if the chart hasn't changed since",
+            "in": "header",
+            "name": "If-None-Match",
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtistChart"
+                }
+              }
+            },
+            "description": "A page of the chart",
+            "headers": {
+              "Cache-Control": {
+                "description": "`private, max-age=60`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              },
+              "ETag": {
+                "description": "The chart's version, for `If-None-Match`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified since the `ETag` in `If-None-Match`",
+            "headers": {
+              "Cache-Control": {
+                "description": "`private, max-age=60`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              },
+              "ETag": {
+                "description": "The chart's version, for `If-None-Match`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown period, a period with a range, an invalid or too long range, or a negative offset"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Profile is private"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "User not found"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "User's artist chart",
+        "tags": [
+          "Charts"
+        ]
+      }
+    },
+    "/v1/user/{username}/charts/tracks": {
+      "get": {
+        "description": "The tracks a user played most over a period (`7d` by default, `30d`, `90d`, `12m` or `all`: UTC days ending today, today included) or a custom range of UTC days (`from` and `to`, both included, 366 days at most, not after today), most played first, ties by id. Plays are the profile's: suspect ones included and counted in `unverified_count` with those of tracks without a known length, duplicates (the same listen reported again) left out; today's count as they arrive, and a play counts as a play until it is classified. An album's plays are its tracks' (each track belongs to the album the catalog files it under).\n\nPaged by `limit` (50 by default, 200 at most) and `offset`; `total` is how many tracks the chart has, and a page past them is empty. Pages carry a weak `ETag` and `Cache-Control: private, max-age=60`: send the tag back in `If-None-Match` for a 304 while the chart hasn't changed. Private profiles return 403 to everyone but their owner.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "username",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "The first UTC day of a custom range (`YYYY-MM-DD`), with `to`.",
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "description": "The first UTC day of a custom range (`YYYY-MM-DD`), with `to`.",
+              "format": "date",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "Entries per page: 50 by default, 200 at most.",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Entries per page: 50 by default, 200 at most.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "Entries to skip, 0 by default: `offset=50` starts at the 51st.",
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "description": "Entries to skip, 0 by default: `offset=50` starts at the 51st.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "`7d` (the default), `30d`, `90d`, `12m` (365 days) or `all`: UTC days\n ending today, today included. Not with `from` and `to`.",
+            "in": "query",
+            "name": "period",
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ChartPeriod"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`7d` (the default), `30d`, `90d`, `12m` (365 days) or `all`: UTC days\n ending today, today included. Not with `from` and `to`."
+            },
+            "style": "form"
+          },
+          {
+            "description": "The last UTC day of a custom range, included, with `from`: not after\n today, and 366 days at most from `from`.",
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "description": "The last UTC day of a custom range, included, with `from`: not after\n today, and 366 days at most from `from`.",
+              "format": "date",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "The `ETag` of a page fetched before: 304 if the chart hasn't changed since",
+            "in": "header",
+            "name": "If-None-Match",
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackChart"
+                }
+              }
+            },
+            "description": "A page of the chart",
+            "headers": {
+              "Cache-Control": {
+                "description": "`private, max-age=60`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              },
+              "ETag": {
+                "description": "The chart's version, for `If-None-Match`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified since the `ETag` in `If-None-Match`",
+            "headers": {
+              "Cache-Control": {
+                "description": "`private, max-age=60`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              },
+              "ETag": {
+                "description": "The chart's version, for `If-None-Match`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown period, a period with a range, an invalid or too long range, or a negative offset"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Profile is private"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "User not found"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "User's track chart",
+        "tags": [
+          "Charts"
         ]
       }
     },

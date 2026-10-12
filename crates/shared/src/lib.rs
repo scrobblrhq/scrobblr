@@ -1,3 +1,4 @@
+pub mod charts;
 pub mod classification;
 pub mod coordination;
 pub mod crypto;

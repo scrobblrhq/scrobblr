@@ -130,6 +130,9 @@ const PUBLIC: &[(&str, &str)] = &[
     ("GET", "/v1/user/{username}/live"),
     ("GET", "/v1/user/{username}/top-artists"),
     ("GET", "/v1/user/{username}/top-tracks"),
+    ("GET", "/v1/user/{username}/charts/artists"),
+    ("GET", "/v1/user/{username}/charts/tracks"),
+    ("GET", "/v1/user/{username}/charts/albums"),
     ("GET", "/v1/user/{username}/heatmap"),
 ];
 

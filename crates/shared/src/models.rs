@@ -338,6 +338,66 @@ pub struct TopTrack {
     pub unverified_count: Option<i64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct TopAlbum {
+    pub album_id: i64,
+    pub album_title: String,
+    pub artist_id: i64,
+    pub artist_name: String,
+    #[serde(serialize_with = "crate::media::serialize_opt_url")]
+    pub image_url: Option<String>,
+    /// Plays of its tracks in the period, duplicates left out.
+    pub play_count: i64,
+    /// As for [`TopArtist`].
+    pub unverified_count: i64,
+}
+
+/// What a page of a user's chart covers.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+pub struct ChartInfo {
+    /// The period asked for; `null` for a custom range.
+    pub period: Option<crate::charts::ChartPeriod>,
+    /// The first UTC day covered; `null` for `all`.
+    pub from: Option<NaiveDate>,
+    /// The last UTC day covered, included: today for a period.
+    pub to: NaiveDate,
+    /// Entries the chart has; a page past them is empty.
+    pub total: i64,
+    pub offset: i64,
+    pub limit: i64,
+}
+
+/// A page of a user's top artists.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct ArtistChart {
+    #[serde(flatten)]
+    #[ts(flatten)]
+    pub info: ChartInfo,
+    pub entries: Vec<TopArtist>,
+}
+
+/// A page of a user's top tracks.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct TrackChart {
+    #[serde(flatten)]
+    #[ts(flatten)]
+    pub info: ChartInfo,
+    pub entries: Vec<TopTrack>,
+}
+
+/// A page of a user's top albums.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct AlbumChart {
+    #[serde(flatten)]
+    #[ts(flatten)]
+    pub info: ChartInfo,
+    pub entries: Vec<TopAlbum>,
+}
+
 /// A user who listens to a given artist or track, with their play count.
 /// Only public profiles are ever returned.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
@@ -773,6 +833,16 @@ mod tests {
                 album_image: image(),
                 play_count: 1,
                 unverified_count: None,
+            })
+            .unwrap(),
+            serde_json::to_value(TopAlbum {
+                album_id: 1,
+                album_title: "a".into(),
+                artist_id: 1,
+                artist_name: "a".into(),
+                image_url: image(),
+                play_count: 1,
+                unverified_count: 0,
             })
             .unwrap(),
             serde_json::to_value(RankedArtist {
