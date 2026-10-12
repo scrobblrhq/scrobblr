@@ -192,6 +192,10 @@
       },
       "AuthResponse": {
         "properties": {
+          "account_restored": {
+            "description": "This login cancelled the account's deletion; its API tokens,\n scrobbler credentials and linked accounts must be made again.",
+            "type": "boolean"
+          },
           "expires_at": {
             "description": "When the session ends: 30 days after login, however much it's used.",
             "format": "date-time",
@@ -213,7 +217,8 @@
           "token",
           "user_id",
           "username",
-          "expires_at"
+          "expires_at",
+          "account_restored"
         ],
         "type": "object"
       },
@@ -469,6 +474,23 @@
         ],
         "type": "object"
       },
+      "DeleteAccountRequest": {
+        "properties": {
+          "confirm": {
+            "description": "The account's username, typed out to confirm (case doesn't matter).",
+            "type": "string"
+          },
+          "password": {
+            "description": "The account's password, checked again.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "password",
+          "confirm"
+        ],
+        "type": "object"
+      },
       "DeletedResponse": {
         "properties": {
           "deleted": {
@@ -477,6 +499,19 @@
         },
         "required": [
           "deleted"
+        ],
+        "type": "object"
+      },
+      "DeletionScheduled": {
+        "properties": {
+          "delete_after": {
+            "description": "When the worker erases the account. Logging in with the password\n before then restores it.",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "delete_after"
         ],
         "type": "object"
       },
@@ -3904,7 +3939,7 @@
     },
     "/v1/artist/{id}/listeners": {
       "get": {
-        "description": "Returns the users who scrobble this artist the most (public profiles only), ranked by play count.",
+        "description": "Returns the users who scrobble this artist the most (public profiles only, never accounts waiting to be deleted), ranked by play count: what their public profiles already show.",
         "parameters": [
           {
             "in": "path",
@@ -4148,7 +4183,7 @@
     },
     "/v1/auth/login": {
       "post": {
-        "description": "Authenticates a user with username and password. Returns a session token to be used as `Bearer` in the `Authorization` header. Attempts are limited per address, and per address and username, together with the scrobbler APIs' password logins; a success resets that address's count for the username. Failed attempts from elsewhere never block a username.",
+        "description": "Authenticates a user with username and password. Returns a session token to be used as `Bearer` in the `Authorization` header. Attempts are limited per address, and per address and username, together with the scrobbler APIs' password logins; a success resets that address's count for the username. Failed attempts from elsewhere never block a username. Logging in to an account whose deletion was asked for restores it (`account_restored`), until the worker has begun erasing it.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -6924,7 +6959,7 @@
     },
     "/v1/track/{id}/listeners": {
       "get": {
-        "description": "Returns the users who scrobble this track the most (public profiles only), ranked by play count.",
+        "description": "Returns the users who scrobble this track the most (public profiles only, never accounts waiting to be deleted), ranked by play count: what their public profiles already show.",
         "parameters": [
           {
             "in": "path",
@@ -7342,6 +7377,92 @@
         "summary": "Upload avatar",
         "tags": [
           "Users"
+        ]
+      }
+    },
+    "/v1/user/me/delete": {
+      "post": {
+        "description": "Deletes the authenticated user's account, given its password and its username typed out as `confirm`. At once: every session (this one included), API token, scrobbler credential and authorization, and linked account (with its stored OAuth tokens) is revoked, imports in progress stop, and the account disappears from profiles, search, listener lists, comments and follower lists. Its history stays for a grace period (`ACCOUNT_DELETION_GRACE_DAYS`, 7 days by default) during which logging in with the password restores it (credentials and links have to be made again); after it the worker erases everything about the account, its plays from catalog counts and rankings included. Takes a session, never an API token. At most 5 attempts an hour per account and 10 per address.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteAccountRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletionScheduled"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "`confirm` isn't the account's username"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No credential, or an invalid or expired one"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Needs a session: API tokens can't do this"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over 5 attempts this hour for this account or 10 from this address, or over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete my account",
+        "tags": [
+          "Account"
         ]
       }
     },

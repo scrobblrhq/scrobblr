@@ -1,3 +1,4 @@
+pub mod accounts;
 pub mod auth;
 pub mod classification;
 pub mod community;

@@ -183,7 +183,7 @@ pub async fn artist_listeners(
 
 pub fn _artist_listeners_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Artist's top listeners")
-        .description("Returns the users who scrobble this artist the most (public profiles only), ranked by play count.")
+        .description("Returns the users who scrobble this artist the most (public profiles only, never accounts waiting to be deleted), ranked by play count: what their public profiles already show.")
         .tag("Catalog")
         .response::<200, Json<Vec<TopListener>>>()
         .response_with::<404, ErrorJson, _>(|r| r.description("Artist not found"))
@@ -204,7 +204,7 @@ pub async fn track_listeners(
 
 pub fn _track_listeners_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Track's top listeners")
-        .description("Returns the users who scrobble this track the most (public profiles only), ranked by play count.")
+        .description("Returns the users who scrobble this track the most (public profiles only, never accounts waiting to be deleted), ranked by play count: what their public profiles already show.")
         .tag("Catalog")
         .response::<200, Json<Vec<TopListener>>>()
         .response_with::<404, ErrorJson, _>(|r| r.description("Track not found"))

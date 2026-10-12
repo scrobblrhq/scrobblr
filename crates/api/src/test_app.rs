@@ -142,6 +142,7 @@ where
         live,
         monitoring: Default::default(),
         rankings: Default::default(),
+        accounts: Default::default(),
     };
     customize(&mut state);
     let octets = rand::random::<[u8; 3]>();

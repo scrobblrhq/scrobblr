@@ -678,6 +678,8 @@ pub struct Snapshot {
     pub coordination_run_id: Option<i32>,
     pub computed_at: DateTime<Utc>,
     pub took_ms: i32,
+    /// An account erased since counted in it: refresh it now.
+    pub invalidated: bool,
 }
 
 /// Ranks `period`'s artists and tracks as [`rankings`] orders them
@@ -814,6 +816,7 @@ pub async fn refresh_snapshots(
             coordination_run_id,
             computed_at,
             took_ms,
+            invalidated: false,
         });
     }
     tx.commit().await?;
@@ -824,7 +827,7 @@ pub async fn snapshots(pool: &PgPool) -> Result<Vec<Snapshot>, sqlx::Error> {
     let rows = sqlx::query!(
         r#"
         SELECT period, kind, from_day, to_day, ruleset_id, ranked, pending_days,
-               coordination_run_id, computed_at, took_ms
+               coordination_run_id, computed_at, took_ms, invalidated
         FROM ranking_snapshots
         ORDER BY period, kind
         "#
@@ -845,6 +848,7 @@ pub async fn snapshots(pool: &PgPool) -> Result<Vec<Snapshot>, sqlx::Error> {
                 coordination_run_id: r.coordination_run_id,
                 computed_at: r.computed_at,
                 took_ms: r.took_ms,
+                invalidated: r.invalidated,
             })
         })
         .collect())

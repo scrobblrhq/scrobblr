@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT id, username, email, password_hash, display_name, bio,\n               image_url, website_url, country, scrobble_count,\n               is_private, is_verified, last_seen_at, created_at, updated_at\n        FROM users\n        WHERE NOT is_private AND (username ILIKE $1 OR display_name ILIKE $1)\n        ORDER BY scrobble_count DESC\n        LIMIT $2\n        ",
+  "query": "\n        SELECT id, username, email, password_hash, display_name, bio,\n               image_url, website_url, country, scrobble_count,\n               is_private, is_verified, last_seen_at, created_at, updated_at,\n               delete_after\n        FROM users\n        WHERE NOT is_private AND delete_after IS NULL\n          AND (username ILIKE $1 OR display_name ILIKE $1)\n        ORDER BY scrobble_count DESC\n        LIMIT $2\n        ",
   "describe": {
     "columns": [
       {
@@ -77,6 +77,11 @@
         "ordinal": 14,
         "name": "updated_at",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 15,
+        "name": "delete_after",
+        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
@@ -100,8 +105,9 @@
       false,
       true,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "a102539f8aae23210c12858d2e9963b29882c499d966391cdbe0c492fc8c3aa8"
+  "hash": "d92770b5bc7c4820e5c59d91ed07136dff822d7c0efe260cdf207c0427a9e9ba"
 }

@@ -8,7 +8,8 @@ pub async fn find_by_id(pool: &PgPool, id: i64) -> Result<Option<User>, sqlx::Er
         r#"
         SELECT id, username, email, password_hash, display_name, bio,
                image_url, website_url, country, scrobble_count,
-               is_private, is_verified, last_seen_at, created_at, updated_at
+               is_private, is_verified, last_seen_at, created_at, updated_at,
+               delete_after
         FROM users
         WHERE id = $1
         "#,
@@ -25,7 +26,8 @@ pub async fn find_by_username(pool: &PgPool, username: &str) -> Result<Option<Us
         r#"
         SELECT id, username, email, password_hash, display_name, bio,
                image_url, website_url, country, scrobble_count,
-               is_private, is_verified, last_seen_at, created_at, updated_at
+               is_private, is_verified, last_seen_at, created_at, updated_at,
+               delete_after
         FROM users
         WHERE lower(username) = lower($1)
         "#,
@@ -42,7 +44,8 @@ pub async fn find_by_email(pool: &PgPool, email: &str) -> Result<Option<User>, s
         r#"
         SELECT id, username, email, password_hash, display_name, bio,
                image_url, website_url, country, scrobble_count,
-               is_private, is_verified, last_seen_at, created_at, updated_at
+               is_private, is_verified, last_seen_at, created_at, updated_at,
+               delete_after
         FROM users
         WHERE lower(email) = lower($1)
         "#,
@@ -67,7 +70,8 @@ pub async fn create_user(pool: &PgPool, input: &CreateUser<'_>) -> Result<User, 
         VALUES ($1, $2, $3, $4)
         RETURNING id, username, email, password_hash, display_name, bio,
                   image_url, website_url, country, scrobble_count,
-                  is_private, is_verified, last_seen_at, created_at, updated_at
+                  is_private, is_verified, last_seen_at, created_at, updated_at,
+                  delete_after
         "#,
         input.username,
         input.email,
@@ -80,7 +84,8 @@ pub async fn create_user(pool: &PgPool, input: &CreateUser<'_>) -> Result<User, 
 
 /// Substring match on username/display name, busiest scrobblers first.
 /// `%`/`_` in the query are escaped so they match literally. Private
-/// profiles are excluded — like the listener lists, they stay undiscoverable.
+/// profiles are excluded — like the listener lists, they stay undiscoverable
+/// — and so are accounts waiting to be erased.
 pub async fn search_users(
     pool: &PgPool,
     query: &str,
@@ -98,9 +103,11 @@ pub async fn search_users(
         r#"
         SELECT id, username, email, password_hash, display_name, bio,
                image_url, website_url, country, scrobble_count,
-               is_private, is_verified, last_seen_at, created_at, updated_at
+               is_private, is_verified, last_seen_at, created_at, updated_at,
+               delete_after
         FROM users
-        WHERE NOT is_private AND (username ILIKE $1 OR display_name ILIKE $1)
+        WHERE NOT is_private AND delete_after IS NULL
+          AND (username ILIKE $1 OR display_name ILIKE $1)
         ORDER BY scrobble_count DESC
         LIMIT $2
         "#,
@@ -145,16 +152,18 @@ pub async fn unfollow_user(
     Ok(())
 }
 
+/// Accounts waiting to be erased are left out, here and in [`get_following`].
 pub async fn get_followers(pool: &PgPool, user_id: i64) -> Result<Vec<User>, sqlx::Error> {
     sqlx::query_as!(
         User,
         r#"
         SELECT u.id, u.username, u.email, u.password_hash, u.display_name, u.bio,
                u.image_url, u.website_url, u.country, u.scrobble_count,
-               u.is_private, u.is_verified, u.last_seen_at, u.created_at, u.updated_at
+               u.is_private, u.is_verified, u.last_seen_at, u.created_at, u.updated_at,
+               u.delete_after
         FROM user_follows f
         JOIN users u ON u.id = f.follower_id
-        WHERE f.followee_id = $1
+        WHERE f.followee_id = $1 AND u.delete_after IS NULL
         ORDER BY f.created_at DESC
         "#,
         user_id,
@@ -169,10 +178,11 @@ pub async fn get_following(pool: &PgPool, user_id: i64) -> Result<Vec<User>, sql
         r#"
         SELECT u.id, u.username, u.email, u.password_hash, u.display_name, u.bio,
                u.image_url, u.website_url, u.country, u.scrobble_count,
-               u.is_private, u.is_verified, u.last_seen_at, u.created_at, u.updated_at
+               u.is_private, u.is_verified, u.last_seen_at, u.created_at, u.updated_at,
+               u.delete_after
         FROM user_follows f
         JOIN users u ON u.id = f.followee_id
-        WHERE f.follower_id = $1
+        WHERE f.follower_id = $1 AND u.delete_after IS NULL
         ORDER BY f.created_at DESC
         "#,
         user_id,
@@ -232,7 +242,8 @@ pub async fn update_profile(
         WHERE id = $1
         RETURNING id, username, email, password_hash, display_name, bio,
                   image_url, website_url, country, scrobble_count,
-                  is_private, is_verified, last_seen_at, created_at, updated_at
+                  is_private, is_verified, last_seen_at, created_at, updated_at,
+                  delete_after
         "#,
         user_id,
         update.display_name.is_some(),

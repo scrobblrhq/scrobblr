@@ -104,6 +104,7 @@ services:
       RATE_LIMIT_REQUESTS: ${RATE_LIMIT_REQUESTS:-}
       RATE_LIMIT_WINDOW_SECS: ${RATE_LIMIT_WINDOW_SECS:-}
       RANKING_MIN_LISTENERS: ${RANKING_MIN_LISTENERS:-}
+      ACCOUNT_DELETION_GRACE_DAYS: ${ACCOUNT_DELETION_GRACE_DAYS:-}
       UPLOAD_DIR: /data/uploads
       UPLOAD_PUBLIC_URL: ${UPLOAD_PUBLIC_URL:-}
       RUST_LOG: ${RUST_LOG:-info,sqlx=warn,tower_http=warn}
@@ -160,6 +161,8 @@ services:
       # The now playing it re-publishes carries image URLs, built like the API's.
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
       UPLOAD_PUBLIC_URL: ${UPLOAD_PUBLIC_URL:-}
+      # It deletes an erased account's uploaded images.
+      UPLOAD_DIR: /data/uploads
       SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID:-}
       SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET:-}
       LASTFM_API_KEY: ${LASTFM_API_KEY:-}
@@ -197,6 +200,8 @@ services:
       RANKING_COORDINATION_WEIGHTS: ${RANKING_COORDINATION_WEIGHTS:-}
       REGISTRATION_ORIGIN_DAYS: ${REGISTRATION_ORIGIN_DAYS:-}
       WORKER_STALL_FACTOR: ${WORKER_STALL_FACTOR:-}
+    volumes:
+      - uploads:/data/uploads
     depends_on:
       migrate:
         condition: service_completed_successfully

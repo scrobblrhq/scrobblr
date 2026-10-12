@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE albums al SET scrobble_count = GREATEST(al.scrobble_count - c.n, 0)\n            FROM UNNEST($1::bigint[], $2::bigint[]) AS c(id, n)\n            WHERE al.id = c.id\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6bd6e6279ab9b817d4ad7ce6935e7b3619bbe6cd9b752617b49b19f817260277"
+}

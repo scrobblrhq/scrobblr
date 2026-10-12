@@ -894,3 +894,39 @@ async fn web_flow_callbacks_and_who_may_manage_credentials() {
     })
     .await;
 }
+
+/// A player logging in again with the account password doesn't restore an
+/// account waiting to be erased: only the native login does.
+#[tokio::test]
+#[ignore = "needs Postgres and Redis: just test-db"]
+async fn password_logins_never_restore_a_deleted_account() {
+    with_app(CompatConfig::default(), |app| async move {
+        let (status, _) = app
+            .api(
+                Method::POST,
+                "/v1/user/me/delete",
+                Some(serde_json::json!({ "password": PASSWORD, "confirm": app.username })),
+            )
+            .await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        let login = pano_signed(
+            &[
+                ("method", "auth.getMobileSession"),
+                ("api_key", "panoScrobbler"),
+                ("username", &app.username),
+                ("password", PASSWORD),
+            ],
+            "panoScrobbler",
+        );
+        let (_, body) = app.post_form("/2.0/", &pairs(&login)).await;
+        assert!(body.contains("Invalid username or password"), "{body}");
+        let pending: bool =
+            sqlx::query_scalar("SELECT delete_after IS NOT NULL FROM users WHERE id = $1")
+                .bind(app.user_id)
+                .fetch_one(&app.pool)
+                .await
+                .unwrap();
+        assert!(pending);
+    })
+    .await;
+}

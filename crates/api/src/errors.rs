@@ -18,6 +18,10 @@ pub enum AppError {
     #[error("invalid credentials")]
     InvalidCredentials,
 
+    /// A password asked for again; not a 401, the session itself is fine.
+    #[error("the password is wrong")]
+    WrongPassword,
+
     #[error("you do not have permission to do this")]
     Forbidden,
 
@@ -92,6 +96,7 @@ impl IntoResponse for AppError {
         let (status, message) = match &self {
             AppError::Unauthorized => (StatusCode::UNAUTHORIZED, self.to_string()),
             AppError::InvalidCredentials => (StatusCode::UNAUTHORIZED, self.to_string()),
+            AppError::WrongPassword => (StatusCode::FORBIDDEN, self.to_string()),
             AppError::Forbidden => (StatusCode::FORBIDDEN, self.to_string()),
             AppError::MissingScope(_) => (StatusCode::FORBIDDEN, self.to_string()),
             AppError::SessionRequired => (StatusCode::FORBIDDEN, self.to_string()),

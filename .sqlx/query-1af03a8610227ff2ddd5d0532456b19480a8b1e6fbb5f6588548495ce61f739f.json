@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE users SET erase_started_at = NOW()\n        WHERE id = (\n            SELECT id FROM users\n            WHERE delete_after <= NOW()\n              AND (erase_started_at IS NULL OR erase_started_at < NOW() - make_interval(secs => $1))\n            ORDER BY delete_after\n            LIMIT 1\n            FOR UPDATE SKIP LOCKED\n        )\n        RETURNING id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Float8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "1af03a8610227ff2ddd5d0532456b19480a8b1e6fbb5f6588548495ce61f739f"
+}

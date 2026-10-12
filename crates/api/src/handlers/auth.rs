@@ -19,7 +19,9 @@ use crate::{
     middleware::rate_limit::ClientIp,
     state::AppState,
 };
-use db::queries::{auth as auth_db, coordination as coordination_db, users as users_db};
+use db::queries::{
+    accounts as accounts_db, auth as auth_db, coordination as coordination_db, users as users_db,
+};
 use shared::user::{hash_password, verify_password};
 use shared::validation::{
     self, PASSWORD_LOGIN_MAX_LEN, USERNAME_MAX_LEN, ValidationError, sanitize_display_name,
@@ -67,6 +69,9 @@ pub struct AuthResponse {
     pub username: String,
     /// When the session ends: 30 days after login, however much it's used.
     pub expires_at: chrono::DateTime<Utc>,
+    /// This login cancelled the account's deletion; its API tokens,
+    /// scrobbler credentials and linked accounts must be made again.
+    pub account_restored: bool,
 }
 
 /// POST /v1/register
@@ -136,6 +141,7 @@ pub async fn register(
             user_id: user.id,
             username: user.username,
             expires_at: session.expires_at,
+            account_restored: false,
         }),
     ))
 }
@@ -207,6 +213,13 @@ pub async fn login(
     let user = verify_password_login(&state.db, &body.username, &body.password, false)
         .await?
         .ok_or(AppError::InvalidCredentials)?;
+    let account_restored = user.delete_after.is_some();
+    if account_restored {
+        if !accounts_db::restore(&state.db, user.id).await? {
+            return Err(AppError::InvalidCredentials);
+        }
+        tracing::info!(user_id = user.id, "account deletion cancelled by a login");
+    }
     limits::login_succeeded(&state, &ip, &body.username).await;
 
     let session = auth_db::create_session(&state.db, user.id, None, None).await?;
@@ -216,12 +229,13 @@ pub async fn login(
         user_id: user.id,
         username: user.username,
         expires_at: session.expires_at,
+        account_restored,
     }))
 }
 
 pub fn _login_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Log in")
-        .description("Authenticates a user with username and password. Returns a session token to be used as `Bearer` in the `Authorization` header. Attempts are limited per address, and per address and username, together with the scrobbler APIs' password logins; a success resets that address's count for the username. Failed attempts from elsewhere never block a username.")
+        .description("Authenticates a user with username and password. Returns a session token to be used as `Bearer` in the `Authorization` header. Attempts are limited per address, and per address and username, together with the scrobbler APIs' password logins; a success resets that address's count for the username. Failed attempts from elsewhere never block a username. Logging in to an account whose deletion was asked for restores it (`account_restored`), until the worker has begun erasing it.")
         .tag("Auth")
         .response::<200, Json<AuthResponse>>()
         .response_with::<401, ErrorJson, _>(|r| r.description("Invalid credentials, or missing/invalid first-party app signature"))

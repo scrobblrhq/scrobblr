@@ -25,6 +25,10 @@ pub struct User {
     pub last_seen_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// Set while the account waits to be erased; it is hidden meanwhile.
+    #[serde(skip_serializing)]
+    #[ts(skip)]
+    pub delete_after: Option<DateTime<Utc>>,
 }
 
 /// Public-facing profile (no sensitive fields)
@@ -670,6 +674,7 @@ mod tests {
             last_seen_at: None,
             created_at: now,
             updated_at: now,
+            delete_after: None,
         };
         let models = [
             serde_json::to_value(&user).unwrap(),

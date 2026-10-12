@@ -414,7 +414,11 @@ async fn password_login(
     if !state.compat.password_login {
         return Ok(None);
     }
-    let Some(user) = verify_password_login(&state.db, username, password, true).await? else {
+    // Only the native login restores an account waiting to be erased.
+    let Some(user) = verify_password_login(&state.db, username, password, true)
+        .await?
+        .filter(|u| u.delete_after.is_none())
+    else {
         return Ok(None);
     };
     let (key, _) = super::issue_credential(
@@ -649,6 +653,7 @@ async fn visible_user(state: &AppState, params: &Params) -> Result<User, LfmErro
         .ok_or_else(|| LfmError::invalid_parameters("user is required"))?;
     let user = users_db::find_by_username(&state.db, &name)
         .await?
+        .filter(|u| u.delete_after.is_none())
         .ok_or_else(|| LfmError::new(6, "User not found"))?;
     if user.is_private && viewer.map(|v| v.user_id) != Some(user.id) {
         return Err(LfmError::new(17, "Login: User requires to be logged in"));

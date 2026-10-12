@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT id, username, email, password_hash, display_name, bio,\n               image_url, website_url, country, scrobble_count,\n               is_private, is_verified, last_seen_at, created_at, updated_at\n        FROM users\n        WHERE lower(username) = lower($1)\n        ",
+  "query": "\n        SELECT id, username, email, password_hash, display_name, bio,\n               image_url, website_url, country, scrobble_count,\n               is_private, is_verified, last_seen_at, created_at, updated_at,\n               delete_after\n        FROM users\n        WHERE id = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -77,11 +77,16 @@
         "ordinal": 14,
         "name": "updated_at",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 15,
+        "name": "delete_after",
+        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "Int8"
       ]
     },
     "nullable": [
@@ -99,8 +104,9 @@
       false,
       true,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "94bcdadf29f0c2129bdf903985b34a937ef80e29d2666dfa5ba7bccffc79b906"
+  "hash": "b9f0eda5a751b30d30a51ac5e79a6a759b237d8ff424856f24dbf34f93a1516b"
 }

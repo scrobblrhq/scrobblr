@@ -233,6 +233,7 @@ pub async fn follow(
 ) -> ApiResult<StatusCode> {
     let target = users_db::find_by_username(&state.db, &username)
         .await?
+        .filter(|u| u.delete_after.is_none())
         .ok_or(AppError::NotFound)?;
 
     if target.id == auth_user.id {
@@ -261,6 +262,7 @@ pub async fn unfollow(
 ) -> ApiResult<StatusCode> {
     let target = users_db::find_by_username(&state.db, &username)
         .await?
+        .filter(|u| u.delete_after.is_none())
         .ok_or(AppError::NotFound)?;
 
     if target.id == auth_user.id {

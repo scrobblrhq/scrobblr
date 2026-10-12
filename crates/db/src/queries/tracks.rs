@@ -491,8 +491,8 @@ pub async fn artist_top_tracks(
     .await
 }
 
-/// Users who listen to this artist most, private profiles excluded, from
-/// the daily aggregate.
+/// Users who listen to this artist most, private profiles and accounts
+/// waiting to be erased excluded, from the daily aggregate.
 pub async fn artist_listeners(
     pool: &PgPool,
     artist_id: i64,
@@ -513,7 +513,7 @@ pub async fn artist_listeners(
             GROUP BY user_id
         ) l
         JOIN users u ON u.id = l.user_id
-        WHERE NOT u.is_private
+        WHERE NOT u.is_private AND u.delete_after IS NULL
         ORDER BY l.play_count DESC, u.id
         LIMIT $2
         "#,
@@ -545,7 +545,7 @@ pub async fn track_listeners(
             GROUP BY user_id
         ) l
         JOIN users u ON u.id = l.user_id
-        WHERE NOT u.is_private
+        WHERE NOT u.is_private AND u.delete_after IS NULL
         ORDER BY l.play_count DESC, u.id
         LIMIT $2
         "#,

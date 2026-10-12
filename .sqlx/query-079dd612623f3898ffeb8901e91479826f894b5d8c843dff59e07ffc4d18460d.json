@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE users\n        SET delete_after = COALESCE(delete_after, NOW() + make_interval(secs => $2))\n        WHERE id = $1\n        RETURNING delete_after AS \"delete_after!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "delete_after!",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Float8"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "079dd612623f3898ffeb8901e91479826f894b5d8c843dff59e07ffc4d18460d"
+}

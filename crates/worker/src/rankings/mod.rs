@@ -46,7 +46,8 @@ fn snapshot_due(
     let mine: Vec<&Snapshot> = stored.iter().filter(|s| s.period == period).collect();
     mine.len() < Kind::ALL.len()
         || mine.iter().any(|s| {
-            s.ruleset_id != ruleset_id
+            s.invalidated
+                || s.ruleset_id != ruleset_id
                 || s.coordination_run_id != coordination_run
                 || s.to_day != now.date_naive()
                 || now - s.computed_at >= period.refresh_every()
@@ -272,6 +273,7 @@ mod tests {
             coordination_run_id: Some(3),
             computed_at,
             took_ms: 5,
+            invalidated: false,
         }
     }
 
@@ -284,7 +286,7 @@ mod tests {
     }
 
     #[test]
-    fn snapshots_are_due_when_missing_old_from_another_day_params_or_run() {
+    fn snapshots_are_due_when_missing_old_from_another_day_params_run_or_an_erase() {
         let computed = at(9, 10, 0);
         let both = |period| {
             vec![
@@ -313,5 +315,10 @@ mod tests {
         let year = both(Period::Year);
         assert!(!snapshot_due(Period::Year, &year, 1, run, at(9, 23, 59)));
         assert!(snapshot_due(Period::Year, &year, 1, run, at(10, 0, 0)));
+
+        // An erased account counted in it.
+        let mut erased = both(Period::Year);
+        erased[1].invalidated = true;
+        assert!(snapshot_due(Period::Year, &erased, 1, run, at(9, 10, 1)));
     }
 }

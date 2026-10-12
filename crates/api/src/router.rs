@@ -29,7 +29,8 @@ use crate::{
     compat,
     errors::ErrorJson,
     handlers::{
-        auth, community, connected_accounts, imports, rankings, scrobbles, tracks, uploads, users,
+        account, auth, community, connected_accounts, imports, rankings, scrobbles, tracks,
+        uploads, users,
     },
     limits,
     middleware::{
@@ -250,8 +251,13 @@ pub fn build(state: AppState) -> Router {
 
     // Credentials and account links: sessions only, so that a leaked API
     // token can't mint a credential (or link an account that scrobbles)
-    // that outlives its revocation, nor revoke the user's others.
+    // that outlives its revocation, nor revoke the user's others, nor
+    // delete the account.
     let session_routes = ApiRouter::new()
+        .api_route(
+            "/v1/user/me/delete",
+            post_with(account::delete_account, account::_delete_account_doc),
+        )
         // Connected accounts (Spotify, Last.fm), started and finished by the
         // same session.
         .api_route(

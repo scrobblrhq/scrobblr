@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT id, username, email, password_hash, display_name, bio,\n               image_url, website_url, country, scrobble_count,\n               is_private, is_verified, last_seen_at, created_at, updated_at\n        FROM users\n        WHERE id = $1\n        ",
+  "query": "\n        SELECT u.id, u.username, u.email, u.password_hash, u.display_name, u.bio,\n               u.image_url, u.website_url, u.country, u.scrobble_count,\n               u.is_private, u.is_verified, u.last_seen_at, u.created_at, u.updated_at,\n               u.delete_after\n        FROM user_follows f\n        JOIN users u ON u.id = f.follower_id\n        WHERE f.followee_id = $1 AND u.delete_after IS NULL\n        ORDER BY f.created_at DESC\n        ",
   "describe": {
     "columns": [
       {
@@ -77,6 +77,11 @@
         "ordinal": 14,
         "name": "updated_at",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 15,
+        "name": "delete_after",
+        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
@@ -99,8 +104,9 @@
       false,
       true,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "80ff62f62d013f9391e1cf30a64ff87a6bc5d86edcbaa061df7e4d54b86fafe0"
+  "hash": "c98db8298c1d352b7cee2e8d91eaea1180d606571ddaeb6f2bd1f990887a77e4"
 }

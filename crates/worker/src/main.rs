@@ -1,3 +1,4 @@
+mod accounts;
 mod classification;
 mod connected_accounts;
 mod enrichment;
@@ -31,13 +32,14 @@ async fn main() -> anyhow::Result<()> {
         Some("help" | "--help" | "-h")
     ) {
         println!(
-            "{USAGE}\n{}\n{}\n{}\n{}\n{}\n{}",
+            "{USAGE}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
             status::USAGE,
             classification::cli::USAGE,
             rankings::cli::USAGE,
             lastfm_import::cli::USAGE,
             tracks::USAGE,
-            uploads::USAGE
+            uploads::USAGE,
+            accounts::USAGE
         );
         return Ok(());
     }
@@ -86,6 +88,10 @@ async fn main() -> anyhow::Result<()> {
         Some("uploads") => {
             db::migrate::ensure_current(&db).await?;
             return uploads::run(&db, &args[1..]).await;
+        }
+        Some("accounts") => {
+            db::migrate::ensure_current(&db).await?;
+            return accounts::run(&db, &args[1..]).await;
         }
         Some(other) => anyhow::bail!("unknown command `{other}` (see `worker --help`)"),
     }
@@ -240,6 +246,9 @@ async fn main() -> anyhow::Result<()> {
     let coordination_handle =
         supervise(&db, "coordination", move |beat| detector.clone().run(beat));
 
+    let eraser = Arc::new(accounts::Eraser::from_env(db.clone()));
+    let accounts_handle = supervise(&db, "account erasure", move |beat| eraser.clone().run(beat));
+
     // The tasks loop forever and come back after a panic; one finishing
     // means it stopped for good, which must end the process with a failure
     // so a supervisor restarts it.
@@ -257,6 +266,7 @@ async fn main() -> anyhow::Result<()> {
         _ = rankings_sweep_handle => "rankings sweep",
         _ = snapshots_handle => "ranking snapshots",
         _ = coordination_handle => "coordination",
+        _ = accounts_handle => "account erasure",
         _ = tokio::signal::ctrl_c() => {
             tracing::info!("received Ctrl-C, shutting down");
             return Ok(());
@@ -339,7 +349,7 @@ fn non_empty_env(name: &str) -> Option<String> {
 /// malformed, or unreachable) degrades to `None` with a log line rather than
 /// taking the worker down — enrichment does not depend on Redis. Once
 /// connected, it reconnects whenever Redis comes back.
-async fn connect_redis() -> Option<fred::clients::Client> {
+pub(crate) async fn connect_redis() -> Option<fred::clients::Client> {
     let Ok(url) = std::env::var("REDIS_URL") else {
         tracing::info!("worker: REDIS_URL not set — now-playing won't refresh after enrichment");
         return None;

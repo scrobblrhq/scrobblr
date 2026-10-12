@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        UPDATE users SET\n            display_name = CASE WHEN $2::bool THEN $3 ELSE display_name END,\n            bio          = CASE WHEN $4::bool THEN $5 ELSE bio END,\n            image_url    = CASE WHEN $6::bool THEN $7 ELSE image_url END,\n            is_private   = COALESCE($8, is_private),\n            updated_at   = NOW()\n        WHERE id = $1\n        RETURNING id, username, email, password_hash, display_name, bio,\n                  image_url, website_url, country, scrobble_count,\n                  is_private, is_verified, last_seen_at, created_at, updated_at\n        ",
+  "query": "\n        SELECT u.id, u.username, u.email, u.password_hash, u.display_name, u.bio,\n               u.image_url, u.website_url, u.country, u.scrobble_count,\n               u.is_private, u.is_verified, u.last_seen_at, u.created_at, u.updated_at,\n               u.delete_after\n        FROM user_follows f\n        JOIN users u ON u.id = f.followee_id\n        WHERE f.follower_id = $1 AND u.delete_after IS NULL\n        ORDER BY f.created_at DESC\n        ",
   "describe": {
     "columns": [
       {
@@ -77,18 +77,16 @@
         "ordinal": 14,
         "name": "updated_at",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 15,
+        "name": "delete_after",
+        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
-        "Int8",
-        "Bool",
-        "Text",
-        "Bool",
-        "Text",
-        "Bool",
-        "Text",
-        "Bool"
+        "Int8"
       ]
     },
     "nullable": [
@@ -106,8 +104,9 @@
       false,
       true,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "4a70bb14fd0f467afdba07b1361aaffe3825f5955f7f83a71e81deb329c6a9ca"
+  "hash": "89f0f232ed6a1163a0673018b4ec193a746ef1e16fcb2ad608a6a029a85df34b"
 }

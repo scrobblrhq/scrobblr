@@ -6,6 +6,7 @@ use fred::clients::Client as RedisClient;
 use sqlx::PgPool;
 
 use crate::compat::CompatConfig;
+use crate::handlers::account::AccountConfig;
 use crate::handlers::rankings::RankingConfig;
 use crate::live::LiveHub;
 use crate::media::Media;
@@ -44,6 +45,7 @@ pub struct AppState {
     pub live: Arc<LiveHub>,
     pub monitoring: Arc<Monitoring>,
     pub rankings: RankingConfig,
+    pub accounts: AccountConfig,
 }
 
 /// `scrobble_clients` ids already resolved, so ingest doesn't look one up

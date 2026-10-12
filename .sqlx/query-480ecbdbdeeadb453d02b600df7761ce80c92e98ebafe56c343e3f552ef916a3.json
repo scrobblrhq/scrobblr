@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT period, kind, from_day, to_day, ruleset_id, ranked, pending_days,\n               coordination_run_id, computed_at, took_ms\n        FROM ranking_snapshots\n        ORDER BY period, kind\n        ",
+  "query": "\n        SELECT period, kind, from_day, to_day, ruleset_id, ranked, pending_days,\n               coordination_run_id, computed_at, took_ms, invalidated\n        FROM ranking_snapshots\n        ORDER BY period, kind\n        ",
   "describe": {
     "columns": [
       {
@@ -52,6 +52,11 @@
         "ordinal": 9,
         "name": "took_ms",
         "type_info": "Int4"
+      },
+      {
+        "ordinal": 10,
+        "name": "invalidated",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -67,8 +72,9 @@
       false,
       true,
       false,
+      false,
       false
     ]
   },
-  "hash": "14cb151c217ec795455fd50b64eace2527e5f431c4667df87427d5e53e01ad80"
+  "hash": "480ecbdbdeeadb453d02b600df7761ce80c92e98ebafe56c343e3f552ef916a3"
 }

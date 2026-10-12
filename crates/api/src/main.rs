@@ -166,6 +166,12 @@ async fn main() -> anyhow::Result<()> {
         rankings.min_listeners
     );
 
+    let accounts = handlers::account::AccountConfig::from_env()?;
+    tracing::info!(
+        "deleted accounts are erased {} days after the request (ACCOUNT_DELETION_GRACE_DAYS)",
+        accounts.deletion_grace.num_days()
+    );
+
     // Axum
     let state = state::AppState {
         db,
@@ -183,6 +189,7 @@ async fn main() -> anyhow::Result<()> {
         live,
         monitoring: std::sync::Arc::new(monitoring),
         rankings,
+        accounts,
     };
     let app = router::build(state);
 

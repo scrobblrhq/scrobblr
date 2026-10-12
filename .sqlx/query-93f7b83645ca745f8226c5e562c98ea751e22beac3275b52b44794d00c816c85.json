@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT u.id, u.username, u.email, u.password_hash, u.display_name, u.bio,\n               u.image_url, u.website_url, u.country, u.scrobble_count,\n               u.is_private, u.is_verified, u.last_seen_at, u.created_at, u.updated_at\n        FROM user_follows f\n        JOIN users u ON u.id = f.follower_id\n        WHERE f.followee_id = $1\n        ORDER BY f.created_at DESC\n        ",
+  "query": "\n        INSERT INTO users (username, email, password_hash, display_name)\n        VALUES ($1, $2, $3, $4)\n        RETURNING id, username, email, password_hash, display_name, bio,\n                  image_url, website_url, country, scrobble_count,\n                  is_private, is_verified, last_seen_at, created_at, updated_at,\n                  delete_after\n        ",
   "describe": {
     "columns": [
       {
@@ -77,11 +77,19 @@
         "ordinal": 14,
         "name": "updated_at",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 15,
+        "name": "delete_after",
+        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
-        "Int8"
+        "Text",
+        "Text",
+        "Text",
+        "Text"
       ]
     },
     "nullable": [
@@ -99,8 +107,9 @@
       false,
       true,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "21f2080455d5020a0b5661a47b1c84b7692bbbfefd34718b5c29bf73669cf52f"
+  "hash": "93f7b83645ca745f8226c5e562c98ea751e22beac3275b52b44794d00c816c85"
 }

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        INSERT INTO users (username, email, password_hash, display_name)\n        VALUES ($1, $2, $3, $4)\n        RETURNING id, username, email, password_hash, display_name, bio,\n                  image_url, website_url, country, scrobble_count,\n                  is_private, is_verified, last_seen_at, created_at, updated_at\n        ",
+  "query": "\n        SELECT id, username, email, password_hash, display_name, bio,\n               image_url, website_url, country, scrobble_count,\n               is_private, is_verified, last_seen_at, created_at, updated_at,\n               delete_after\n        FROM users\n        WHERE lower(username) = lower($1)\n        ",
   "describe": {
     "columns": [
       {
@@ -77,13 +77,15 @@
         "ordinal": 14,
         "name": "updated_at",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 15,
+        "name": "delete_after",
+        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
-        "Text",
-        "Text",
-        "Text",
         "Text"
       ]
     },
@@ -102,8 +104,9 @@
       false,
       true,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "b70d7b3e423a9fff3fc2da4937006f16f86257524baad6611d397a465b3c2f68"
+  "hash": "84c0d0615393ee1d18257682d25b4f8fead89fdf71aa18e1103a9bcf0bc3838d"
 }

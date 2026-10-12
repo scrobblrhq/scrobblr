@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE ranking_snapshots SET invalidated = TRUE",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "e3d6d690bbc5f9f94bd08818834f8cf9a2c3cb18425abd44b0d1ab3d757dbcc9"
+}

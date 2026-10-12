@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE scrobble_imports\n        SET status = 'cancelled', finished_at = NOW(), lease_token = NULL, leased_until = NULL\n        WHERE user_id = $1 AND status IN ('pending', 'running')\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "12dfa14042129c132db4af3d7b0c275df1e307192d403aebeea26dba34db1ea9"
+}

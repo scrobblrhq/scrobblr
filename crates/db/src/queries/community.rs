@@ -197,6 +197,7 @@ pub async fn promote_winning_image(
 
 /// Lists an entity's image candidates, most-liked first, flagging the
 /// viewer's own votes and which candidate is the entity's current image.
+/// Uploads of accounts waiting to be erased are left out.
 pub async fn list_image_candidates(
     pool: &PgPool,
     entity_type: &str,
@@ -225,7 +226,7 @@ pub async fn list_image_candidates(
         JOIN users u ON u.id = c.uploaded_by
         LEFT JOIN image_candidate_votes v
                ON v.candidate_id = c.id AND v.user_id = $4
-        WHERE c.entity_type = $1 AND c.entity_id = $2
+        WHERE c.entity_type = $1 AND c.entity_id = $2 AND u.delete_after IS NULL
         ORDER BY c.vote_count DESC, c.created_at ASC
         LIMIT $3
         "#,
@@ -251,6 +252,7 @@ pub async fn list_image_candidates(
     })
 }
 
+/// Newest first; comments of accounts waiting to be erased are left out.
 pub async fn list_comments(
     pool: &PgPool,
     entity_type: &str,
@@ -266,7 +268,7 @@ pub async fn list_comments(
                u.image_url    AS "image_url?"
         FROM comments c
         JOIN users u ON u.id = c.user_id
-        WHERE c.entity_type = $1 AND c.entity_id = $2
+        WHERE c.entity_type = $1 AND c.entity_id = $2 AND u.delete_after IS NULL
         ORDER BY c.created_at DESC
         LIMIT $3
         "#,

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM classification_queue WHERE user_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f62a27c3fb5be2fa3a87baeb3f2a9b96bc4a48c8135c0270e07a4e94bdc4dd7b"
+}

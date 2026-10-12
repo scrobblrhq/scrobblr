@@ -1,6 +1,6 @@
 //! Limits counted in Redis: password logins and the scrobbles an account
 //! may submit per UTC day (shared by the native API and the
-//! scrobbler-compatible ones), and image uploads. Windows are part of the
+//! scrobbler-compatible ones), image uploads and deletion requests. Windows are part of the
 //! keys, so a key that missed its expiry still stops counting when its
 //! window ends.
 
@@ -137,4 +137,38 @@ impl Quota {
             let _ = state.redis.decr_by::<i64, _>(&self.key, unused).await;
         }
     }
+}
+
+const DELETION_WINDOW_SECS: i64 = 3600;
+pub const DELETION_ATTEMPTS_PER_USER: i64 = 5;
+pub const DELETION_ATTEMPTS_PER_IP: i64 = 10;
+
+/// Counts before the work, refused requests included. Fails closed.
+async fn take(state: &AppState, keys: [(String, i64); 2], window_secs: i64) -> ApiResult<bool> {
+    let mut allowed = true;
+    for (key, limit) in keys {
+        let count: i64 = state.redis.incr(&key).await?;
+        if count == 1 {
+            let _ = state.redis.expire::<i64, _>(&key, window_secs, None).await;
+        }
+        allowed &= count <= limit;
+    }
+    Ok(allowed)
+}
+
+/// An hour's deletion attempts, so a stolen session can't guess the
+/// password through them.
+pub async fn deletion_attempt(state: &AppState, user_id: i64, ip: &str) -> ApiResult<bool> {
+    let window = Utc::now().timestamp() / DELETION_WINDOW_SECS;
+    let keys = [
+        (
+            format!("deletion:user:{user_id}:{window}"),
+            DELETION_ATTEMPTS_PER_USER,
+        ),
+        (
+            format!("deletion:ip:{}:{window}", network(ip)),
+            DELETION_ATTEMPTS_PER_IP,
+        ),
+    ];
+    take(state, keys, DELETION_WINDOW_SECS).await
 }

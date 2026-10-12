@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT c.id, c.user_id, c.body, c.created_at,\n               u.username     AS \"username!\",\n               u.display_name AS \"display_name?\",\n               u.image_url    AS \"image_url?\"\n        FROM comments c\n        JOIN users u ON u.id = c.user_id\n        WHERE c.entity_type = $1 AND c.entity_id = $2\n        ORDER BY c.created_at DESC\n        LIMIT $3\n        ",
+  "query": "\n        SELECT c.id, c.user_id, c.body, c.created_at,\n               u.username     AS \"username!\",\n               u.display_name AS \"display_name?\",\n               u.image_url    AS \"image_url?\"\n        FROM comments c\n        JOIN users u ON u.id = c.user_id\n        WHERE c.entity_type = $1 AND c.entity_id = $2 AND u.delete_after IS NULL\n        ORDER BY c.created_at DESC\n        LIMIT $3\n        ",
   "describe": {
     "columns": [
       {
@@ -56,5 +56,5 @@
       true
     ]
   },
-  "hash": "fe2191f13f4c926f7fa6c795993d936cef0008765de7de0f22eeb9e90038c9c5"
+  "hash": "9b6c4337829fe3493ca56903db25f0cf7e96b3b7eacc05058cda1b4d3beb5ac3"
 }
