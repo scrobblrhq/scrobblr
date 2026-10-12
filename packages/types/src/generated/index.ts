@@ -9,6 +9,8 @@ export * from "./ArtistRanking.js";
 export * from "./Comment.js";
 export * from "./ConnectedAccountSummary.js";
 export * from "./CreatedScrobblerToken.js";
+export * from "./FollowEntry.js";
+export * from "./FollowPage.js";
 export * from "./ImageCandidate.js";
 export * from "./ImportStatus.js";
 export * from "./NowPlaying.js";

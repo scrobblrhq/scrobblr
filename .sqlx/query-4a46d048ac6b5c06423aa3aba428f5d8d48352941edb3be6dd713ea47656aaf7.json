@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT u.id, u.username, u.email, u.password_hash, u.display_name, u.bio,\n               u.image_url, u.website_url, u.country, u.scrobble_count,\n               u.is_private, u.is_verified, u.last_seen_at, u.created_at, u.updated_at,\n               u.delete_after\n        FROM user_follows f\n        JOIN users u ON u.id = f.followee_id\n        WHERE f.follower_id = $1 AND u.delete_after IS NULL\n          AND (NOT u.is_private OR u.id = $2)\n        ORDER BY f.created_at DESC\n        ",
+  "query": "\n        SELECT\n               u.id, u.username, u.email, u.password_hash, u.display_name, u.bio,\n               u.image_url, u.website_url, u.country, u.scrobble_count,\n               u.is_private, u.is_verified, u.last_seen_at, u.created_at, u.updated_at,\n               u.delete_after,\n               f.created_at AS followed_at,\n               CASE WHEN $2::bigint IS NULL OR u.id = $2 THEN NULL\n                    ELSE EXISTS (SELECT 1 FROM user_follows v\n                                 WHERE v.follower_id = $2 AND v.followee_id = u.id) END\n                   AS is_following,\n               CASE WHEN $2::bigint IS NULL OR u.id = $2 THEN NULL\n                    ELSE EXISTS (SELECT 1 FROM user_follows v\n                                 WHERE v.follower_id = u.id AND v.followee_id = $2) END\n                   AS follows_you\n        FROM user_follows f\n        JOIN users u ON u.id = f.follower_id\n        WHERE f.followee_id = $1 AND u.delete_after IS NULL\n          AND (NOT u.is_private OR u.id = $2)\n          AND ($3::timestamptz IS NULL OR (f.created_at, f.follower_id) < ($3, $4))\n        ORDER BY f.created_at DESC, f.follower_id DESC\n        LIMIT $5\n        ",
   "describe": {
     "columns": [
       {
@@ -82,10 +82,28 @@
         "ordinal": 15,
         "name": "delete_after",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 16,
+        "name": "followed_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 17,
+        "name": "is_following",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 18,
+        "name": "follows_you",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
       "Left": [
+        "Int8",
+        "Int8",
+        "Timestamptz",
         "Int8",
         "Int8"
       ]
@@ -106,8 +124,11 @@
       true,
       false,
       false,
-      true
+      true,
+      false,
+      null,
+      null
     ]
   },
-  "hash": "0cbfe3f95be773bc2a5cef23291ddbdb557f15beb3133b696865955bf8be4736"
+  "hash": "4a46d048ac6b5c06423aa3aba428f5d8d48352941edb3be6dd713ea47656aaf7"
 }

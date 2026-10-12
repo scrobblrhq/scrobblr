@@ -2,7 +2,7 @@ use aide::axum::IntoApiResponse;
 use aide::transform::TransformOperation;
 use axum::{
     Json,
-    extract::{Extension, Path, State},
+    extract::{Extension, Path, Query, State},
     http::StatusCode,
 };
 use schemars::JsonSchema;
@@ -14,14 +14,24 @@ use crate::{
     middleware::auth::AuthUser,
     state::AppState,
 };
-use db::queries::users as users_db;
-use shared::models::{ScrobbleBreakdown, UserProfile};
+use db::queries::users::{self as users_db, FollowList};
+use shared::cursor::Cursor;
+use shared::models::{FollowEntry, FollowPage, ScrobbleBreakdown, UserProfile};
 
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct ProfileResponse {
     #[serde(flatten)]
     pub profile: UserProfile,
-    pub is_following: Option<bool>, // None if not authenticated
+    /// Whether the signed-in viewer follows this account; `null` when
+    /// signed out, and on the viewer's own profile.
+    pub is_following: Option<bool>,
+    /// Whether this account follows the signed-in viewer; `null` likewise.
+    pub follows_you: Option<bool>,
+    /// Accounts following this one, private ones included (lists don't
+    /// name them).
+    pub followers_count: i64,
+    /// Accounts this one follows, private ones included.
+    pub following_count: i64,
     /// `scrobble_count` (duplicates left out) by what the classifier made
     /// of it.
     pub scrobble_breakdown: ScrobbleBreakdown,
@@ -40,18 +50,28 @@ pub async fn get_profile(
     let viewer_id = auth_user.map(|Extension(a)| a.id);
     let is_following =
         crate::middleware::visibility::ensure_profile_visible(&state, viewer_id, &user).await?;
+    let follows_you = match viewer_id {
+        Some(viewer) if viewer != user.id => {
+            Some(users_db::is_following(&state.db, user.id, viewer).await?)
+        }
+        _ => None,
+    };
+    let (followers_count, following_count) = users_db::follow_counts(&state.db, user.id).await?;
     let scrobble_breakdown = users_db::scrobble_breakdown(&state.db, user.id).await?;
 
     Ok(Json(ProfileResponse {
         profile: user.into(),
         is_following,
+        follows_you,
+        followers_count,
+        following_count,
         scrobble_breakdown,
     }))
 }
 
 pub fn _get_profile_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Get user profile")
-        .description("Returns the public profile for a user. If the viewer is authenticated, also includes `is_following`. `scrobble_count` leaves out the scrobbles the classifier found to be the same listen reported again (duplicates); `scrobble_breakdown` divides it into verified plays and unverified ones (over the listening time real time allows, of tracks with no known length, or not classified yet). Private profiles return 403 to everyone but their owner, followers included (following takes no approval).")
+        .description("Returns the public profile for a user, with how many accounts follow it and it follows (`followers_count`, `following_count`: every follow, private accounts' included). A signed-in viewer also gets `is_following` (the viewer follows this account) and `follows_you` (it follows the viewer); both are `null` otherwise. `scrobble_count` leaves out the scrobbles the classifier found to be the same listen reported again (duplicates); `scrobble_breakdown` divides it into verified plays and unverified ones (over the listening time real time allows, of tracks with no known length, or not classified yet). Private profiles return 403 to everyone but their owner, followers included (following takes no approval).")
         .tag("Users")
         .response::<200, Json<ProfileResponse>>()
         .response_with::<403, ErrorJson, _>(|r| r.description("Profile is private"))
@@ -72,18 +92,22 @@ pub async fn get_own_profile(
     let user = users_db::find_by_id(&state.db, auth_user.id)
         .await?
         .ok_or(AppError::NotFound)?;
+    let (followers_count, following_count) = users_db::follow_counts(&state.db, user.id).await?;
     let scrobble_breakdown = users_db::scrobble_breakdown(&state.db, user.id).await?;
 
     Ok(Json(ProfileResponse {
         profile: user.into(),
-        is_following: None, // you can't follow yourself
+        is_following: None,
+        follows_you: None,
+        followers_count,
+        following_count,
         scrobble_breakdown,
     }))
 }
 
 pub fn _get_own_profile_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Get my own profile")
-        .description("Alias for fetching the authenticated user's own profile, regardless of privacy settings, with the same `scrobble_breakdown`.")
+        .description("Alias for fetching the authenticated user's own profile, regardless of privacy settings, with the same counts and `scrobble_breakdown`; `is_following` and `follows_you` are `null`.")
         .tag("Users")
         .response::<200, Json<ProfileResponse>>()
         .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
@@ -185,6 +209,9 @@ pub fn _update_settings_doc(op: TransformOperation) -> TransformOperation {
         .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
 }
 
+/// How many of each list `/friends` returns.
+const FRIENDS_LIMIT: i64 = 100;
+
 /// GET /v1/user/:username/friends
 pub async fn get_friends(
     State(state): State<AppState>,
@@ -198,29 +225,125 @@ pub async fn get_friends(
     let viewer_id = auth_user.map(|Extension(a)| a.id);
     crate::middleware::visibility::ensure_profile_visible(&state, viewer_id, &user).await?;
 
-    let followers = users_db::get_followers(&state.db, user.id, viewer_id)
-        .await?
-        .into_iter()
-        .map(UserProfile::from)
-        .collect();
-
-    let following = users_db::get_following(&state.db, user.id, viewer_id)
-        .await?
-        .into_iter()
-        .map(UserProfile::from)
-        .collect();
-
+    let list = async |list| -> ApiResult<Vec<UserProfile>> {
+        Ok(
+            users_db::follow_page(&state.db, user.id, list, viewer_id, None, FRIENDS_LIMIT)
+                .await?
+                .into_iter()
+                .map(|f| UserProfile::from(f.user))
+                .collect(),
+        )
+    };
     Ok(Json(FriendsResponse {
-        followers,
-        following,
+        followers: list(FollowList::Followers).await?,
+        following: list(FollowList::Following).await?,
     }))
 }
 
 pub fn _get_friends_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Get followers and following")
-        .description("Returns both the follower list and the following list for a given user, newest follow first. Private accounts are left out of both, except the viewer's own, and so are accounts waiting to be deleted. Private profiles return 403 to everyone but their owner.")
+        .description(&format!("Returns the {FRIENDS_LIMIT} most recent followers and the {FRIENDS_LIMIT} most recent accounts followed, newest follow first; `GET /v1/user/{{username}}/followers` and `/following` page through all of them. Private accounts are left out of both, except the viewer's own, and so are accounts waiting to be deleted. Private profiles return 403 to everyone but their owner."))
         .tag("Users")
         .response::<200, Json<FriendsResponse>>()
+        .response_with::<403, ErrorJson, _>(|r| r.description("Profile is private"))
+        .response_with::<404, ErrorJson, _>(|r| r.description("User not found"))
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct FollowListQuery {
+    /// Entries per page: 50 by default, 200 at most.
+    pub limit: Option<i64>,
+    /// The previous page's `next`, for the page after it.
+    pub before: Option<String>,
+}
+
+/// GET /v1/user/:username/followers
+pub async fn followers(
+    state: State<AppState>,
+    path: Path<UsernamePath>,
+    query: Query<FollowListQuery>,
+    auth_user: Option<Extension<AuthUser>>,
+) -> ApiResult<Json<FollowPage>> {
+    follow_list(state, path, query, auth_user, FollowList::Followers).await
+}
+
+pub fn _followers_doc(op: TransformOperation) -> TransformOperation {
+    follow_list_doc(op, "Followers", "the accounts following the user")
+}
+
+/// GET /v1/user/:username/following
+pub async fn following(
+    state: State<AppState>,
+    path: Path<UsernamePath>,
+    query: Query<FollowListQuery>,
+    auth_user: Option<Extension<AuthUser>>,
+) -> ApiResult<Json<FollowPage>> {
+    follow_list(state, path, query, auth_user, FollowList::Following).await
+}
+
+pub fn _following_doc(op: TransformOperation) -> TransformOperation {
+    follow_list_doc(op, "Following", "the accounts the user follows")
+}
+
+async fn follow_list(
+    State(state): State<AppState>,
+    Path(UsernamePath { username }): Path<UsernamePath>,
+    Query(q): Query<FollowListQuery>,
+    auth_user: Option<Extension<AuthUser>>,
+    list: FollowList,
+) -> ApiResult<Json<FollowPage>> {
+    let before = q
+        .before
+        .as_deref()
+        .map(|c| {
+            Cursor::parse(c).ok_or_else(|| AppError::BadRequest("invalid `before` cursor".into()))
+        })
+        .transpose()?;
+    let user = users_db::find_by_username(&state.db, &username)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    let viewer_id = auth_user.map(|Extension(a)| a.id);
+    crate::middleware::visibility::ensure_profile_visible(&state, viewer_id, &user).await?;
+
+    let limit = super::page_limit(q.limit, 50, 200);
+    let mut page =
+        users_db::follow_page(&state.db, user.id, list, viewer_id, before, limit + 1).await?;
+    let next = if page.len() as i64 > limit {
+        page.truncate(limit as usize);
+        page.last().map(|f| {
+            Cursor {
+                at: f.followed_at,
+                id: f.user.id,
+            }
+            .encode()
+        })
+    } else {
+        None
+    };
+    Ok(Json(FollowPage {
+        entries: page
+            .into_iter()
+            .map(|f| FollowEntry {
+                user: f.user.into(),
+                followed_at: f.followed_at,
+                is_following: f.is_following,
+                follows_you: f.follows_you,
+            })
+            .collect(),
+        next,
+    }))
+}
+
+fn follow_list_doc<'t>(
+    op: TransformOperation<'t>,
+    summary: &str,
+    what: &str,
+) -> TransformOperation<'t> {
+    op.summary(summary)
+        .description(&format!("A page of {what}, newest follow first: pass `next` as `before` for the following page; `next` is `null` on the last. Private accounts are left out, except the viewer's own, and so are accounts waiting to be deleted, so a page can hold fewer entries than `limit` while more follow. A signed-in viewer gets `is_following` and `follows_you` for each account. Private profiles return 403 to everyone but their owner."))
+        .tag("Users")
+        .response::<200, Json<FollowPage>>()
+        .response_with::<400, ErrorJson, _>(|r| r.description("Invalid `before` cursor"))
         .response_with::<403, ErrorJson, _>(|r| r.description("Profile is private"))
         .response_with::<404, ErrorJson, _>(|r| r.description("User not found"))
 }
@@ -289,6 +412,128 @@ mod tests {
     use serde_json::json;
 
     use crate::test_app::with_app;
+
+    #[tokio::test]
+    #[ignore = "needs Postgres and Redis: just test-db"]
+    async fn follow_lists_page_newest_first_with_counts_and_mutual_follows() {
+        with_app(Default::default(), |app| async move {
+            // Seven followers, a second apart; one private, one leaving.
+            let mut fans = Vec::new();
+            for n in 0..7 {
+                let (id, name, session) = app.other_user(&format!("fan{n}")).await;
+                sqlx::query(
+                    "INSERT INTO user_follows (follower_id, followee_id, created_at)
+                     VALUES ($1, $2, NOW() - make_interval(secs => $3))",
+                )
+                .bind(id)
+                .bind(app.user_id)
+                .bind(100 - n)
+                .execute(&app.pool)
+                .await
+                .unwrap();
+                fans.push((id, name, session));
+            }
+            sqlx::query("UPDATE users SET is_private = TRUE WHERE id = $1")
+                .bind(fans[2].0)
+                .execute(&app.pool)
+                .await
+                .unwrap();
+            sqlx::query("UPDATE users SET delete_after = NOW() + INTERVAL '7 days' WHERE id = $1")
+                .bind(fans[3].0)
+                .execute(&app.pool)
+                .await
+                .unwrap();
+            app.api(
+                Method::POST,
+                &format!("/v1/user/{}/follow", fans[6].1),
+                None,
+            )
+            .await;
+
+            let profile = format!("/v1/user/{}", app.username);
+            let (_, body) = app.api_as(&fans[6].2, Method::GET, &profile, None).await;
+            assert_eq!(
+                body["followers_count"], 7,
+                "private and leaving ones counted"
+            );
+            assert_eq!(body["following_count"], 1);
+            assert_eq!(
+                (&body["is_following"], &body["follows_you"]),
+                (&json!(true), &json!(true))
+            );
+            let (_, body) = app.api_as(&fans[0].2, Method::GET, &profile, None).await;
+            assert_eq!(
+                (&body["is_following"], &body["follows_you"]),
+                (&json!(true), &json!(false))
+            );
+            let body: serde_json::Value = serde_json::from_str(&app.get(&profile).await.2).unwrap();
+            assert_eq!(
+                (&body["is_following"], &body["follows_you"]),
+                (&json!(null), &json!(null))
+            );
+
+            // Pages of two, newest first, without the private or leaving
+            // fan; the viewer's own entry has no relation to itself.
+            let mut seen = Vec::new();
+            let mut path = format!("{profile}/followers?limit=2");
+            loop {
+                let (status, page) = app.api_as(&fans[6].2, Method::GET, &path, None).await;
+                assert_eq!(status, StatusCode::OK, "{page}");
+                for entry in page["entries"].as_array().unwrap() {
+                    seen.push(entry["username"].as_str().unwrap().to_owned());
+                    if entry["username"] == fans[6].1.as_str() {
+                        assert_eq!(entry["is_following"], json!(null));
+                    } else {
+                        assert_eq!(entry["is_following"], json!(false));
+                        assert_eq!(entry["follows_you"], json!(false));
+                    }
+                }
+                match page["next"].as_str() {
+                    Some(next) => path = format!("{profile}/followers?limit=2&before={next}"),
+                    None => break,
+                }
+            }
+            let expected: Vec<String> =
+                [6, 5, 4, 1, 0].iter().map(|&n| fans[n].1.clone()).collect();
+            assert_eq!(seen, expected);
+            // The private fan sees itself.
+            let (_, page) = app
+                .api_as(
+                    &fans[2].2,
+                    Method::GET,
+                    &format!("{profile}/followers?limit=200"),
+                    None,
+                )
+                .await;
+            assert_eq!(page["entries"].as_array().unwrap().len(), 6);
+
+            let (_, page) = app
+                .api(Method::GET, &format!("{profile}/following"), None)
+                .await;
+            assert_eq!(page["entries"][0]["username"], fans[6].1.as_str());
+            assert_eq!(page["entries"][0]["follows_you"], json!(true));
+            assert_eq!(page["next"], json!(null));
+
+            let (status, _) = app
+                .api(
+                    Method::GET,
+                    &format!("{profile}/followers?before=nonsense"),
+                    None,
+                )
+                .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+            let (status, page) = app
+                .api(Method::GET, &format!("{profile}/followers?limit=0"), None)
+                .await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(page["entries"].as_array().unwrap().len(), 1);
+            let gone = format!("/v1/user/{}/followers", fans[3].1);
+            assert_eq!(app.get(&gone).await.0, StatusCode::NOT_FOUND);
+            let private = format!("/v1/user/{}/following", fans[2].1);
+            assert_eq!(app.get(&private).await.0, StatusCode::FORBIDDEN);
+        })
+        .await;
+    }
 
     #[tokio::test]
     #[ignore = "needs Postgres and Redis: just test-db"]

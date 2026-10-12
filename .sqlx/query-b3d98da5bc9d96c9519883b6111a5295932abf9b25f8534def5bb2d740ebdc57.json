@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT (SELECT count(*) FROM user_follows WHERE followee_id = $1) AS \"followers!\",\n               (SELECT count(*) FROM user_follows WHERE follower_id = $1) AS \"following!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "followers!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "following!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "b3d98da5bc9d96c9519883b6111a5295932abf9b25f8534def5bb2d740ebdc57"
+}

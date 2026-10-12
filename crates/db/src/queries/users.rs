@@ -1,5 +1,7 @@
+use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 
+use shared::cursor::Cursor;
 use shared::models::{ScrobbleBreakdown, User};
 
 pub async fn find_by_id(pool: &PgPool, id: i64) -> Result<Option<User>, sqlx::Error> {
@@ -152,57 +154,152 @@ pub async fn unfollow_user(
     Ok(())
 }
 
+/// Followers or following.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FollowList {
+    Followers,
+    Following,
+}
+
+/// An account in a follow list, and how it relates to the viewer (`None`
+/// without one, or for the viewer's own entry).
+#[derive(Debug, Clone)]
+pub struct Follow {
+    pub user: User,
+    pub followed_at: DateTime<Utc>,
+    pub is_following: Option<bool>,
+    pub follows_you: Option<bool>,
+}
+
+macro_rules! follow {
+    ($r:expr) => {
+        Follow {
+            user: User {
+                id: $r.id,
+                username: $r.username,
+                email: $r.email,
+                password_hash: $r.password_hash,
+                display_name: $r.display_name,
+                bio: $r.bio,
+                image_url: $r.image_url,
+                website_url: $r.website_url,
+                country: $r.country,
+                scrobble_count: $r.scrobble_count,
+                is_private: $r.is_private,
+                is_verified: $r.is_verified,
+                last_seen_at: $r.last_seen_at,
+                created_at: $r.created_at,
+                updated_at: $r.updated_at,
+                delete_after: $r.delete_after,
+            },
+            followed_at: $r.followed_at,
+            is_following: $r.is_following,
+            follows_you: $r.follows_you,
+        }
+    };
+}
+
+/// A page of `user_id`'s followers or following, newest follow first,
+/// after `before` (the previous page's last follow time and account id).
 /// Only accounts `viewer_id` may see: private ones are left out unless they
-/// are the viewer's own, and accounts waiting to be erased always are, here
-/// and in [`get_following`].
-pub async fn get_followers(
+/// are the viewer's own, and accounts waiting to be erased always are.
+pub async fn follow_page(
     pool: &PgPool,
     user_id: i64,
+    list: FollowList,
     viewer_id: Option<i64>,
-) -> Result<Vec<User>, sqlx::Error> {
-    sqlx::query_as!(
-        User,
-        r#"
-        SELECT u.id, u.username, u.email, u.password_hash, u.display_name, u.bio,
+    before: Option<Cursor>,
+    limit: i64,
+) -> Result<Vec<Follow>, sqlx::Error> {
+    let (before_at, before_id) = (before.map(|c| c.at), before.map_or(0, |c| c.id));
+    Ok(match list {
+        FollowList::Followers => sqlx::query!(
+            r#"
+        SELECT
+               u.id, u.username, u.email, u.password_hash, u.display_name, u.bio,
                u.image_url, u.website_url, u.country, u.scrobble_count,
                u.is_private, u.is_verified, u.last_seen_at, u.created_at, u.updated_at,
-               u.delete_after
+               u.delete_after,
+               f.created_at AS followed_at,
+               CASE WHEN $2::bigint IS NULL OR u.id = $2 THEN NULL
+                    ELSE EXISTS (SELECT 1 FROM user_follows v
+                                 WHERE v.follower_id = $2 AND v.followee_id = u.id) END
+                   AS is_following,
+               CASE WHEN $2::bigint IS NULL OR u.id = $2 THEN NULL
+                    ELSE EXISTS (SELECT 1 FROM user_follows v
+                                 WHERE v.follower_id = u.id AND v.followee_id = $2) END
+                   AS follows_you
         FROM user_follows f
         JOIN users u ON u.id = f.follower_id
         WHERE f.followee_id = $1 AND u.delete_after IS NULL
           AND (NOT u.is_private OR u.id = $2)
-        ORDER BY f.created_at DESC
+          AND ($3::timestamptz IS NULL OR (f.created_at, f.follower_id) < ($3, $4))
+        ORDER BY f.created_at DESC, f.follower_id DESC
+        LIMIT $5
         "#,
-        user_id,
-        viewer_id,
-    )
-    .fetch_all(pool)
-    .await
-}
-
-pub async fn get_following(
-    pool: &PgPool,
-    user_id: i64,
-    viewer_id: Option<i64>,
-) -> Result<Vec<User>, sqlx::Error> {
-    sqlx::query_as!(
-        User,
-        r#"
-        SELECT u.id, u.username, u.email, u.password_hash, u.display_name, u.bio,
+            user_id,
+            viewer_id,
+            before_at,
+            before_id,
+            limit,
+        )
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(|r| follow!(r))
+        .collect(),
+        FollowList::Following => sqlx::query!(
+            r#"
+        SELECT
+               u.id, u.username, u.email, u.password_hash, u.display_name, u.bio,
                u.image_url, u.website_url, u.country, u.scrobble_count,
                u.is_private, u.is_verified, u.last_seen_at, u.created_at, u.updated_at,
-               u.delete_after
+               u.delete_after,
+               f.created_at AS followed_at,
+               CASE WHEN $2::bigint IS NULL OR u.id = $2 THEN NULL
+                    ELSE EXISTS (SELECT 1 FROM user_follows v
+                                 WHERE v.follower_id = $2 AND v.followee_id = u.id) END
+                   AS is_following,
+               CASE WHEN $2::bigint IS NULL OR u.id = $2 THEN NULL
+                    ELSE EXISTS (SELECT 1 FROM user_follows v
+                                 WHERE v.follower_id = u.id AND v.followee_id = $2) END
+                   AS follows_you
         FROM user_follows f
         JOIN users u ON u.id = f.followee_id
         WHERE f.follower_id = $1 AND u.delete_after IS NULL
           AND (NOT u.is_private OR u.id = $2)
-        ORDER BY f.created_at DESC
+          AND ($3::timestamptz IS NULL OR (f.created_at, f.followee_id) < ($3, $4))
+        ORDER BY f.created_at DESC, f.followee_id DESC
+        LIMIT $5
+        "#,
+            user_id,
+            viewer_id,
+            before_at,
+            before_id,
+            limit,
+        )
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(|r| follow!(r))
+        .collect(),
+    })
+}
+
+/// Accounts following `user_id` and followed by it: every follow, private
+/// accounts' and those waiting to be erased included, which lists don't
+/// name.
+pub async fn follow_counts(pool: &PgPool, user_id: i64) -> Result<(i64, i64), sqlx::Error> {
+    let r = sqlx::query!(
+        r#"
+        SELECT (SELECT count(*) FROM user_follows WHERE followee_id = $1) AS "followers!",
+               (SELECT count(*) FROM user_follows WHERE follower_id = $1) AS "following!"
         "#,
         user_id,
-        viewer_id,
     )
-    .fetch_all(pool)
-    .await
+    .fetch_one(pool)
+    .await?;
+    Ok((r.followers, r.following))
 }
 
 pub async fn is_following(

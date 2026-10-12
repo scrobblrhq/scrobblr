@@ -431,6 +431,14 @@ pub fn build(state: AppState) -> Router {
             "/v1/user/{username}/friends",
             get_with(users::get_friends, users::_get_friends_doc),
         )
+        .api_route(
+            "/v1/user/{username}/followers",
+            get_with(users::followers, users::_followers_doc),
+        )
+        .api_route(
+            "/v1/user/{username}/following",
+            get_with(users::following, users::_following_doc),
+        )
         // Community: image candidates (optional auth flags the viewer's votes)
         .api_route(
             "/v1/artist/{id}/images",

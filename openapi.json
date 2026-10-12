@@ -554,6 +554,140 @@
         ],
         "type": "object"
       },
+      "FollowEntry": {
+        "description": "An account in someone's followers or following.",
+        "properties": {
+          "bio": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "country": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "display_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "followed_at": {
+            "description": "When the follow began.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "follows_you": {
+            "description": "Whether this account follows the signed-in viewer; `null` likewise.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "image_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "is_following": {
+            "description": "Whether the signed-in viewer follows this account; `null` when\n signed out, or for the viewer's own entry.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "is_private": {
+            "type": "boolean"
+          },
+          "is_verified": {
+            "type": "boolean"
+          },
+          "last_seen_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scrobble_count": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "username": {
+            "type": "string"
+          },
+          "website_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "username",
+          "scrobble_count",
+          "is_private",
+          "is_verified",
+          "created_at",
+          "followed_at"
+        ],
+        "type": "object"
+      },
+      "FollowListQuery": {
+        "properties": {
+          "before": {
+            "description": "The previous page's `next`, for the page after it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "description": "Entries per page: 50 by default, 200 at most.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "FollowPage": {
+        "description": "A page of followers or following, newest follow first.",
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/FollowEntry"
+            },
+            "type": "array"
+          },
+          "next": {
+            "description": "`before` for the next page; `null` on the last one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "entries"
+        ],
+        "type": "object"
+      },
       "FriendsResponse": {
         "properties": {
           "followers": {
@@ -816,6 +950,23 @@
               "null"
             ]
           },
+          "followers_count": {
+            "description": "Accounts following this one, private ones included (lists don't\n name them).",
+            "format": "int64",
+            "type": "integer"
+          },
+          "following_count": {
+            "description": "Accounts this one follows, private ones included.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "follows_you": {
+            "description": "Whether this account follows the signed-in viewer; `null` likewise.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "id": {
             "format": "int64",
             "type": "integer"
@@ -827,6 +978,7 @@
             ]
           },
           "is_following": {
+            "description": "Whether the signed-in viewer follows this account; `null` when\n signed out, and on the viewer's own profile.",
             "type": [
               "boolean",
               "null"
@@ -874,6 +1026,8 @@
           "is_private",
           "is_verified",
           "created_at",
+          "followers_count",
+          "following_count",
           "scrobble_breakdown"
         ],
         "type": "object"
@@ -7125,7 +7279,7 @@
     },
     "/v1/user/me": {
       "get": {
-        "description": "Alias for fetching the authenticated user's own profile, regardless of privacy settings, with the same `scrobble_breakdown`.",
+        "description": "Alias for fetching the authenticated user's own profile, regardless of privacy settings, with the same counts and `scrobble_breakdown`; `is_following` and `follows_you` are `null`.",
         "responses": {
           "200": {
             "content": {
@@ -7545,7 +7699,7 @@
     },
     "/v1/user/{username}": {
       "get": {
-        "description": "Returns the public profile for a user. If the viewer is authenticated, also includes `is_following`. `scrobble_count` leaves out the scrobbles the classifier found to be the same listen reported again (duplicates); `scrobble_breakdown` divides it into verified plays and unverified ones (over the listening time real time allows, of tracks with no known length, or not classified yet). Private profiles return 403 to everyone but their owner, followers included (following takes no approval).",
+        "description": "Returns the public profile for a user, with how many accounts follow it and it follows (`followers_count`, `following_count`: every follow, private accounts' included). A signed-in viewer also gets `is_following` (the viewer follows this account) and `follows_you` (it follows the viewer); both are `null` otherwise. `scrobble_count` leaves out the scrobbles the classifier found to be the same listen reported again (duplicates); `scrobble_breakdown` divides it into verified plays and unverified ones (over the listening time real time allows, of tracks with no known length, or not classified yet). Private profiles return 403 to everyone but their owner, followers included (following takes no approval).",
         "parameters": [
           {
             "in": "path",
@@ -7799,9 +7953,239 @@
         ]
       }
     },
+    "/v1/user/{username}/followers": {
+      "get": {
+        "description": "A page of the accounts following the user, newest follow first: pass `next` as `before` for the following page; `next` is `null` on the last. Private accounts are left out, except the viewer's own, and so are accounts waiting to be deleted, so a page can hold fewer entries than `limit` while more follow. A signed-in viewer gets `is_following` and `follows_you` for each account. Private profiles return 403 to everyone but their owner.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "username",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "The previous page's `next`, for the page after it.",
+            "in": "query",
+            "name": "before",
+            "schema": {
+              "description": "The previous page's `next`, for the page after it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "Entries per page: 50 by default, 200 at most.",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Entries per page: 50 by default, 200 at most.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FollowPage"
+                }
+              }
+            },
+            "description": "A page of followers or following, newest follow first."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Invalid `before` cursor"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Profile is private"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "User not found"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Followers",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/v1/user/{username}/following": {
+      "get": {
+        "description": "A page of the accounts the user follows, newest follow first: pass `next` as `before` for the following page; `next` is `null` on the last. Private accounts are left out, except the viewer's own, and so are accounts waiting to be deleted, so a page can hold fewer entries than `limit` while more follow. A signed-in viewer gets `is_following` and `follows_you` for each account. Private profiles return 403 to everyone but their owner.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "username",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "The previous page's `next`, for the page after it.",
+            "in": "query",
+            "name": "before",
+            "schema": {
+              "description": "The previous page's `next`, for the page after it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "Entries per page: 50 by default, 200 at most.",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Entries per page: 50 by default, 200 at most.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FollowPage"
+                }
+              }
+            },
+            "description": "A page of followers or following, newest follow first."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Invalid `before` cursor"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Profile is private"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "User not found"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Following",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
     "/v1/user/{username}/friends": {
       "get": {
-        "description": "Returns both the follower list and the following list for a given user, newest follow first. Private accounts are left out of both, except the viewer's own, and so are accounts waiting to be deleted. Private profiles return 403 to everyone but their owner.",
+        "description": "Returns the 100 most recent followers and the 100 most recent accounts followed, newest follow first; `GET /v1/user/{username}/followers` and `/following` page through all of them. Private accounts are left out of both, except the viewer's own, and so are accounts waiting to be deleted. Private profiles return 403 to everyone but their owner.",
         "parameters": [
           {
             "in": "path",

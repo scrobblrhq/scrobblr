@@ -71,6 +71,31 @@ pub struct ScrobbleBreakdown {
     pub duplicates: i64,
 }
 
+/// An account in someone's followers or following.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct FollowEntry {
+    #[serde(flatten)]
+    #[ts(flatten)]
+    pub user: UserProfile,
+    /// When the follow began.
+    pub followed_at: DateTime<Utc>,
+    /// Whether the signed-in viewer follows this account; `null` when
+    /// signed out, or for the viewer's own entry.
+    pub is_following: Option<bool>,
+    /// Whether this account follows the signed-in viewer; `null` likewise.
+    pub follows_you: Option<bool>,
+}
+
+/// A page of followers or following, newest follow first.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct FollowPage {
+    pub entries: Vec<FollowEntry>,
+    /// `before` for the next page; `null` on the last one.
+    pub next: Option<String>,
+}
+
 impl From<User> for UserProfile {
     fn from(u: User) -> Self {
         Self {

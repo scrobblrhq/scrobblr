@@ -1,6 +1,7 @@
 pub mod classification;
 pub mod coordination;
 pub mod crypto;
+pub mod cursor;
 pub mod import;
 pub mod lastfm;
 pub mod logging;
