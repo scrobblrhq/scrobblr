@@ -3,7 +3,10 @@ mod common;
 use chrono::{DateTime, NaiveDate, TimeDelta, Utc};
 use common::with_db;
 use db::queries::classification as cdb;
-use db::queries::{scrobbles as scrobbles_db, tracks as tracks_db, users as users_db};
+use db::queries::{
+    charts as charts_db, scrobbles as scrobbles_db, tracks as tracks_db, users as users_db,
+};
+use shared::charts::ChartRange;
 use shared::classification::BudgetParams;
 use shared::models::{ScrobbleBreakdown, ScrobbleLabel};
 use sqlx::PgPool;
@@ -120,15 +123,22 @@ async fn profiles_leave_duplicates_out_and_tell_verified_from_unverified() {
             .await
             .unwrap();
         let since = at(day, 0);
-        let artists = scrobbles_db::get_top_artists(&pool, user_id, since, 10)
+        let range = ChartRange {
+            period: None,
+            from: Some(day),
+            to: Utc::now().date_naive(),
+        };
+        let artists = charts_db::user_artists(&pool, user_id, &range, 10, 0)
             .await
-            .unwrap();
+            .unwrap()
+            .entries;
         assert_eq!(artists.len(), 1);
         assert_eq!(artists[0].play_count, 324);
         assert_eq!(artists[0].unverified_count, c.suspect + 3);
-        let tracks = scrobbles_db::get_top_tracks(&pool, user_id, since, 50)
+        let tracks = charts_db::user_tracks(&pool, user_id, &range, 50, 0)
             .await
-            .unwrap();
+            .unwrap()
+            .entries;
         let song = tracks.iter().find(|t| t.track_title == "Song 0").unwrap();
         assert_eq!((song.play_count, song.unverified_count), (1, Some(0)));
         let untimed = tracks.iter().find(|t| t.track_title == "Untimed").unwrap();

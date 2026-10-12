@@ -17,11 +17,14 @@ use axum::{
 };
 use chrono::{Duration, TimeDelta, Utc};
 use db::queries::scrobble_clients::{ClientIdentity, PROTOCOL_SCROBBLR};
-use db::queries::{scrobbles as scrobbles_db, tracks as tracks_db, users as users_db};
+use db::queries::{
+    charts as charts_db, scrobbles as scrobbles_db, tracks as tracks_db, users as users_db,
+};
 use fred::interfaces::PubsubInterface;
 use futures_util::stream::{self, Stream, StreamExt};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use shared::charts::ChartRange;
 use shared::models::{ActivityDay, NowPlayingRich, ScrobbleRich, TopArtist, TopTrack};
 use shared::scrobble::{ScrobbleInput, plausible_duration_ms};
 use std::convert::Infallible;
@@ -267,15 +270,22 @@ pub struct PeriodQuery {
     pub limit: Option<i64>,
 }
 
-fn period_to_since(period: &str) -> chrono::DateTime<Utc> {
-    let now = Utc::now();
-    match period {
-        "7days" => now - Duration::days(7),
-        "1month" => now - Duration::days(30),
-        "3months" => now - Duration::days(90),
-        "6months" => now - Duration::days(180),
-        "1year" => now - Duration::days(365),
-        _ => chrono::DateTime::from_timestamp(0, 0).unwrap_or(now), // overall
+/// The UTC days a profile's top list covers, today included; anything but
+/// a known period is all of history.
+fn period_range(period: &str) -> ChartRange {
+    let days = match period {
+        "7days" => Some(7),
+        "1month" => Some(30),
+        "3months" => Some(90),
+        "6months" => Some(180),
+        "1year" => Some(365),
+        _ => None,
+    };
+    let today = Utc::now().date_naive();
+    ChartRange {
+        period: None,
+        from: days.map(|d| today - Duration::days(d - 1)),
+        to: today,
     }
 }
 
@@ -293,16 +303,16 @@ pub async fn top_artists(
     let viewer_id = auth_user.map(|Extension(a)| a.id);
     crate::middleware::visibility::ensure_profile_visible(&state, viewer_id, &user).await?;
 
-    let since = period_to_since(q.period.as_deref().unwrap_or("overall"));
+    let range = period_range(q.period.as_deref().unwrap_or("overall"));
     let limit = super::page_limit(q.limit, 10, 50);
 
-    let artists = scrobbles_db::get_top_artists(&state.db, user.id, since, limit).await?;
-    Ok(Json(artists))
+    let artists = charts_db::user_artists(&state.db, user.id, &range, limit, 0).await?;
+    Ok(Json(artists.entries))
 }
 
 pub fn _top_artists_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Get top artists")
-        .description("Returns the most scrobbled artists for a user in a given period, duplicates left out; `unverified_count` is how many of the plays the classifier labelled `suspect` or `no_data`. Supported periods: `7days`, `1month`, `3months`, `6months`, `1year`, `overall` (default). Maximum 50 results.")
+        .description("Returns the most scrobbled artists for a user in a given period, duplicates left out; `unverified_count` is how many of the plays the classifier labelled `suspect` or `no_data`. Supported periods: `7days`, `1month`, `3months`, `6months`, `1year`, `overall` (default), each UTC days ending today. Maximum 50 results; `GET /v1/user/{username}/charts/artists` pages through all of them, and takes custom ranges.")
         .tag("Scrobbles")
         .response_with::<200, Json<Vec<TopArtist>>, _>(|r| r.description("Ranked list of top artists with scrobble counts"))
         .response_with::<403, ErrorJson, _>(|r| r.description("Profile is private"))
@@ -323,16 +333,16 @@ pub async fn top_tracks(
     let viewer_id = auth_user.map(|Extension(a)| a.id);
     crate::middleware::visibility::ensure_profile_visible(&state, viewer_id, &user).await?;
 
-    let since = period_to_since(q.period.as_deref().unwrap_or("overall"));
+    let range = period_range(q.period.as_deref().unwrap_or("overall"));
     let limit = super::page_limit(q.limit, 10, 50);
 
-    let tracks = scrobbles_db::get_top_tracks(&state.db, user.id, since, limit).await?;
-    Ok(Json(tracks))
+    let tracks = charts_db::user_tracks(&state.db, user.id, &range, limit, 0).await?;
+    Ok(Json(tracks.entries))
 }
 
 pub fn _top_tracks_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Get top tracks")
-        .description("Returns the most scrobbled tracks for a user in a given period, duplicates left out; `unverified_count` is how many of the plays the classifier labelled `suspect` or `no_data`. Supported periods: `7days`, `1month`, `3months`, `6months`, `1year`, `overall` (default). Maximum 50 results.")
+        .description("Returns the most scrobbled tracks for a user in a given period, duplicates left out; `unverified_count` is how many of the plays the classifier labelled `suspect` or `no_data`. Supported periods: `7days`, `1month`, `3months`, `6months`, `1year`, `overall` (default), each UTC days ending today. Maximum 50 results; `GET /v1/user/{username}/charts/tracks` pages through all of them, and takes custom ranges.")
         .tag("Scrobbles")
         .response_with::<200, Json<Vec<TopTrack>>, _>(|r| r.description("Ranked list of top tracks with scrobble counts"))
         .response_with::<403, ErrorJson, _>(|r| r.description("Profile is private"))

@@ -3,7 +3,8 @@ mod common;
 use chrono::{DateTime, NaiveDate, TimeDelta, Utc};
 use common::with_db;
 use db::queries::classification::{self as cdb, QueuedDay, Ruleset};
-use db::queries::{scrobbles as scrobbles_db, tracks as tracks_db};
+use db::queries::{charts as charts_db, scrobbles as scrobbles_db, tracks as tracks_db};
+use shared::charts::ChartRange;
 use shared::classification::{BudgetParams, Status};
 use shared::scrobble::ScrobbleInput;
 use sqlx::PgPool;
@@ -215,14 +216,21 @@ async fn bot_hour_is_flagged_identically_on_rerun_and_charts_are_unchanged() {
             ]
         );
 
-        // Shadow mode: charts still count every scrobble.
+        // Charts count suspect plays, as unverified.
         scrobbles_db::refresh_scrobble_aggregates(&pool, at(day, 0), at(day, 0))
             .await
             .unwrap();
-        let top = scrobbles_db::get_top_artists(&pool, bot, at(day, 0), 10)
+        let range = ChartRange {
+            period: None,
+            from: Some(day),
+            to: day,
+        };
+        let top = charts_db::user_artists(&pool, bot, &range, 10, 0)
             .await
-            .unwrap();
+            .unwrap()
+            .entries;
         assert_eq!(top[0].play_count, 600);
+        assert_eq!(top[0].unverified_count, 600 - allowed);
     })
     .await;
 }

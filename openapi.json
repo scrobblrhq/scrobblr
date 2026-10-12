@@ -9575,7 +9575,7 @@
     },
     "/v1/user/{username}/top-artists": {
       "get": {
-        "description": "Returns the most scrobbled artists for a user in a given period, duplicates left out; `unverified_count` is how many of the plays the classifier labelled `suspect` or `no_data`. Supported periods: `7days`, `1month`, `3months`, `6months`, `1year`, `overall` (default). Maximum 50 results.",
+        "description": "Returns the most scrobbled artists for a user in a given period, duplicates left out; `unverified_count` is how many of the plays the classifier labelled `suspect` or `no_data`. Supported periods: `7days`, `1month`, `3months`, `6months`, `1year`, `overall` (default), each UTC days ending today. Maximum 50 results; `GET /v1/user/{username}/charts/artists` pages through all of them, and takes custom ranges.",
         "parameters": [
           {
             "in": "path",
@@ -9681,7 +9681,7 @@
     },
     "/v1/user/{username}/top-tracks": {
       "get": {
-        "description": "Returns the most scrobbled tracks for a user in a given period, duplicates left out; `unverified_count` is how many of the plays the classifier labelled `suspect` or `no_data`. Supported periods: `7days`, `1month`, `3months`, `6months`, `1year`, `overall` (default). Maximum 50 results.",
+        "description": "Returns the most scrobbled tracks for a user in a given period, duplicates left out; `unverified_count` is how many of the plays the classifier labelled `suspect` or `no_data`. Supported periods: `7days`, `1month`, `3months`, `6months`, `1year`, `overall` (default), each UTC days ending today. Maximum 50 results; `GET /v1/user/{username}/charts/tracks` pages through all of them, and takes custom ranges.",
         "parameters": [
           {
             "in": "path",
