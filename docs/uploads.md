@@ -20,14 +20,18 @@ before migration 0017 have keys of the form `{uuid}.jpg`, at the root of
 `UPLOAD_DIR`.
 
 A replaced or removed avatar is deleted. Artwork stays, since it is voted
-on.
+on. When an account is erased ([privacy.md](privacy.md#deletion)), the
+worker deletes its avatar and the artwork it uploaded, except artwork an
+artist or album shows, which stays as the catalog's. It goes through the
+same storage layer as the API (`shared::storage`), so the worker mounts
+the uploads volume too.
 
 Some files can outlive their row: an avatar from before upload keys once
 replaced, a delete that failed, an upload whose database write never
 happened. `worker uploads gc` lists the files under `UPLOAD_DIR` that no row
 refers to and are older than 24 hours (`--min-age-hours N` to change that);
-`--delete` deletes them. With Compose, run it in the API container, which
-has the volume:
+`--delete` deletes them. With Compose, run it in the API container (the
+worker's has the volume too):
 
 ```bash
 docker compose exec api worker uploads gc

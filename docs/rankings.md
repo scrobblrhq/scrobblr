@@ -512,7 +512,8 @@ included:
 | `year` | 365 | every day |
 
 and each also when the UTC day changes (the window moves), the weights'
-settings do, or a newer coordination run brings other factors. A refresh sums `ranking_daily` over the period and replaces
+settings do, a newer coordination run brings other factors, or an
+erased account counted in them ([privacy.md](privacy.md#deletion)). A refresh sums `ranking_daily` over the period and replaces
 the period's two rows in `ranking_snapshots` (artists, tracks) and their
 first 1,000 positions in `ranking_entries`, in one transaction: listener
 credits and weight with the coordination factors applied, the raw counts

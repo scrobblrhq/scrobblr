@@ -67,6 +67,9 @@ unhealthy service. The database is dumped first and the uploads after:
 an image is stored before a row refers to it, so the archive has every
 file the dump names.
 
+They hold deleted accounts too, until they rotate out
+([privacy.md](privacy.md#limits)).
+
 The files are readable by root only (`0600`): they hold password hashes,
 encrypted account tokens and keyed hashes of where recent accounts
 registered from ([rankings.md](rankings.md#privacy)). `TOKEN_ENCRYPTION_KEY`
@@ -280,6 +283,24 @@ an address because the proxy doesn't name them).
 `LOG_FORMAT=json` turns the API's and worker's log lines into one JSON
 object each, for a collector; `RUST_LOG` filters them. Every service's
 Docker log is rotated at 10 MB, 5 files.
+
+## Account exports and deletions
+
+Users export their data and delete their accounts themselves
+([privacy.md](privacy.md)). A deleted account is erased by the worker
+`ACCOUNT_DELETION_GRACE_DAYS` (7) days after the request, in the background
+(about two minutes for an account with half a million scrobbles); the
+worker mounts the uploads volume to delete the account's images (without
+it, they wait for `worker uploads gc`).
+
+```bash
+docker compose exec worker worker accounts pending      # accounts waiting to be erased
+docker compose exec worker worker accounts erase NAME   # erase one now (a request by email)
+```
+
+Backups keep erased accounts until they rotate out. After a restore, the
+accounts erased since that backup are back: erase them again (the database
+keeps no list of them; keep your own record of requests if you need one).
 
 ## Behind a reverse proxy
 
