@@ -107,7 +107,9 @@ verify_dir() {
     dir=$1
     (cd "$dir" && sha256sum -c -s SHA256SUMS) || die "$dir: checksums don't match"
     toc=$(pg_restore --list "$dir/scrobblr.dump") || die "$dir: the dump's table of contents can't be read"
-    echo "$toc" | grep -q "TABLE DATA public users " || die "$dir: the dump has no users table"
+    # Not grep -q: it stops at the match, and with pipefail a list longer
+    # than the pipe's buffer then fails on echo's SIGPIPE.
+    echo "$toc" | grep -c "TABLE DATA public users " > /dev/null || die "$dir: the dump has no users table"
     pg_restore -f /dev/null "$dir/scrobblr.dump" || die "$dir: the dump can't be read in full"
     expected=$(sed -n 's/^uploads=//p' "$dir/manifest")
     entries=$(tar -tf "$dir/uploads.tar") || die "$dir: uploads.tar can't be read"
