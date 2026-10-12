@@ -1,20 +1,26 @@
-//! Deleting the account: sessions only, so a leaked API token can't.
+//! Exporting and deleting the account: sessions only, so a leaked API token
+//! can't carry the account away or delete it.
 
+use std::sync::Arc;
+
+use aide::axum::IntoApiResponse;
 use aide::transform::TransformOperation;
 use axum::{
     Json,
     extract::{Extension, State},
-    http::StatusCode,
+    http::{HeaderValue, StatusCode, header},
+    response::IntoResponse,
 };
 use chrono::{DateTime, TimeDelta, Utc};
 use fred::interfaces::KeysInterface;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use tokio::sync::Semaphore;
 
 use crate::{
     errors::{ApiResult, AppError, ErrorJson},
-    limits,
-    middleware::auth::AuthUser,
+    export, limits,
+    middleware::auth::{AuthUser, Credential},
     middleware::rate_limit::ClientIp,
     state::AppState,
 };
@@ -22,9 +28,13 @@ use db::queries::{accounts as accounts_db, users as users_db};
 use shared::user::verify_password;
 use shared::validation::PASSWORD_LOGIN_MAX_LEN;
 
+/// Per API instance; each holds a database connection while it reads a page.
+const EXPORTS_AT_ONCE: usize = 2;
+
 #[derive(Clone)]
 pub struct AccountConfig {
     pub deletion_grace: TimeDelta,
+    pub exports: Arc<Semaphore>,
 }
 
 pub const DEFAULT_GRACE_DAYS: i64 = 7;
@@ -34,6 +44,7 @@ impl Default for AccountConfig {
     fn default() -> Self {
         Self {
             deletion_grace: TimeDelta::days(DEFAULT_GRACE_DAYS),
+            exports: Arc::new(Semaphore::new(EXPORTS_AT_ONCE)),
         }
     }
 }
@@ -55,8 +66,85 @@ impl AccountConfig {
         };
         Ok(Self {
             deletion_grace: TimeDelta::days(days),
+            ..Self::default()
         })
     }
+}
+
+/// GET /v1/user/me/export
+pub async fn export_account(
+    State(state): State<AppState>,
+    Extension(auth_user): Extension<AuthUser>,
+    ClientIp(ip): ClientIp,
+) -> ApiResult<impl IntoApiResponse> {
+    let Ok(permit) = state.accounts.exports.clone().try_acquire_owned() else {
+        return Err(AppError::ServiceUnavailable(
+            "other exports are running, try again in a few minutes".into(),
+        ));
+    };
+    if !limits::export_attempt(&state, auth_user.id, &ip).await? {
+        return Err(AppError::RateLimited);
+    }
+    let user = users_db::find_by_id(&state.db, auth_user.id)
+        .await?
+        .ok_or(AppError::Unauthorized)?;
+    let session = match auth_user.credential {
+        Credential::Session { id } => Some(id),
+        Credential::ApiToken { .. } => None,
+    };
+    let filename = format!(
+        "scrobblr-{}-{}.zip",
+        user.username,
+        Utc::now().format("%Y%m%d")
+    );
+    let disposition = HeaderValue::from_str(&format!("attachment; filename=\"{filename}\""))
+        .map_err(|e| AppError::Internal(e.into()))?;
+    let body = export::stream(state, user, session, permit);
+    Ok((
+        [
+            (
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/zip"),
+            ),
+            (header::CONTENT_DISPOSITION, disposition),
+            (header::CACHE_CONTROL, HeaderValue::from_static("no-store")),
+        ],
+        body,
+    )
+        .into_response())
+}
+
+pub fn _export_account_doc(op: TransformOperation) -> TransformOperation {
+    op.summary("Export my account")
+        .description(&format!(
+            "Downloads everything Scrobblr holds about the authenticated user as a ZIP archive (`{}`), streamed as it is read: `account.json` (profile and settings, follows, comments, image uploads and likes, sessions without their ids, API tokens and scrobbler credentials without their values, linked accounts without their OAuth tokens, imports, now playing, and `not_included`: what is left out and why), `scrobbles.csv` and `scrobbles.json` (every scrobble, oldest first, with its source, client, import and the classifier's label, never ranking weights), and `uploads/` (the avatar and artwork the user uploaded). Nothing is stored on the server: a broken download is asked for again. Takes a session, never an API token. At most {} exports a day per account and {} per address, and {EXPORTS_AT_ONCE} at once on the server.",
+            export::FORMAT,
+            limits::EXPORTS_PER_USER,
+            limits::EXPORTS_PER_IP,
+        ))
+        .tag("Account")
+        .response_with::<200, (), _>(|mut r| {
+            r.inner().content.insert(
+                "application/zip".into(),
+                aide::openapi::MediaType {
+                    schema: Some(aide::openapi::SchemaObject {
+                        json_schema: schemars::json_schema!({ "type": "string", "format": "binary" }),
+                        external_docs: None,
+                        example: None,
+                    }),
+                    ..Default::default()
+                },
+            );
+            r.description("The archive, as an attachment")
+        })
+        .response_with::<429, ErrorJson, _>(|r| {
+            r.description(&format!(
+                "Over {} exports today for this account or {} from this address, or over the request limit for this address",
+                limits::EXPORTS_PER_USER,
+                limits::EXPORTS_PER_IP
+            ))
+        })
+        .response_with::<503, ErrorJson, _>(|r| r.description("Other exports are running: try again in a few minutes"))
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -142,13 +230,189 @@ pub fn _delete_account_doc(op: TransformOperation) -> TransformOperation {
 
 #[cfg(test)]
 mod tests {
-    use axum::http::Method;
+    use std::io::{Cursor, Read};
+
+    use axum::body::Body;
+    use axum::http::{Method, Request};
     use chrono::{TimeDelta, Utc};
-    use serde_json::json;
+    use serde_json::{Value, json};
 
     use super::*;
     use crate::compat::CompatConfig;
-    use crate::test_app::{PASSWORD, with_app};
+    use crate::media::tests::{multipart, png};
+    use crate::test_app::{PASSWORD, TestApp, with_app};
+
+    async fn export(app: &TestApp, bearer: &str) -> (StatusCode, Vec<u8>) {
+        let req = Request::get("/v1/user/me/export")
+            .header(header::AUTHORIZATION, format!("Bearer {bearer}"))
+            .body(Body::empty())
+            .unwrap();
+        let (status, headers, body) = app.send_for_bytes(req).await;
+        if status == StatusCode::OK {
+            assert_eq!(headers[header::CONTENT_TYPE], "application/zip");
+            assert!(
+                headers[header::CONTENT_DISPOSITION]
+                    .to_str()
+                    .unwrap()
+                    .starts_with("attachment; filename=\"scrobblr-")
+            );
+            assert!(headers.get(header::CONTENT_ENCODING).is_none());
+        }
+        (status, body)
+    }
+
+    fn unzip(bytes: Vec<u8>) -> Vec<(String, Vec<u8>)> {
+        let mut archive = ::zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+        (0..archive.len())
+            .map(|i| {
+                let mut file = archive.by_index(i).unwrap();
+                let mut content = Vec::new();
+                file.read_to_end(&mut content).unwrap();
+                (file.name().unwrap().to_string(), content)
+            })
+            .collect()
+    }
+
+    /// The export holds the account and every scrobble, with labels and
+    /// clients, the avatar, and none of the credentials' secrets.
+    #[tokio::test]
+    #[ignore = "needs Postgres and Redis: just test-db"]
+    async fn the_export_holds_the_account_and_its_history_but_no_secret() {
+        with_app(CompatConfig::default(), |app| async move {
+            for i in 0..3 {
+                let play = json!({
+                    "track": format!("Song {i}"),
+                    "artist": "Band, \"The\"",
+                    "album": "=cmd|' /C calc'!A0",
+                    "played_at": (Utc::now() - TimeDelta::hours(i + 1)).to_rfc3339(),
+                    "duration_ms": 200_000,
+                    "source": "ytmusic",
+                });
+                let (status, _) = app.api(Method::POST, "/v1/scrobble", Some(play)).await;
+                assert_eq!(status, StatusCode::CREATED);
+            }
+            let (status, _, _) = app
+                .send(multipart(
+                    "/v1/user/me/avatar",
+                    &app.session.to_string(),
+                    &png(),
+                ))
+                .await;
+            assert_eq!(status, StatusCode::OK);
+            let (_, token) = app
+                .api(
+                    Method::POST,
+                    "/v1/auth/tokens",
+                    Some(json!({ "name": "player", "scopes": ["scrobble", "read"] })),
+                )
+                .await;
+            let token = token["token"].as_str().unwrap().to_string();
+            let (_, scrobbler) = app
+                .api(
+                    Method::POST,
+                    "/v1/scrobbler/tokens",
+                    Some(json!({ "name": "pano" })),
+                )
+                .await;
+            let scrobbler = scrobbler["token"].as_str().unwrap().to_string();
+
+            // Not with an API token, even one that may read.
+            let (status, _) = export(&app, &token).await;
+            assert_eq!(status, StatusCode::FORBIDDEN);
+
+            let (status, bytes) = export(&app, &app.session.to_string()).await;
+            assert_eq!(status, StatusCode::OK);
+            let text = String::from_utf8_lossy(&bytes).to_string();
+            let files = unzip(bytes);
+            let names: Vec<&str> = files.iter().map(|(n, _)| n.as_str()).collect();
+            assert_eq!(
+                names[..4],
+                [
+                    "README.txt",
+                    "account.json",
+                    "scrobbles.csv",
+                    "scrobbles.json"
+                ]
+            );
+            assert!(names[4].starts_with("uploads/avatars/"), "{names:?}");
+            assert_eq!(files[4].1[..2], [0xff, 0xd8], "the avatar, a JPEG");
+
+            let file = |name: &str| {
+                let (_, content) = files.iter().find(|(n, _)| n == name).unwrap();
+                String::from_utf8(content.clone()).unwrap()
+            };
+            let account: Value = serde_json::from_str(&file("account.json")).unwrap();
+            assert_eq!(account["format"], export::FORMAT);
+            assert_eq!(account["profile"]["username"], app.username.as_str());
+            assert_eq!(
+                account["profile"]["email"],
+                format!("{}@test", app.username)
+            );
+            assert_eq!(account["profile"]["image_file"], names[4]);
+            assert_eq!(account["api_tokens"][0]["name"], "player");
+            assert_eq!(account["scrobbler_credentials"][0]["name"], "pano");
+            assert_eq!(account["sessions"][0]["current"], true);
+            assert!(account["sessions"][0].get("id").is_none());
+            assert!(account["not_included"].as_array().unwrap().len() >= 5);
+            // No secret, hashed or not, anywhere in the archive (stored
+            // entries are searched as they are, deflated ones decompressed).
+            let everything: String = files
+                .iter()
+                .map(|(_, c)| String::from_utf8_lossy(c).to_string())
+                .collect::<Vec<_>>()
+                .join("\n")
+                + &text;
+            for secret in [
+                app.session.to_string(),
+                token.clone(),
+                db::queries::auth::hash_api_token(&token),
+                scrobbler.clone(),
+            ] {
+                assert!(!everything.contains(&secret), "the export holds a secret");
+            }
+            let hash: String = sqlx::query_scalar("SELECT password_hash FROM users WHERE id = $1")
+                .bind(app.user_id)
+                .fetch_one(&app.pool)
+                .await
+                .unwrap();
+            assert!(!everything.contains(&hash));
+
+            let csv = file("scrobbles.csv");
+            let lines: Vec<&str> = csv.lines().collect();
+            assert_eq!(lines.len(), 4);
+            assert!(lines[0].starts_with("played_at,artist,track,album,"));
+            // Oldest first, quoted where needed, formulas defused.
+            assert!(
+                lines[1].contains(",\"Band, \"\"The\"\"\",Song 2,\"'=cmd|' /C calc'!A0\","),
+                "{}",
+                lines[1]
+            );
+            assert!(
+                lines[1].contains(",ytmusic,scrobblr,ytmusic,false,"),
+                "{}",
+                lines[1]
+            );
+            let json: Vec<Value> = serde_json::from_str(&file("scrobbles.json")).unwrap();
+            assert_eq!(json.len(), 3);
+            assert_eq!(json[0]["track"], "Song 2");
+            assert_eq!(json[0]["album"], "=cmd|' /C calc'!A0");
+            assert_eq!(json[0]["client_protocol"], "scrobblr");
+            assert!(json[0].get("weight").is_none());
+
+            // Three a day.
+            for _ in 1..limits::EXPORTS_PER_USER {
+                assert_eq!(
+                    export(&app, &app.session.to_string()).await.0,
+                    StatusCode::OK
+                );
+            }
+            assert_eq!(
+                export(&app, &app.session.to_string()).await.0,
+                StatusCode::TOO_MANY_REQUESTS
+            );
+        })
+        .await;
+    }
 
     /// Deleting takes the password and the username, revokes every
     /// credential, hides the account, and a login before the erase brings

@@ -79,6 +79,7 @@ const ROUTES: &[(&str, &str, Access)] = &[
     ("POST", "/v1/artist/{id}/image", Access::Scope(Scope::Write)),
     ("POST", "/v1/album/{id}/image", Access::Scope(Scope::Write)),
     // A leaked token must not carry the account away or delete it.
+    ("GET", "/v1/user/me/export", Access::Session),
     ("POST", "/v1/user/me/delete", Access::Session),
     ("GET", "/v1/connect/{provider}", Access::Session),
     ("POST", "/v1/connect/{provider}/callback", Access::Session),

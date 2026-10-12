@@ -170,7 +170,13 @@ where
 }
 
 impl TestApp {
-    pub async fn send(&self, mut req: Request<Body>) -> (StatusCode, HeaderMap, String) {
+    pub async fn send(&self, req: Request<Body>) -> (StatusCode, HeaderMap, String) {
+        let (status, headers, body) = self.send_for_bytes(req).await;
+        (status, headers, String::from_utf8_lossy(&body).into_owned())
+    }
+
+    /// [`send`](Self::send), the body as it came (a binary one).
+    pub async fn send_for_bytes(&self, mut req: Request<Body>) -> (StatusCode, HeaderMap, Vec<u8>) {
         if req.extensions().get::<ConnectInfo<SocketAddr>>().is_none() {
             req.extensions_mut().insert(ConnectInfo(self.ip));
         }
@@ -180,7 +186,7 @@ impl TestApp {
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
-        (status, headers, String::from_utf8_lossy(&body).into_owned())
+        (status, headers, body.to_vec())
     }
 
     pub async fn get(&self, path_and_query: &str) -> (StatusCode, HeaderMap, String) {

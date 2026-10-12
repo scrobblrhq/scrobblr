@@ -1,6 +1,7 @@
 //! Limits counted in Redis: password logins and the scrobbles an account
 //! may submit per UTC day (shared by the native API and the
-//! scrobbler-compatible ones), image uploads and deletion requests. Windows are part of the
+//! scrobbler-compatible ones), image uploads, account exports and deletion
+//! requests. Windows are part of the
 //! keys, so a key that missed its expiry still stops counting when its
 //! window ends.
 
@@ -139,6 +140,9 @@ impl Quota {
     }
 }
 
+const ACCOUNT_WINDOW_SECS: i64 = 24 * 3600;
+pub const EXPORTS_PER_USER: i64 = 3;
+pub const EXPORTS_PER_IP: i64 = 10;
 const DELETION_WINDOW_SECS: i64 = 3600;
 pub const DELETION_ATTEMPTS_PER_USER: i64 = 5;
 pub const DELETION_ATTEMPTS_PER_IP: i64 = 10;
@@ -154,6 +158,19 @@ async fn take(state: &AppState, keys: [(String, i64); 2], window_secs: i64) -> A
         allowed &= count <= limit;
     }
     Ok(allowed)
+}
+
+/// A day's exports; a dropped download counts too.
+pub async fn export_attempt(state: &AppState, user_id: i64, ip: &str) -> ApiResult<bool> {
+    let window = Utc::now().timestamp() / ACCOUNT_WINDOW_SECS;
+    let keys = [
+        (format!("export:user:{user_id}:{window}"), EXPORTS_PER_USER),
+        (
+            format!("export:ip:{}:{window}", network(ip)),
+            EXPORTS_PER_IP,
+        ),
+    ];
+    take(state, keys, ACCOUNT_WINDOW_SECS).await
 }
 
 /// An hour's deletion attempts, so a stolen session can't guess the

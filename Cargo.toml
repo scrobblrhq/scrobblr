@@ -64,6 +64,11 @@ hex = "0.4"
 # Types
 ts-rs = { version = "12.0.1", features = ["chrono-impl", "uuid-impl", "no-serde-warnings"] }
 
+# Account exports: a ZIP archive written as it streams
+flate2 = "1"
+crc32fast = "1"
+zip = { version = "9", default-features = false, features = ["deflate"] }
+
 # Image processing (upload validation / normalization)
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 

@@ -13,14 +13,14 @@ use crate::compat::CompatConfig;
 use crate::test_app::{BASE_URL, TestApp, UPLOADS_URL, with_app};
 use db::queries::{auth as auth_db, tracks as tracks_db};
 
-fn png() -> Vec<u8> {
+pub(crate) fn png() -> Vec<u8> {
     let image = image::RgbImage::from_fn(64, 48, |x, y| image::Rgb([x as u8, y as u8, 99]));
     let mut out = std::io::Cursor::new(Vec::new());
     image.write_to(&mut out, image::ImageFormat::Png).unwrap();
     out.into_inner()
 }
 
-fn multipart(path: &str, bearer: &str, file: &[u8]) -> Request<Body> {
+pub(crate) fn multipart(path: &str, bearer: &str, file: &[u8]) -> Request<Body> {
     let boundary = "scrobblr-test-boundary";
     let mut body = format!(
         "--{boundary}\r\nContent-Disposition: form-data; name=\"image\"; filename=\"../../me.png\"\r\n\

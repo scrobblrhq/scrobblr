@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT u.username, f.created_at AS since\n        FROM user_follows f\n        JOIN users u ON u.id = CASE WHEN $2 THEN f.followee_id ELSE f.follower_id END\n        WHERE CASE WHEN $2 THEN f.follower_id ELSE f.followee_id END = $1\n        ORDER BY f.created_at\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "username",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "since",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "81560504b6daa275fbf9ddd9e954eaf32a67fc667a6f2f4dd6f29efd8975b633"
+}

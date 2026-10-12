@@ -21,8 +21,14 @@ use std::path::Path;
 use std::sync::Arc;
 use tower::ServiceBuilder;
 use tower_http::{
-    catch_panic::CatchPanicLayer, compression::CompressionLayer, services::ServeDir,
-    set_header::SetResponseHeaderLayer, trace::TraceLayer,
+    catch_panic::CatchPanicLayer,
+    compression::{
+        CompressionLayer,
+        predicate::{DefaultPredicate, NotForContentType, Predicate},
+    },
+    services::ServeDir,
+    set_header::SetResponseHeaderLayer,
+    trace::TraceLayer,
 };
 
 use crate::{
@@ -252,8 +258,12 @@ pub fn build(state: AppState) -> Router {
     // Credentials and account links: sessions only, so that a leaked API
     // token can't mint a credential (or link an account that scrobbles)
     // that outlives its revocation, nor revoke the user's others, nor
-    // delete the account.
+    // export or delete the account.
     let session_routes = ApiRouter::new()
+        .api_route(
+            "/v1/user/me/export",
+            get_with(account::export_account, account::_export_account_doc),
+        )
         .api_route(
             "/v1/user/me/delete",
             post_with(account::delete_account, account::_delete_account_doc),
@@ -519,7 +529,9 @@ pub fn build(state: AppState) -> Router {
             monitoring::count_responses,
         ))
         .layer(TraceLayer::new_for_http())
-        .layer(CompressionLayer::new())
+        .layer(CompressionLayer::new().compress_when(
+            DefaultPredicate::new().and(NotForContentType::const_new("application/zip")),
+        ))
         .route("/api.json", axum::routing::get(serve_api))
         .finish_api_with(&mut api, api_docs);
     document_rate_limit(&mut api);

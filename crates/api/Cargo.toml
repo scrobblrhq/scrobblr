@@ -55,6 +55,9 @@ hex = { workspace = true }
 form_urlencoded = { workspace = true }
 ipnet = { workspace = true }
 image = { workspace = true }
+flate2 = { workspace = true }
+crc32fast = { workspace = true }
 
 [dev-dependencies]
 tracing-subscriber = { workspace = true }
+zip = { workspace = true }
