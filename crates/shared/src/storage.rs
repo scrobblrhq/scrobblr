@@ -1,10 +1,12 @@
-//! Uploads on the local disk, under `UPLOAD_DIR`, at their key's path.
+//! Where uploads are kept, for the API (`api::media::Media`) and the
+//! worker. Another backend (an S3-compatible bucket) would be another
+//! [`Storage`] variant.
 //!
-//! Files are written to `.tmp/` first and renamed into place, so a reader
-//! (the API's `/uploads` route or a static server) never sees half a file.
-//! Files are 0644 and directories 0755 whatever the umask, so a static
-//! server running as another user can read what only the API writes;
-//! `.tmp/` is 0700.
+//! [`LocalStorage`]: under `UPLOAD_DIR`, at their key's path. Files are
+//! written to `.tmp/` first and renamed into place, so a reader (the API's
+//! `/uploads` route or a static server) never sees half a file. Files are
+//! 0644 and directories 0755 whatever the umask, so a static server running
+//! as another user can read what only the API writes; `.tmp/` is 0700.
 
 use std::fs::{self, DirBuilder, OpenOptions, Permissions};
 use std::io::{self, Write};
@@ -12,12 +14,40 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use shared::media::UploadKey;
 use uuid::Uuid;
+
+use crate::media::UploadKey;
 
 const TMP_DIR: &str = ".tmp";
 /// Temporary files older than this were left by a crash.
 const STALE_TMP: Duration = Duration::from_secs(3600);
+
+#[derive(Debug)]
+pub enum Storage {
+    Local(LocalStorage),
+}
+
+impl Storage {
+    pub async fn put(&self, key: &UploadKey, bytes: Vec<u8>) -> io::Result<()> {
+        match self {
+            Self::Local(local) => local.put(key, bytes).await,
+        }
+    }
+
+    /// A file already gone counts as deleted.
+    pub async fn delete(&self, key: &UploadKey) -> io::Result<()> {
+        match self {
+            Self::Local(local) => local.delete(key).await,
+        }
+    }
+
+    /// The file's bytes; `None` if there is no such file.
+    pub async fn read(&self, key: &UploadKey) -> io::Result<Option<Vec<u8>>> {
+        match self {
+            Self::Local(local) => local.read(key).await,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct LocalStorage {
@@ -73,6 +103,14 @@ impl LocalStorage {
             _ => Ok(()),
         }
     }
+
+    pub async fn read(&self, key: &UploadKey) -> io::Result<Option<Vec<u8>>> {
+        match tokio::fs::read(self.root.join(key.as_str())).await {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
 }
 
 fn write_atomically(root: &Path, key: &UploadKey, bytes: &[u8]) -> io::Result<()> {
@@ -110,7 +148,7 @@ fn write_atomically(root: &Path, key: &UploadKey, bytes: &[u8]) -> io::Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::media::UploadKind;
+    use crate::media::UploadKind;
 
     fn temp_root() -> PathBuf {
         std::env::temp_dir().join(format!("scrobblr_media_{}", Uuid::new_v4().simple()))
@@ -131,6 +169,10 @@ mod tests {
         storage.put(&key, b"jpeg".to_vec()).await.unwrap();
         let path = root.join(key.as_str());
         assert_eq!(fs::read(&path).unwrap(), b"jpeg");
+        assert_eq!(
+            storage.read(&key).await.unwrap().as_deref(),
+            Some(&b"jpeg"[..])
+        );
         assert_eq!(mode(&path), 0o644);
         assert_eq!(mode(path.parent().unwrap()), 0o755);
         assert_eq!(mode(path.parent().unwrap().parent().unwrap()), 0o755);
@@ -138,6 +180,7 @@ mod tests {
 
         storage.delete(&key).await.unwrap();
         assert!(!path.exists());
+        assert_eq!(storage.read(&key).await.unwrap(), None);
         storage.delete(&key).await.unwrap();
         fs::remove_dir_all(root).unwrap();
     }

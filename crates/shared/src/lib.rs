@@ -12,6 +12,7 @@ pub mod panic;
 pub mod ranking;
 pub mod scrobble;
 pub mod spotify;
+pub mod storage;
 pub mod track_lengths;
 pub mod user;
 pub mod validation;

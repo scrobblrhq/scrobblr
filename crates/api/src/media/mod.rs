@@ -2,11 +2,10 @@
 //!
 //! Handlers store and delete uploads through [`Media`] and only ever see
 //! keys; the database keeps the key and `shared::media` turns it into a
-//! URL. Another backend (an S3-compatible bucket) is another [`Storage`]
-//! variant, with no change to handlers or stored data.
+//! URL. Where files are kept is `shared::storage`, which the worker uses
+//! too.
 
 pub mod image;
-mod local;
 #[cfg(test)]
 mod tests;
 
@@ -17,29 +16,10 @@ use tokio::sync::Semaphore;
 
 use crate::errors::AppError;
 use image::{MAX_SOURCE_PIXELS, MAX_SOURCE_SIDE, Rejected};
-pub use local::LocalStorage;
+pub use shared::storage::{LocalStorage, Storage};
 
 /// Decodes running at once: each may hold a few hundred MB.
 static DECODES: Semaphore = Semaphore::const_new(2);
-
-#[derive(Debug)]
-pub enum Storage {
-    Local(LocalStorage),
-}
-
-impl Storage {
-    async fn put(&self, key: &UploadKey, bytes: Vec<u8>) -> std::io::Result<()> {
-        match self {
-            Self::Local(local) => local.put(key, bytes).await,
-        }
-    }
-
-    async fn delete(&self, key: &UploadKey) -> std::io::Result<()> {
-        match self {
-            Self::Local(local) => local.delete(key).await,
-        }
-    }
-}
 
 #[derive(Debug)]
 pub struct Media {
@@ -66,6 +46,11 @@ impl Media {
             AppError::Internal(anyhow::anyhow!("could not store upload {key}: {e}"))
         })?;
         Ok(key)
+    }
+
+    /// An upload's bytes, `None` when the file is gone.
+    pub async fn read(&self, key: &UploadKey) -> std::io::Result<Option<Vec<u8>>> {
+        self.storage.read(key).await
     }
 
     /// Best-effort: a failure is logged, never returned.
