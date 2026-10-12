@@ -1,0 +1,77 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT al.id, al.artist_id, a.name AS artist_name, al.title, al.title_normalized,\n               al.mbid, al.image_url, al.release_date,\n               CASE WHEN album_has_listeners(al.id, $2)\n                    THEN (SELECT COALESCE(sum(t.scrobble_count), 0)::bigint\n                          FROM tracks t WHERE t.album_id = al.id) END AS \"scrobble_count?\",\n               al.created_at\n        FROM albums al\n        JOIN artists a ON a.id = al.artist_id\n        WHERE al.id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "artist_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "artist_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "title_normalized",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "mbid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 6,
+        "name": "image_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "release_date",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 8,
+        "name": "scrobble_count?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      null,
+      false
+    ]
+  },
+  "hash": "4aa42e7eb3bccd008ae1710bcd1c0062b479abf530f57edf6cb2394d34f56fc6"
+}

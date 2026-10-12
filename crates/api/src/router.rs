@@ -384,6 +384,10 @@ pub fn build(state: AppState) -> Router {
             get_with(tracks::get_artist, tracks::_get_artist_doc),
         )
         .api_route(
+            "/v1/album/{id}",
+            get_with(tracks::get_album, tracks::_get_album_doc),
+        )
+        .api_route(
             "/v1/artist/{id}/top-tracks",
             get_with(tracks::artist_top_tracks, tracks::_artist_top_tracks_doc),
         )

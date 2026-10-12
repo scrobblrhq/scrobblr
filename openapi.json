@@ -19,6 +19,69 @@
         ],
         "type": "object"
       },
+      "Album": {
+        "description": "Album. Its tracks are those the catalog files under it (each track has\n one album: the first a scrobble of it named), and their plays are its\n plays.",
+        "properties": {
+          "artist_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "artist_name": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "image_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mbid": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "release_date": {
+            "format": "date",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scrobble_count": {
+            "description": "Plays of its tracks; `null` unless at least `RANKING_MIN_LISTENERS`\n (5) users played them.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "title_normalized": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "artist_id",
+          "artist_name",
+          "title",
+          "title_normalized",
+          "created_at"
+        ],
+        "type": "object"
+      },
       "ApiToken": {
         "properties": {
           "created_at": {
@@ -3359,6 +3422,69 @@
         "summary": "Last.fm browser authorization",
         "tags": [
           "Scrobbler protocols"
+        ]
+      }
+    },
+    "/v1/album/{id}": {
+      "get": {
+        "description": "Returns catalog metadata for a single album by its internal ID, with its artist's name. Each track belongs to one album, the first a scrobble of it named, and its plays count for that album here and in charts, from whichever release they were played. `scrobble_count` (the plays of its tracks) is `null` for an album fewer than the minimum of listeners played. Catalog-wide counts include every user's plays, private profiles' too, so they are served only for entities at least `RANKING_MIN_LISTENERS` (5 by default) distinct users have played, counted from the daily aggregates (a new listener counts from their next refresh, within the hour; today's plays from tomorrow): a count is never one or two people's listening.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Album"
+                }
+              }
+            },
+            "description": "Album. Its tracks are those the catalog files under it (each track has\n one album: the first a scrobble of it named), and their plays are its\n plays."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Album not found"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "summary": "Get an album",
+        "tags": [
+          "Catalog"
         ]
       }
     },

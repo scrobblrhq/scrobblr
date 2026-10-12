@@ -111,6 +111,7 @@ const PUBLIC: &[(&str, &str)] = &[
     ("GET", "/v1/connect/{provider}/callback"),
     ("GET", "/v1/track/{id}"),
     ("GET", "/v1/artist/{id}"),
+    ("GET", "/v1/album/{id}"),
     ("GET", "/v1/artist/{id}/top-tracks"),
     ("GET", "/v1/artist/{id}/listeners"),
     ("GET", "/v1/track/{id}/listeners"),

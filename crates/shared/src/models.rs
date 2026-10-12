@@ -133,19 +133,24 @@ pub struct Artist {
     pub created_at: DateTime<Utc>,
 }
 
-/// Album
+/// Album. Its tracks are those the catalog files under it (each track has
+/// one album: the first a scrobble of it named), and their plays are its
+/// plays.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, JsonSchema, TS)]
 #[ts(export)]
 pub struct Album {
     pub id: i64,
     pub artist_id: i64,
+    pub artist_name: String,
     pub title: String,
     pub title_normalized: String,
     pub mbid: Option<Uuid>,
     #[serde(serialize_with = "crate::media::serialize_opt_url")]
     pub image_url: Option<String>,
     pub release_date: Option<chrono::NaiveDate>,
-    pub scrobble_count: i64,
+    /// Plays of its tracks; `null` unless at least `RANKING_MIN_LISTENERS`
+    /// (5) users played them.
+    pub scrobble_count: Option<i64>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -719,12 +724,13 @@ mod tests {
             serde_json::to_value(Album {
                 id: 1,
                 artist_id: 1,
+                artist_name: "a".into(),
                 title: "a".into(),
                 title_normalized: "a".into(),
                 mbid: None,
                 image_url: image(),
                 release_date: None,
-                scrobble_count: 0,
+                scrobble_count: None,
                 created_at: now,
             })
             .unwrap(),

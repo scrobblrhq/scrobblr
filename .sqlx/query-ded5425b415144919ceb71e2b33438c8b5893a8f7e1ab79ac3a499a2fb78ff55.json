@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT id, artist_id, title, title_normalized, mbid, image_url,\n               release_date, scrobble_count, created_at\n        FROM albums\n        WHERE id = $1\n        ",
+  "query": "\n        SELECT al.id, al.artist_id, a.name AS artist_name, al.title, al.title_normalized,\n               al.mbid, al.image_url, al.release_date,\n               NULL::bigint AS \"scrobble_count?\", al.created_at\n        FROM albums al\n        JOIN artists a ON a.id = al.artist_id\n        WHERE al.id = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -15,36 +15,41 @@
       },
       {
         "ordinal": 2,
-        "name": "title",
+        "name": "artist_name",
         "type_info": "Text"
       },
       {
         "ordinal": 3,
-        "name": "title_normalized",
+        "name": "title",
         "type_info": "Text"
       },
       {
         "ordinal": 4,
+        "name": "title_normalized",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
         "name": "mbid",
         "type_info": "Uuid"
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "image_url",
         "type_info": "Text"
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "release_date",
         "type_info": "Date"
       },
       {
-        "ordinal": 7,
-        "name": "scrobble_count",
+        "ordinal": 8,
+        "name": "scrobble_count?",
         "type_info": "Int8"
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "created_at",
         "type_info": "Timestamptz"
       }
@@ -59,12 +64,13 @@
       false,
       false,
       false,
-      true,
-      true,
-      true,
       false,
+      true,
+      true,
+      true,
+      null,
       false
     ]
   },
-  "hash": "9420c4f6a74b9562368780385d80608f4ce9e9cf83c202d5c3e73d2f5071a9aa"
+  "hash": "ded5425b415144919ceb71e2b33438c8b5893a8f7e1ab79ac3a499a2fb78ff55"
 }

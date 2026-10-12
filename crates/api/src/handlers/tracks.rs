@@ -14,7 +14,7 @@ use crate::{
     state::AppState,
 };
 use db::queries::{enrichment as enrichment_db, tracks as tracks_db, users as users_db};
-use shared::models::{Artist, TopListener, TopTrack, Track, TrackWithCredits, UserProfile};
+use shared::models::{Album, Artist, TopListener, TopTrack, Track, TrackWithCredits, UserProfile};
 
 fn min_listeners(state: &AppState) -> i32 {
     i32::try_from(state.rankings.min_listeners).unwrap_or(i32::MAX)
@@ -60,6 +60,25 @@ pub fn _get_artist_doc(op: TransformOperation) -> TransformOperation {
         .tag("Catalog")
         .response::<200, Json<Artist>>()
         .response_with::<404, ErrorJson, _>(|r| r.description("Artist not found"))
+}
+
+/// GET /v1/album/:id
+pub async fn get_album(
+    State(state): State<AppState>,
+    Path(IdPath { id }): Path<IdPath>,
+) -> ApiResult<Json<Album>> {
+    tracks_db::public_album(&state.db, id, min_listeners(&state))
+        .await?
+        .map(Json)
+        .ok_or(AppError::NotFound)
+}
+
+pub fn _get_album_doc(op: TransformOperation) -> TransformOperation {
+    op.summary("Get an album")
+        .description(&format!("Returns catalog metadata for a single album by its internal ID, with its artist's name. Each track belongs to one album, the first a scrobble of it named, and its plays count for that album here and in charts, from whichever release they were played. `scrobble_count` (the plays of its tracks) is `null` for an album fewer than the minimum of listeners played. {COUNTS_RULE}"))
+        .tag("Catalog")
+        .response::<200, Json<Album>>()
+        .response_with::<404, ErrorJson, _>(|r| r.description("Album not found"))
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -291,7 +310,7 @@ pub fn _refresh_album_doc(op: TransformOperation) -> TransformOperation {
 
 #[cfg(test)]
 mod tests {
-    use axum::http::Method;
+    use axum::http::{Method, StatusCode};
     use chrono::{TimeDelta, Utc};
     use serde_json::json;
 
@@ -432,6 +451,77 @@ mod tests {
             assert_eq!(search["tracks"][0]["scrobble_count"], json!(null));
             let search = served(count("/v1/search?type=artist&q=Quiet%20Band".into()).await);
             assert_eq!(search["artists"][0]["scrobble_count"], 49);
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    #[ignore = "needs Postgres and Redis: just test-db"]
+    async fn albums_count_their_tracks_plays_past_the_minimum_of_listeners() {
+        with_app(Default::default(), |app| async move {
+            let artist = db::queries::tracks::find_or_create_artist(&app.pool, "Band")
+                .await
+                .unwrap();
+            let album = db::queries::tracks::find_or_create_album(&app.pool, artist.id, "LP")
+                .await
+                .unwrap();
+            let mut tracks = Vec::new();
+            for title in ["Side A", "Side B"] {
+                tracks.push(
+                    db::queries::tracks::find_or_create_track(
+                        &app.pool,
+                        artist.id,
+                        Some(album),
+                        title,
+                        None,
+                    )
+                    .await
+                    .unwrap()
+                    .id,
+                );
+            }
+            let day = Utc::now() - TimeDelta::days(2);
+            // Each fan plays one side, so only the album has them all.
+            let listen = async |n: i64| {
+                let user: i64 = sqlx::query_scalar(
+                    "INSERT INTO users (username, email, password_hash)
+                     VALUES ('fan' || $1, 'fan' || $1 || '@t', 'x') RETURNING id",
+                )
+                .bind(n)
+                .fetch_one(&app.pool)
+                .await
+                .unwrap();
+                sqlx::query(
+                    "INSERT INTO scrobbles (user_id, track_id, artist_id, album_id, played_at, source)
+                     VALUES ($1, $2, $3, $4, $5, 'test')",
+                )
+                .bind(user)
+                .bind(tracks[n as usize % 2])
+                .bind(artist.id)
+                .bind(album)
+                .bind(day + TimeDelta::minutes(n))
+                .execute(&app.pool)
+                .await
+                .unwrap();
+                db::queries::scrobbles::refresh_scrobble_aggregates(&app.pool, day, day)
+                    .await
+                    .unwrap();
+            };
+            for n in 0..4 {
+                listen(n).await;
+            }
+            let get = async || {
+                let (status, _, body) = app.get(&format!("/v1/album/{album}")).await;
+                assert_eq!(status, StatusCode::OK);
+                serde_json::from_str::<serde_json::Value>(&body).unwrap()
+            };
+            let body = get().await;
+            assert_eq!(body["title"], "LP");
+            assert_eq!(body["artist_name"], "Band");
+            assert_eq!(body["scrobble_count"], json!(null));
+            listen(4).await;
+            assert_eq!(get().await["scrobble_count"], 5);
+            assert_eq!(app.get("/v1/album/0").await.0, StatusCode::NOT_FOUND);
         })
         .await;
     }

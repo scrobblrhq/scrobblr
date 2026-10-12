@@ -358,16 +358,46 @@ pub async fn track_credits(pool: &PgPool, track_id: i64) -> Result<Vec<TrackCred
     .await
 }
 
+/// Without its count: for lookups, not responses.
 pub async fn find_album_by_id(pool: &PgPool, id: i64) -> Result<Option<Album>, sqlx::Error> {
     sqlx::query_as!(
         Album,
         r#"
-        SELECT id, artist_id, title, title_normalized, mbid, image_url,
-               release_date, scrobble_count, created_at
-        FROM albums
-        WHERE id = $1
+        SELECT al.id, al.artist_id, a.name AS artist_name, al.title, al.title_normalized,
+               al.mbid, al.image_url, al.release_date,
+               NULL::bigint AS "scrobble_count?", al.created_at
+        FROM albums al
+        JOIN artists a ON a.id = al.artist_id
+        WHERE al.id = $1
         "#,
         id,
+    )
+    .fetch_optional(pool)
+    .await
+}
+
+/// With the plays of its tracks when at least `min_listeners` users played
+/// them.
+pub async fn public_album(
+    pool: &PgPool,
+    id: i64,
+    min_listeners: i32,
+) -> Result<Option<Album>, sqlx::Error> {
+    sqlx::query_as!(
+        Album,
+        r#"
+        SELECT al.id, al.artist_id, a.name AS artist_name, al.title, al.title_normalized,
+               al.mbid, al.image_url, al.release_date,
+               CASE WHEN album_has_listeners(al.id, $2)
+                    THEN (SELECT COALESCE(sum(t.scrobble_count), 0)::bigint
+                          FROM tracks t WHERE t.album_id = al.id) END AS "scrobble_count?",
+               al.created_at
+        FROM albums al
+        JOIN artists a ON a.id = al.artist_id
+        WHERE al.id = $1
+        "#,
+        id,
+        min_listeners,
     )
     .fetch_optional(pool)
     .await
