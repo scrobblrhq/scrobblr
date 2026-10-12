@@ -1,7 +1,6 @@
 //! Global rankings: the pages the worker stores (`db::queries::rankings`),
 //! served as they are, without computing anything per request.
 
-use aide::openapi::{Header, ParameterSchemaOrContent, ReferenceOr, SchemaObject};
 use aide::transform::{TransformOperation, TransformResponse};
 use axum::{
     Json,
@@ -13,6 +12,7 @@ use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
+use super::caching;
 use crate::{
     errors::{ApiResult, AppError, ErrorBody, ErrorJson},
     state::AppState,
@@ -155,7 +155,7 @@ async fn serve(
         && let Some(version) = rankings_db::snapshot_version(&state.db, period, kind).await?
     {
         let etag = etag(period, version, min_listeners, now);
-        if matches(tags, &etag) {
+        if caching::matches(tags, &etag) {
             return Ok(with_caching(StatusCode::NOT_MODIFIED.into_response(), etag));
         }
     }
@@ -210,15 +210,6 @@ fn etag(period: Period, v: SnapshotVersion, min_listeners: u32, now: DateTime<Ut
     )
 }
 
-/// `If-None-Match` holds `*` or a list of tags, compared weakly.
-fn matches(tags: &HeaderValue, etag: &str) -> bool {
-    let Ok(tags) = tags.to_str() else {
-        return false;
-    };
-    let opaque = |tag: &str| tag.trim().trim_start_matches("W/").to_owned();
-    tags.trim() == "*" || tags.split(',').any(|tag| opaque(tag) == opaque(etag))
-}
-
 fn with_caching(mut response: Response, etag: String) -> Response {
     let headers = response.headers_mut();
     if let Ok(etag) = HeaderValue::from_str(&etag) {
@@ -248,28 +239,11 @@ fn document<'t>(op: TransformOperation<'t>, summary: &str, things: &str) -> Tran
              `If-None-Match` to get a 304 while the ranking hasn't changed."
         ))
         .tag("Rankings")
-        .with(|mut op| {
-            op.inner_mut()
-                .parameters
-                .push(ReferenceOr::Item(aide::openapi::Parameter::Header {
-                    parameter_data: aide::openapi::ParameterData {
-                        name: "If-None-Match".into(),
-                        description: Some(
-                            "The `ETag` of a page fetched before: 304 if the ranking hasn't \
-                             changed since"
-                                .into(),
-                        ),
-                        required: false,
-                        deprecated: None,
-                        format: string_schema(),
-                        example: None,
-                        examples: Default::default(),
-                        explode: None,
-                        extensions: Default::default(),
-                    },
-                    style: Default::default(),
-                }));
-            op
+        .with(|op| {
+            caching::if_none_match(
+                op,
+                "The `ETag` of a page fetched before: 304 if the ranking hasn't changed since",
+            )
         })
         .response_with::<304, (), _>(|r| {
             caching_headers(r).description("Not modified since the `ETag` in `If-None-Match`")
@@ -280,62 +254,12 @@ fn document<'t>(op: TransformOperation<'t>, summary: &str, things: &str) -> Tran
         })
 }
 
-fn caching_headers<T>(mut r: TransformResponse<'_, T>) -> TransformResponse<'_, T> {
-    let headers = &mut r.inner().headers;
-    for (name, description) in [
-        ("ETag", "The ranking's version, for `If-None-Match`"),
-        (
-            "Cache-Control",
-            "`public, max-age=300, stale-while-revalidate=300`",
-        ),
-    ] {
-        headers.insert(
-            name.into(),
-            ReferenceOr::Item(Header {
-                description: Some(description.into()),
-                style: Default::default(),
-                required: true,
-                deprecated: None,
-                format: string_schema(),
-                example: None,
-                examples: Default::default(),
-                extensions: Default::default(),
-            }),
-        );
-    }
-    r
-}
-
-fn string_schema() -> ParameterSchemaOrContent {
-    ParameterSchemaOrContent::Schema(SchemaObject {
-        json_schema: schemars::json_schema!({ "type": "string" }),
-        external_docs: None,
-        example: None,
-    })
-}
-
-#[cfg(test)]
-mod unit_tests {
-    use super::*;
-
-    #[test]
-    fn if_none_match_compares_tags_weakly() {
-        let etag = "W/\"r1-1-5-f\"";
-        for header in [
-            "W/\"r1-1-5-f\"",
-            "\"r1-1-5-f\"",
-            "\"x\", W/\"r1-1-5-f\"",
-            "*",
-        ] {
-            assert!(matches(&HeaderValue::from_static(header), etag), "{header}");
-        }
-        for header in ["W/\"r1-1-5-s\"", "\"r1-1-5\"", ""] {
-            assert!(
-                !matches(&HeaderValue::from_static(header), etag),
-                "{header}"
-            );
-        }
-    }
+fn caching_headers<T>(r: TransformResponse<'_, T>) -> TransformResponse<'_, T> {
+    caching::headers(
+        r,
+        "The ranking's version, for `If-None-Match`",
+        CACHE_CONTROL,
+    )
 }
 
 #[cfg(test)]
