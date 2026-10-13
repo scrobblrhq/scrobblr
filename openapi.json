@@ -986,6 +986,127 @@
         ],
         "type": "object"
       },
+      "FeedEntry": {
+        "description": "A scrobble in the feed of the accounts a user follows.",
+        "properties": {
+          "album_id": {
+            "description": "The album the play named, else the one the catalog files the track\n under.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "album_image": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "album_title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "artist_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "artist_image": {
+            "description": "For when the album has no cover, or there is no album.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "artist_name": {
+            "type": "string"
+          },
+          "id": {
+            "description": "The scrobble's id: an entry seen on two pages (when the client polls\n the first page again) is the same entry.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "played_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScrobbleLabel"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`counted`, `no_data` (a track without a known length), or `null`\n until it is classified; suspect plays and duplicates aren't in the\n feed."
+          },
+          "track_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "track_title": {
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserSummary"
+          }
+        },
+        "required": [
+          "id",
+          "played_at",
+          "user",
+          "track_id",
+          "track_title",
+          "artist_id",
+          "artist_name"
+        ],
+        "type": "object"
+      },
+      "FeedPage": {
+        "description": "A page of the feed, newest first.",
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/FeedEntry"
+            },
+            "type": "array"
+          },
+          "next": {
+            "description": "`before` for the next, older page; `null` once the feed's oldest day\n is reached. A page may hold fewer entries than asked for and still\n have a next one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "entries"
+        ],
+        "type": "object"
+      },
+      "FeedQuery": {
+        "properties": {
+          "before": {
+            "description": "The previous page's `next`, for the page after it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "description": "Entries per page: 50 by default, 100 at most.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "FinishConnectRequest": {
         "properties": {
           "code": {
@@ -2796,6 +2917,35 @@
           "is_private",
           "is_verified",
           "created_at"
+        ],
+        "type": "object"
+      },
+      "UserSummary": {
+        "description": "Who someone is, as lists of others' activity name them.",
+        "properties": {
+          "display_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "image_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "username"
         ],
         "type": "object"
       },
@@ -8961,6 +9111,121 @@
         "summary": "Export my account",
         "tags": [
           "Account"
+        ]
+      }
+    },
+    "/v1/user/me/feed": {
+      "get": {
+        "description": "What the accounts the signed-in user follows played in the last 14 days, newest first: each entry a scrobble, with who played it and when, the track, its artist and album, and its label. Accounts anyone may see only: private ones and those waiting to be deleted are left out, and so are the classifier's suspect plays and duplicates (the same listen reported again); plays not classified yet are in, with `status: null`.\n\nPages of `limit` entries (50 by default, 100 at most); pass `next` as `before` for the next, older page, which stays where it was however many plays arrive meanwhile. `next` is `null` once the page reaches the feed's oldest day; a page can hold fewer entries than asked for and still have a next one. To catch up, poll the first page and stop paging at an entry already seen (entries are unique by `id`). Nothing is pushed: there is no stream.",
+        "parameters": [
+          {
+            "description": "The previous page's `next`, for the page after it.",
+            "in": "query",
+            "name": "before",
+            "schema": {
+              "description": "The previous page's `next`, for the page after it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "Entries per page: 50 by default, 100 at most.",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Entries per page: 50 by default, 100 at most.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedPage"
+                }
+              }
+            },
+            "description": "A page of the feed",
+            "headers": {
+              "Cache-Control": {
+                "description": "`private, no-store`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Invalid `before` cursor"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No credential, or an invalid or expired one"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Needs a session or an API token with the `read` scope"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Feed of followed accounts",
+        "tags": [
+          "Social"
         ]
       }
     },

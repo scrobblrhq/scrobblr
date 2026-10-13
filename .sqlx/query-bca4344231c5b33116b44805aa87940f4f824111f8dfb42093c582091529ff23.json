@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT u.id, u.last_seen_at AS \"last_seen_at!\"\n        FROM user_follows f\n        JOIN users u ON u.id = f.followee_id\n        WHERE f.follower_id = $1 AND NOT u.is_private AND u.delete_after IS NULL\n          AND u.last_seen_at >= $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "last_seen_at!",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "bca4344231c5b33116b44805aa87940f4f824111f8dfb42093c582091529ff23"
+}

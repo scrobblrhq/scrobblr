@@ -398,6 +398,56 @@ pub struct AlbumChart {
     pub entries: Vec<TopAlbum>,
 }
 
+/// Who someone is, as lists of others' activity name them.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct UserSummary {
+    pub id: i64,
+    pub username: String,
+    pub display_name: Option<String>,
+    #[serde(serialize_with = "crate::media::serialize_opt_url")]
+    pub image_url: Option<String>,
+}
+
+/// A scrobble in the feed of the accounts a user follows.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct FeedEntry {
+    /// The scrobble's id: an entry seen on two pages (when the client polls
+    /// the first page again) is the same entry.
+    pub id: i64,
+    pub played_at: DateTime<Utc>,
+    pub user: UserSummary,
+    pub track_id: i64,
+    pub track_title: String,
+    pub artist_id: i64,
+    pub artist_name: String,
+    /// The album the play named, else the one the catalog files the track
+    /// under.
+    pub album_id: Option<i64>,
+    pub album_title: Option<String>,
+    #[serde(serialize_with = "crate::media::serialize_opt_url")]
+    pub album_image: Option<String>,
+    /// For when the album has no cover, or there is no album.
+    #[serde(serialize_with = "crate::media::serialize_opt_url")]
+    pub artist_image: Option<String>,
+    /// `counted`, `no_data` (a track without a known length), or `null`
+    /// until it is classified; suspect plays and duplicates aren't in the
+    /// feed.
+    pub status: Option<ScrobbleLabel>,
+}
+
+/// A page of the feed, newest first.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct FeedPage {
+    pub entries: Vec<FeedEntry>,
+    /// `before` for the next, older page; `null` once the feed's oldest day
+    /// is reached. A page may hold fewer entries than asked for and still
+    /// have a next one.
+    pub next: Option<String>,
+}
+
 /// A user who listens to a given artist or track, with their play count.
 /// Only public profiles are ever returned.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
@@ -955,6 +1005,26 @@ mod tests {
                 display_name: None,
                 image_url: image(),
                 play_count: 1,
+            })
+            .unwrap(),
+            serde_json::to_value(FeedEntry {
+                id: 1,
+                played_at: now,
+                user: UserSummary {
+                    id: 1,
+                    username: "u".into(),
+                    display_name: None,
+                    image_url: image(),
+                },
+                track_id: 1,
+                track_title: "t".into(),
+                artist_id: 1,
+                artist_name: "a".into(),
+                album_id: None,
+                album_title: None,
+                album_image: image(),
+                artist_image: image(),
+                status: None,
             })
             .unwrap(),
             serde_json::to_value(NowPlayingRich {

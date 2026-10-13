@@ -48,6 +48,11 @@ pub fn headers<'t, T>(
     header(r, "Cache-Control", format!("`{cache_control}`"))
 }
 
+/// Documents a response's `Cache-Control` header.
+pub fn cache_control<'t, T>(r: TransformResponse<'t, T>, value: &str) -> TransformResponse<'t, T> {
+    header(r, "Cache-Control", format!("`{value}`"))
+}
+
 fn header<'t, T>(
     mut r: TransformResponse<'t, T>,
     name: &str,

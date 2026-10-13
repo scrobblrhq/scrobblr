@@ -35,8 +35,8 @@ use crate::{
     compat,
     errors::ErrorJson,
     handlers::{
-        account, auth, charts, community, connected_accounts, imports, rankings, scrobbles, tracks,
-        uploads, users,
+        account, auth, charts, community, connected_accounts, feed, imports, rankings, scrobbles,
+        tracks, uploads, users,
     },
     limits,
     middleware::{
@@ -138,6 +138,7 @@ pub fn build(state: AppState) -> Router {
             "/v1/user/me",
             get_with(users::get_own_profile, users::_get_own_profile_doc),
         )
+        .api_route("/v1/user/me/feed", get_with(feed::feed, feed::_feed_doc))
         .api_route(
             "/v1/user/me/community/artists",
             get_with(charts::community_artists, charts::_community_artists_doc),

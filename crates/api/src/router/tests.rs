@@ -29,6 +29,7 @@ const ROUTES: &[(&str, &str, Access)] = &[
     ("GET", "/v1/imports", Access::Scope(Scope::Read)),
     ("GET", "/v1/imports/{id}", Access::Scope(Scope::Read)),
     ("GET", "/v1/user/me", Access::Scope(Scope::Read)),
+    ("GET", "/v1/user/me/feed", Access::Scope(Scope::Read)),
     (
         "GET",
         "/v1/user/me/community/artists",

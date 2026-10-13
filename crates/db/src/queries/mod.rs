@@ -7,6 +7,7 @@ pub mod connected_accounts;
 pub mod coordination;
 pub mod enrichment;
 pub mod export;
+pub mod feed;
 pub mod imports;
 pub mod monitoring;
 pub mod rankings;
