@@ -331,6 +331,16 @@ async fn an_erase_leaves_no_row_about_the_user_and_corrects_shared_numbers() {
                 sqlx::query(sql).bind(a).bind(b).execute(&pool).await.unwrap();
             }
         }
+        // Each account's say on the albums of the tracks it played.
+        sqlx::query(
+            "INSERT INTO track_album_votes (track_id, user_id, album_id, played_at)
+             SELECT DISTINCT ON (track_id, user_id) track_id, user_id, album_id, played_at
+             FROM scrobbles WHERE album_id IS NOT NULL
+             ORDER BY track_id, user_id, played_at DESC",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         // One of the erased user's uploads became the artist's image.
         sqlx::query(
             "UPDATE artists SET image_url = (SELECT min(url) FROM image_candidates WHERE uploaded_by = $1),
@@ -414,6 +424,7 @@ async fn an_erase_leaves_no_row_about_the_user_and_corrects_shared_numbers() {
             "public.user_follows.follower_id",
             "public.user_blocks.blocked_id",
             "public.follower_removals.follower_id",
+            "public.track_album_votes.user_id",
         ] {
             let n = about_gone.iter().find(|(t, _)| t == table).map(|(_, n)| *n);
             assert!(n.is_some_and(|n| n > 0), "the fixture puts rows in {table}");
@@ -434,10 +445,26 @@ async fn an_erase_leaves_no_row_about_the_user_and_corrects_shared_numbers() {
         .await
         .unwrap();
 
+        let gone_voted: Vec<i64> = sqlx::query_scalar(
+            "SELECT track_id FROM track_album_votes WHERE user_id = $1 ORDER BY 1",
+        )
+        .bind(gone)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
         accounts_db::schedule_deletion(&pool, gone, TimeDelta::zero())
             .await
             .unwrap();
+        sqlx::query("DELETE FROM album_attribution_queue")
+            .execute(&pool)
+            .await
+            .unwrap();
         let erased = accounts_db::erase(&pool, gone).await.unwrap();
+        let after_erase_queue: Vec<i64> =
+            sqlx::query_scalar("SELECT track_id FROM album_attribution_queue ORDER BY 1")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
         assert_eq!(erased.scrobbles, 14);
         assert!(!erased.aggregates_by_refresh);
         assert!(erased.aggregate_rows > 0);
@@ -513,6 +540,10 @@ async fn an_erase_leaves_no_row_about_the_user_and_corrects_shared_numbers() {
         assert!(keys.contains(&gone_avatar.as_str()));
         assert!(!keys.contains(&artwork_shown.as_str()));
         assert_eq!(keys.len(), 2, "{keys:?}");
+
+        // The tracks it had a say on are decided again without it.
+        assert!(!gone_voted.is_empty());
+        assert_eq!(after_erase_queue, gone_voted);
 
         // An erase runs again harmlessly (one that died is retried).
         let again = accounts_db::erase(&pool, gone).await.unwrap();

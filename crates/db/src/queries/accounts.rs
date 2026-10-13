@@ -73,6 +73,7 @@ pub async fn schedule_deletion(
     )
     .execute(&mut *tx)
     .await?;
+    crate::queries::albums::enqueue_voted(&mut *tx, user_id).await?;
     tx.commit().await?;
     Ok(DeletionScheduled {
         delete_after,
@@ -82,6 +83,7 @@ pub async fn schedule_deletion(
 
 /// `false` when nothing was scheduled or the erase has begun.
 pub async fn restore(pool: &PgPool, user_id: i64) -> Result<bool, sqlx::Error> {
+    let mut tx = pool.begin().await?;
     let restored = sqlx::query!(
         r#"
         UPDATE users SET delete_after = NULL
@@ -89,10 +91,15 @@ pub async fn restore(pool: &PgPool, user_id: i64) -> Result<bool, sqlx::Error> {
         "#,
         user_id,
     )
-    .execute(pool)
+    .execute(&mut *tx)
     .await?
-    .rows_affected();
-    Ok(restored > 0)
+    .rows_affected()
+        > 0;
+    if restored {
+        crate::queries::albums::enqueue_voted(&mut *tx, user_id).await?;
+    }
+    tx.commit().await?;
+    Ok(restored)
 }
 
 /// After this, a claimed erase is taken as failed and claimed again.
@@ -455,6 +462,7 @@ async fn delete_user_row(
     )
     .fetch_all(&mut **tx)
     .await?;
+    crate::queries::albums::enqueue_voted(&mut **tx, user_id).await?;
     sqlx::query!("DELETE FROM users WHERE id = $1", user_id)
         .execute(&mut **tx)
         .await?;

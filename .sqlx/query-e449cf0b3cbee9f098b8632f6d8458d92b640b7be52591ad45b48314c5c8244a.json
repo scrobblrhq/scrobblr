@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH current AS (\n            SELECT album_id, played_at FROM track_album_votes\n            WHERE track_id = $1 AND user_id = $2\n        ), inserted AS (\n            INSERT INTO track_album_votes (track_id, user_id, album_id, played_at)\n            SELECT $1, $2, $3, $4\n            WHERE NOT EXISTS (SELECT 1 FROM current)\n            ON CONFLICT (track_id, user_id) DO NOTHING\n            RETURNING track_id\n        ), moved AS (\n            UPDATE track_album_votes SET album_id = $3, played_at = $4\n            WHERE track_id = $1 AND user_id = $2\n              AND EXISTS (SELECT 1 FROM current WHERE album_id <> $3 AND played_at < $4)\n            RETURNING track_id\n        )\n        INSERT INTO album_attribution_queue (track_id, due_at)\n        SELECT track_id, NOW() + make_interval(secs => $5)\n        FROM (SELECT track_id FROM inserted UNION ALL SELECT track_id FROM moved) changed\n        ON CONFLICT (track_id) DO UPDATE SET due_at = EXCLUDED.due_at\n            WHERE album_attribution_queue.due_at > EXCLUDED.due_at\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8",
+        "Timestamptz",
+        "Float8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e449cf0b3cbee9f098b8632f6d8458d92b640b7be52591ad45b48314c5c8244a"
+}

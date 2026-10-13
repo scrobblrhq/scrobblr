@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT track_id FROM album_attribution_queue\n        WHERE due_at <= NOW()\n        ORDER BY due_at\n        LIMIT $1\n        FOR UPDATE SKIP LOCKED\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "track_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "2af9f23107c1fd80b9e191dddd33178d1a164d5203e9bb18af0448f5464e423a"
+}

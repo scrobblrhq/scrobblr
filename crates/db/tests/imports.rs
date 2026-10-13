@@ -114,6 +114,15 @@ async fn a_page_lands_with_catalog_counters_and_progress() {
         .unwrap();
         assert_eq!((airbag.1, airbag.2), (2, Some(mbid)));
         assert_eq!(scalar(&pool, "SELECT scrobble_count FROM albums WHERE id = $1", airbag.3.unwrap()).await, 2);
+        // The latest play of a track naming an album is the account's say on it.
+        let vote: (i64, i64, DateTime<Utc>) =
+            sqlx::query_as("SELECT track_id, album_id, played_at FROM track_album_votes WHERE user_id = $1")
+                .bind(user_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(vote, (airbag.0, airbag.3.unwrap(), days_ago(3, 9)));
+        assert_eq!(scalar(&pool, "SELECT count(*) FROM album_attribution_queue WHERE track_id = $1", airbag.0).await, 1);
         assert_eq!(
             scalar(&pool, "SELECT count(*) FROM track_artists WHERE role = 'primary' AND track_id = $1", airbag.0).await,
             1

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE tracks t SET album_id = m.to_id\n        FROM UNNEST($1::bigint[], $2::bigint[], $3::bigint[]) AS m(id, from_id, to_id)\n        WHERE t.id = m.id AND t.album_id IS NOT DISTINCT FROM NULLIF(m.from_id, 0)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "Int8Array",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0b19d240fb4581490548075bd03b7e3c7ba3f6c79d9cfc863b87a5982a0fe103"
+}

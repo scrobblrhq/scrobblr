@@ -722,6 +722,8 @@ async fn insert_plays(
     )
     .execute(&mut *tx)
     .await?;
+    crate::queries::albums::record_votes(tx, job.user_id, &track_ids, &album_ids, &played_at)
+        .await?;
     let albums_played: Vec<i64> = album_ids.iter().copied().filter(|id| *id != 0).collect();
     if !albums_played.is_empty() {
         let (ids, counts) = tally(&albums_played);

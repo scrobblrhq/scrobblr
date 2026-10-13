@@ -2,7 +2,9 @@ use chrono::{DateTime, NaiveTime, TimeDelta, Utc};
 use sqlx::PgPool;
 use thiserror::Error;
 
-use crate::queries::{classification as classification_db, tracks as tracks_db};
+use crate::queries::{
+    albums as albums_db, classification as classification_db, tracks as tracks_db,
+};
 use shared::models::{ActivityDay, NowPlayingRich, ScrobbleLabel, ScrobbleRich};
 use shared::scrobble::{
     self as scrobble_logic, DUPLICATE_WINDOW, ScrobbleInput, ScrobbleValidationError,
@@ -93,6 +95,12 @@ pub async fn ingest_scrobble(
     // can't miss it. Best-effort, like the enrichment enqueue.
     if let Err(e) = classification_db::mark_scrobble_dirty(pool, user_id, input.played_at).await {
         tracing::warn!("failed to queue classification for scrobble: {e}");
+    }
+    if let Some(album_id) = catalog.album_id
+        && let Err(e) =
+            albums_db::record_vote(pool, user_id, catalog.track.id, album_id, input.played_at).await
+    {
+        tracing::warn!("failed to record the scrobble's album: {e}");
     }
 
     Ok(scrobble_id)

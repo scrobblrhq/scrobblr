@@ -116,6 +116,9 @@ pub async fn queue_depths(pool: &PgPool) -> Result<Vec<QueueDepth>, sqlx::Error>
         UNION ALL
         SELECT 'import', count(*), extract(epoch FROM NOW() - min(created_at))::float8
         FROM scrobble_imports WHERE status IN ('pending', 'running')
+        UNION ALL
+        SELECT 'albums', count(*), extract(epoch FROM NOW() - min(due_at))::float8
+        FROM album_attribution_queue WHERE due_at <= NOW()
         "#
     )
     .fetch_all(pool)
