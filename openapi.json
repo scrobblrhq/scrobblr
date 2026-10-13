@@ -9675,7 +9675,7 @@
         ]
       },
       "post": {
-        "description": "Blocks the account: the follows between the two end, and neither can follow the other while the block stands. The user disappears for the blocked account, which finds no such account wherever it looks while signed in (404 on the user's profile and everything under it, absent from lists of people, search, comments, image candidates, feeds and community charts) and is never told; a profile is public to anyone signed out, so a block hides it from the account, not from the person. The blocked account in turn leaves the user's lists of people, search, comments and image candidates; its profile stays visible to the user, with `blocking: true`. Blocking an account already blocked changes nothing. An account may block 10000 accounts at most, and block, unblock or remove followers 200 times an hour (600 from one address), refused attempts included.",
+        "description": "Blocks the account: the follows between the two end, and neither can follow the other while the block stands. The user disappears for the blocked account, which finds no such account wherever it looks while signed in (404 on the user's profile and everything under it, absent from lists of people, search, comments, image candidates, feeds and community charts) and is never told; a profile is public to anyone signed out, so a block hides it from the account, not from the person. The blocked account in turn leaves the user's lists of people, search, comments and image candidates; its profile stays visible to the user, with `blocking: true`. Blocking an account already blocked changes nothing. An account may block 10000 accounts at most, and block, unblock or remove followers 200 times an hour (600 from one address), refused attempts included, and block the same account 3 times a day.",
         "parameters": [
           {
             "in": "path",
@@ -9749,7 +9749,7 @@
                 }
               }
             },
-            "description": "Over 200 blocks, unblocks and removed followers an hour for this account or 600 from this address, or over the request limit for this address"
+            "description": "Over 200 blocks, unblocks and removed followers an hour for this account or 600 from this address, 3 blocks of this account today, or over the request limit for this address"
           },
           "default": {
             "content": {
@@ -10490,7 +10490,7 @@
         ]
       },
       "post": {
-        "description": "Follows the specified user on behalf of the authenticated user; following an account already followed changes nothing. Following takes no approval, and opens nothing a private profile hides: its owner alone sees it. An account may follow 2000 accounts at most, and follow 100 times an hour (300 from one address), refused attempts included; unfollowing is free. An account that blocks the follower is not found, as one that doesn't exist; one the follower blocks, or that removed the follower from its followers in the last 30 days, can't be followed (409).",
+        "description": "Follows the specified user on behalf of the authenticated user; following an account already followed changes nothing. Following takes no approval, and opens nothing a private profile hides: its owner alone sees it. An account may follow 2000 accounts at most, follow 100 times an hour (300 from one address), refused attempts included, and follow the same account 3 times a day (following again after an unfollow counts); unfollowing is free. An account that blocks the follower is not found, as one that doesn't exist; one the follower blocks, or that removed the follower from its followers in the last 30 days, can't be followed (409).",
         "parameters": [
           {
             "in": "path",
@@ -10564,7 +10564,7 @@
                 }
               }
             },
-            "description": "Over 100 follows an hour for this account or 300 from this address, or over the request limit for this address"
+            "description": "Over 100 follows an hour for this account or 300 from this address, 3 new follows of this account today, or over the request limit for this address"
           },
           "default": {
             "content": {

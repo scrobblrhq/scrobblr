@@ -11,7 +11,7 @@ use super::UsernamePath;
 use super::users::FollowListQuery;
 use crate::{
     errors::{ApiResult, AppError, ErrorJson},
-    limits,
+    limits::{self, PairAction},
     middleware::{auth::AuthUser, rate_limit::ClientIp},
     state::AppState,
 };
@@ -57,6 +57,9 @@ pub async fn block(
     if blocks_db::blocks(&state.db, auth_user.id, target.id).await? {
         return Ok(StatusCode::NO_CONTENT);
     }
+    if !limits::pair_attempt(&state, PairAction::Block, auth_user.id, target.id).await {
+        return Err(AppError::RateLimited);
+    }
     match blocks_db::block(&state.db, auth_user.id, target.id, MAX_BLOCKS).await? {
         Blocked::Now => {
             // Ends the live streams of the user's now playing the blocked
@@ -82,7 +85,7 @@ pub async fn block(
 
 pub fn _block_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Block a user")
-        .description(&format!("Blocks the account: the follows between the two end, and neither can follow the other while the block stands. The user disappears for the blocked account, which finds no such account wherever it looks while signed in (404 on the user's profile and everything under it, absent from lists of people, search, comments, image candidates, feeds and community charts) and is never told; a profile is public to anyone signed out, so a block hides it from the account, not from the person. The blocked account in turn leaves the user's lists of people, search, comments and image candidates; its profile stays visible to the user, with `blocking: true`. Blocking an account already blocked changes nothing. An account may block {MAX_BLOCKS} accounts at most, and block, unblock or remove followers {} times an hour ({} from one address), refused attempts included.", limits::BLOCK_ACTIONS_PER_USER, limits::BLOCK_ACTIONS_PER_IP))
+        .description(&format!("Blocks the account: the follows between the two end, and neither can follow the other while the block stands. The user disappears for the blocked account, which finds no such account wherever it looks while signed in (404 on the user's profile and everything under it, absent from lists of people, search, comments, image candidates, feeds and community charts) and is never told; a profile is public to anyone signed out, so a block hides it from the account, not from the person. The blocked account in turn leaves the user's lists of people, search, comments and image candidates; its profile stays visible to the user, with `blocking: true`. Blocking an account already blocked changes nothing. An account may block {MAX_BLOCKS} accounts at most, and block, unblock or remove followers {} times an hour ({} from one address), refused attempts included, and block the same account {} times a day.", limits::BLOCK_ACTIONS_PER_USER, limits::BLOCK_ACTIONS_PER_IP, limits::BLOCKS_PER_PAIR))
         .tag("Users")
         .response_with::<204, (), _>(|r| r.description("Blocked, now or before"))
         .response_with::<400, ErrorJson, _>(|r| r.description("Cannot block yourself"))
@@ -92,13 +95,18 @@ pub fn _block_doc(op: TransformOperation) -> TransformOperation {
         .response_with::<409, ErrorJson, _>(|r| {
             r.description(&format!("Already blocking {MAX_BLOCKS} accounts"))
         })
-        .response_with::<429, ErrorJson, _>(|r| r.description(&block_limits()))
+        .response_with::<429, ErrorJson, _>(|r| r.description(&block_limits(true)))
 }
 
-fn block_limits() -> String {
+fn block_limits(per_pair: bool) -> String {
+    let pair = if per_pair {
+        format!(", {} blocks of this account today", limits::BLOCKS_PER_PAIR)
+    } else {
+        String::new()
+    };
     format!(
         "Over {} blocks, unblocks and removed followers an hour for this account or {} from \
-         this address, or over the request limit for this address",
+         this address{pair}, or over the request limit for this address",
         limits::BLOCK_ACTIONS_PER_USER,
         limits::BLOCK_ACTIONS_PER_IP
     )
@@ -133,7 +141,7 @@ pub fn _unblock_doc(op: TransformOperation) -> TransformOperation {
         .response_with::<404, ErrorJson, _>(|r| {
             r.description("User not found, or not blocked and waiting to be deleted or blocking the user")
         })
-        .response_with::<429, ErrorJson, _>(|r| r.description(&block_limits()))
+        .response_with::<429, ErrorJson, _>(|r| r.description(&block_limits(false)))
 }
 
 /// GET /v1/user/me/blocks
@@ -210,7 +218,7 @@ pub fn _remove_follower_doc(op: TransformOperation) -> TransformOperation {
         .response_with::<404, ErrorJson, _>(|r| {
             r.description("User not found, waiting to be deleted, or blocking the user")
         })
-        .response_with::<429, ErrorJson, _>(|r| r.description(&block_limits()))
+        .response_with::<429, ErrorJson, _>(|r| r.description(&block_limits(false)))
 }
 
 #[cfg(test)]
@@ -715,9 +723,27 @@ mod tests {
                 StatusCode::NO_CONTENT
             );
 
-            // Three actions so far; the hour's allowance ends at 200,
-            // refused ones included.
-            for _ in 3..crate::limits::BLOCK_ACTIONS_PER_USER {
+            // The same account three times a day: blocking and unblocking
+            // can't keep flickering it.
+            for _ in 1..crate::limits::BLOCKS_PER_PAIR {
+                assert_eq!(
+                    app.api(Method::POST, &block(&y), None).await.0,
+                    StatusCode::NO_CONTENT
+                );
+                assert_eq!(
+                    app.api(Method::DELETE, &block(&y), None).await.0,
+                    StatusCode::NO_CONTENT
+                );
+            }
+            // y counted once at the cap, so this is its fourth.
+            assert_eq!(
+                app.api(Method::POST, &block(&y), None).await.0,
+                StatusCode::TOO_MANY_REQUESTS
+            );
+
+            // 3 + 2 × 2 + 1 actions so far; the hour's allowance ends at
+            // 200, refused ones included.
+            for _ in 8..crate::limits::BLOCK_ACTIONS_PER_USER {
                 assert_eq!(
                     app.api(Method::DELETE, &block(&x), None).await.0,
                     StatusCode::NO_CONTENT
@@ -771,6 +797,38 @@ mod tests {
                 .unwrap();
             assert_eq!(app.api_as(&fan, Method::POST, &follow, None).await.0, StatusCode::NO_CONTENT);
             assert_eq!(db::queries::blocks::purge_expired_removals(&app.pool).await.unwrap(), 1);
+        })
+        .await;
+    }
+
+    /// Following, unfollowing and following again keeps putting the
+    /// follower first in the other's list: three new follows of one
+    /// account a day.
+    #[tokio::test]
+    #[ignore = "needs Postgres and Redis: just test-db"]
+    async fn following_one_account_again_and_again_is_limited() {
+        with_app(Default::default(), |app| async move {
+            let (_, target, _) = app.other_user("target").await;
+            let path = format!("/v1/user/{target}/follow");
+            for _ in 0..crate::limits::FOLLOWS_PER_PAIR {
+                assert_eq!(
+                    app.api(Method::POST, &path, None).await.0,
+                    StatusCode::NO_CONTENT
+                );
+                // Following what is followed already isn't a new follow.
+                assert_eq!(
+                    app.api(Method::POST, &path, None).await.0,
+                    StatusCode::NO_CONTENT
+                );
+                assert_eq!(
+                    app.api(Method::DELETE, &path, None).await.0,
+                    StatusCode::NO_CONTENT
+                );
+            }
+            assert_eq!(
+                app.api(Method::POST, &path, None).await.0,
+                StatusCode::TOO_MANY_REQUESTS
+            );
         })
         .await;
     }

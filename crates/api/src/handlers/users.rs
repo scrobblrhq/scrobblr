@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use super::UsernamePath;
 use crate::{
     errors::{ApiResult, AppError, ErrorJson},
-    limits,
+    limits::{self, PairAction},
     middleware::{auth::AuthUser, rate_limit::ClientIp},
     state::AppState,
 };
@@ -372,6 +372,8 @@ pub async fn follow(
     if target.id == auth_user.id {
         return Err(AppError::BadRequest("cannot follow yourself".into()));
     }
+    // Checked before the pair's count, which would otherwise answer an
+    // account that blocks the follower differently from a missing one.
     let relation = blocks_db::relation(&state.db, auth_user.id, target.id).await?;
     if relation.blocked_by {
         return Err(AppError::NotFound);
@@ -381,6 +383,9 @@ pub async fn follow(
     }
     if relation.following {
         return Ok(StatusCode::NO_CONTENT);
+    }
+    if !limits::pair_attempt(&state, PairAction::Follow, auth_user.id, target.id).await {
+        return Err(AppError::RateLimited);
     }
 
     match users_db::follow_user(&state.db, auth_user.id, target.id, MAX_FOLLOWING).await? {
@@ -402,7 +407,7 @@ fn blocking_conflict() -> AppError {
 
 pub fn _follow_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Follow a user")
-        .description(&format!("Follows the specified user on behalf of the authenticated user; following an account already followed changes nothing. Following takes no approval, and opens nothing a private profile hides: its owner alone sees it. An account may follow {MAX_FOLLOWING} accounts at most, and follow {} times an hour ({} from one address), refused attempts included; unfollowing is free. An account that blocks the follower is not found, as one that doesn't exist; one the follower blocks, or that removed the follower from its followers in the last {} days, can't be followed (409).", limits::FOLLOWS_PER_USER, limits::FOLLOWS_PER_IP, super::blocks::REMOVAL_COOLDOWN.num_days()))
+        .description(&format!("Follows the specified user on behalf of the authenticated user; following an account already followed changes nothing. Following takes no approval, and opens nothing a private profile hides: its owner alone sees it. An account may follow {MAX_FOLLOWING} accounts at most, follow {} times an hour ({} from one address), refused attempts included, and follow the same account {} times a day (following again after an unfollow counts); unfollowing is free. An account that blocks the follower is not found, as one that doesn't exist; one the follower blocks, or that removed the follower from its followers in the last {} days, can't be followed (409).", limits::FOLLOWS_PER_USER, limits::FOLLOWS_PER_IP, limits::FOLLOWS_PER_PAIR, super::blocks::REMOVAL_COOLDOWN.num_days()))
         .tag("Users")
         .response_with::<204, (), _>(|r| r.description("Followed, now or before"))
         .response_with::<400, ErrorJson, _>(|r| r.description("Cannot follow yourself"))
@@ -413,9 +418,10 @@ pub fn _follow_doc(op: TransformOperation) -> TransformOperation {
         })
         .response_with::<429, ErrorJson, _>(|r| {
             r.description(&format!(
-                "Over {} follows an hour for this account or {} from this address, or over the request limit for this address",
+                "Over {} follows an hour for this account or {} from this address, {} new follows of this account today, or over the request limit for this address",
                 limits::FOLLOWS_PER_USER,
-                limits::FOLLOWS_PER_IP
+                limits::FOLLOWS_PER_IP,
+                limits::FOLLOWS_PER_PAIR
             ))
         })
 }
@@ -630,15 +636,21 @@ mod tests {
             );
 
             // Four attempts so far; the hour's allowance ends at 100,
-            // refused ones included, and unfollows don't count.
-            for _ in 4..crate::limits::FOLLOWS_PER_USER {
-                app.api(Method::DELETE, &follow(&b), None).await;
-                let (status, _) = app.api(Method::POST, &follow(&b), None).await;
+            // refused ones included, and unfollows don't count. Each
+            // follows a new account (one account may be followed again
+            // only so often).
+            let mut last = b.clone();
+            for n in 4..crate::limits::FOLLOWS_PER_USER {
+                app.api(Method::DELETE, &follow(&last), None).await;
+                let (_, next, _) = app.other_user(&format!("n{n}")).await;
+                let (status, _) = app.api(Method::POST, &follow(&next), None).await;
                 assert_eq!(status, StatusCode::NO_CONTENT);
+                last = next;
             }
-            let (status, _) = app.api(Method::POST, &follow(&a), None).await;
+            app.api(Method::DELETE, &follow(&last), None).await;
+            let (status, _) = app.api(Method::POST, &follow(&b), None).await;
             assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
-            let (status, _) = app.api(Method::DELETE, &follow(&b), None).await;
+            let (status, _) = app.api(Method::DELETE, &follow(&a), None).await;
             assert_eq!(status, StatusCode::NO_CONTENT);
         })
         .await;

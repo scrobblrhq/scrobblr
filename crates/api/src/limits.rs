@@ -125,10 +125,42 @@ pub async fn block_attempt(state: &AppState, user_id: i64, ip: &str) -> bool {
     take_or_pass(state, keys, BLOCK_WINDOW_SECS, "block").await
 }
 
-/// Counts before the work; a Redis failure lets it through.
-async fn take_or_pass(
+const PAIR_WINDOW_SECS: i64 = 24 * 3600;
+/// New follows of one account by another in a day.
+pub const FOLLOWS_PER_PAIR: i64 = 3;
+/// Blocks of one account by another in a day.
+pub const BLOCKS_PER_PAIR: i64 = 3;
+
+/// What [`pair_attempt`] counts.
+#[derive(Debug, Clone, Copy)]
+pub enum PairAction {
+    Follow,
+    Block,
+}
+
+/// Counts `action` by `user_id` on `other_id` and says whether it may go
+/// ahead, so following, unfollowing and following again (or blocking and
+/// unblocking) can't keep putting an account in front of another's eyes.
+/// Fails open.
+pub async fn pair_attempt(
     state: &AppState,
-    keys: [(String, i64); 2],
+    action: PairAction,
+    user_id: i64,
+    other_id: i64,
+) -> bool {
+    let window = Utc::now().timestamp() / PAIR_WINDOW_SECS;
+    let (name, limit) = match action {
+        PairAction::Follow => ("follow", FOLLOWS_PER_PAIR),
+        PairAction::Block => ("block", BLOCKS_PER_PAIR),
+    };
+    let keys = [(format!("pair:{name}:{user_id}:{other_id}:{window}"), limit)];
+    take_or_pass(state, keys, PAIR_WINDOW_SECS, name).await
+}
+
+/// Counts before the work; a Redis failure lets it through.
+async fn take_or_pass<const N: usize>(
+    state: &AppState,
+    keys: [(String, i64); N],
     window_secs: i64,
     what: &str,
 ) -> bool {
