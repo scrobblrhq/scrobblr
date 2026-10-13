@@ -518,6 +518,79 @@ pub struct TrackRanking {
     pub entries: Vec<RankedTrack>,
 }
 
+/// An album's place in a ranking.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct RankedAlbum {
+    /// 1 for the first.
+    pub position: i32,
+    pub album_id: i64,
+    pub album_title: String,
+    pub artist_id: i64,
+    pub artist_name: String,
+    #[serde(serialize_with = "crate::media::serialize_opt_url")]
+    pub image_url: Option<String>,
+    /// As in [`RankedArtist`].
+    pub listeners: i64,
+    /// As in [`RankedArtist`].
+    pub plays: i64,
+}
+
+/// What a page of a community chart covers: the accounts the viewer
+/// follows.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+pub struct CommunityChartInfo {
+    /// The period asked for; `null` for a custom range.
+    pub period: Option<crate::charts::ChartPeriod>,
+    /// The first UTC day covered.
+    pub from: NaiveDate,
+    /// The last UTC day covered, included: today for a period.
+    pub to: NaiveDate,
+    /// Accounts the viewer follows that the chart may cover: public ones
+    /// not waiting to be deleted.
+    pub following: i64,
+    /// Those the chart covers: the most recently active, as many as the
+    /// range allows (every one over a week, 40 over a year).
+    pub accounts: i64,
+    /// Listeners an entry needs: entities fewer of these accounts played
+    /// are left out, so no entry stands for one or two people's listening.
+    pub min_listeners: i64,
+    /// Entries the chart has; a page past them is empty.
+    pub total: i64,
+    pub offset: i64,
+    pub limit: i64,
+}
+
+/// A page of the artists the accounts a user follows listen to.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct CommunityArtistChart {
+    #[serde(flatten)]
+    #[ts(flatten)]
+    pub info: CommunityChartInfo,
+    pub entries: Vec<RankedArtist>,
+}
+
+/// A page of the tracks the accounts a user follows listen to.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct CommunityTrackChart {
+    #[serde(flatten)]
+    #[ts(flatten)]
+    pub info: CommunityChartInfo,
+    pub entries: Vec<RankedTrack>,
+}
+
+/// A page of the albums the accounts a user follows listen to.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct CommunityAlbumChart {
+    #[serde(flatten)]
+    #[ts(flatten)]
+    pub info: CommunityChartInfo,
+    pub entries: Vec<RankedAlbum>,
+}
+
 /// A community-uploaded image candidate for an artist or album. Uploads add
 /// candidates rather than replacing the image; the most-liked candidate
 /// (once it clears the vote threshold) becomes the entity's displayed image.
@@ -861,6 +934,17 @@ mod tests {
                 artist_id: 1,
                 artist_name: "a".into(),
                 album_image: image(),
+                listeners: 5,
+                plays: 9,
+            })
+            .unwrap(),
+            serde_json::to_value(RankedAlbum {
+                position: 1,
+                album_id: 1,
+                album_title: "a".into(),
+                artist_id: 1,
+                artist_name: "a".into(),
+                image_url: image(),
                 listeners: 5,
                 plays: 9,
             })

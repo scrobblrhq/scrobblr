@@ -1,5 +1,6 @@
-//! Charts: a user's own top artists, tracks and albums over a period or a
-//! range of UTC days (`db::queries::charts`).
+//! Charts over a period or a range of UTC days (`db::queries::charts`): a
+//! user's own top artists, tracks and albums, and those of the accounts a
+//! user follows, weighed as the global rankings are.
 
 use aide::transform::{TransformOperation, TransformResponse};
 use axum::{
@@ -8,9 +9,11 @@ use axum::{
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
 };
-use chrono::{NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
+use fred::{interfaces::KeysInterface, types::Expiration};
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use super::{UsernamePath, caching};
 use crate::{
@@ -18,9 +21,16 @@ use crate::{
     middleware::auth::AuthUser,
     state::AppState,
 };
-use db::queries::{charts as charts_db, users as users_db};
+use db::queries::charts::{self as charts_db, CommunityKind};
+use db::queries::{rankings as rankings_db, users as users_db};
 use shared::charts::{self, ChartPeriod, ChartRange, RangeQuery, RangeRules};
-use shared::models::{AlbumChart, ArtistChart, ChartInfo, ScrobbleBreakdown, TrackChart};
+use shared::models::{
+    AlbumChart, ArtistChart, ChartInfo, CommunityAlbumChart, CommunityArtistChart,
+    CommunityChartInfo, CommunityTrackChart, RankedAlbum, RankedArtist, RankedTrack,
+    ScrobbleBreakdown, TrackChart,
+};
+use shared::ranking::{FULL, whole};
+use std::collections::HashMap;
 
 pub const DEFAULT_LIMIT: i64 = 50;
 pub const MAX_LIMIT: i64 = 200;
@@ -274,6 +284,346 @@ fn personal_doc<'t>(
         })
         .response_with::<403, ErrorJson, _>(|r| r.description("Profile is private"))
         .response_with::<404, ErrorJson, _>(|r| r.description("User not found"))
+}
+
+/// Positions a community chart keeps, as the global snapshots do.
+pub const COMMUNITY_POSITIONS: i64 = 1000;
+
+/// The viewer's own: the accounts they follow.
+const COMMUNITY_CACHE_CONTROL: &str = "private, max-age=60";
+
+/// GET /v1/user/me/community/artists
+pub async fn community_artists(
+    State(state): State<AppState>,
+    Extension(auth_user): Extension<AuthUser>,
+    Query(q): Query<ChartQuery>,
+    headers: HeaderMap,
+) -> ApiResult<Response> {
+    community(&state, auth_user.id, &q, &headers, Kind::Artists).await
+}
+
+pub fn _community_artists_doc(op: TransformOperation) -> TransformOperation {
+    community_doc(op, "Community artist chart", "artists")
+        .response_with::<200, Json<CommunityArtistChart>, _>(|r| {
+            community_headers(r).description("A page of the chart")
+        })
+}
+
+/// GET /v1/user/me/community/tracks
+pub async fn community_tracks(
+    State(state): State<AppState>,
+    Extension(auth_user): Extension<AuthUser>,
+    Query(q): Query<ChartQuery>,
+    headers: HeaderMap,
+) -> ApiResult<Response> {
+    community(&state, auth_user.id, &q, &headers, Kind::Tracks).await
+}
+
+pub fn _community_tracks_doc(op: TransformOperation) -> TransformOperation {
+    community_doc(op, "Community track chart", "tracks")
+        .response_with::<200, Json<CommunityTrackChart>, _>(|r| {
+            community_headers(r).description("A page of the chart")
+        })
+}
+
+/// GET /v1/user/me/community/albums
+pub async fn community_albums(
+    State(state): State<AppState>,
+    Extension(auth_user): Extension<AuthUser>,
+    Query(q): Query<ChartQuery>,
+    headers: HeaderMap,
+) -> ApiResult<Response> {
+    community(&state, auth_user.id, &q, &headers, Kind::Albums).await
+}
+
+pub fn _community_albums_doc(op: TransformOperation) -> TransformOperation {
+    community_doc(op, "Community album chart", "albums")
+        .response_with::<200, Json<CommunityAlbumChart>, _>(|r| {
+            community_headers(r).description("A page of the chart")
+        })
+}
+
+/// How long a computed community ranking is reused: paging through it, or
+/// coming back to it, then costs a Redis read.
+const COMMUNITY_CACHE_SECS: i64 = 300;
+
+/// A community ranking as computed, before names.
+#[derive(Debug, Serialize, Deserialize)]
+struct Computed {
+    computed_at: DateTime<Utc>,
+    entries: Vec<charts_db::Ranked>,
+}
+
+async fn community(
+    state: &AppState,
+    viewer_id: i64,
+    q: &ChartQuery,
+    headers: &HeaderMap,
+    kind: Kind,
+) -> ApiResult<Response> {
+    let today = Utc::now().date_naive();
+    let range = q.range(RangeRules {
+        default: ChartPeriod::Days7,
+        earliest: Some(rankings_db::retained_from(today)),
+    })?;
+    let (limit, offset) = q.page()?;
+    let (Some(from), Some(days)) = (range.from, range.days()) else {
+        return Err(AppError::BadRequest(
+            "this chart has no `all` period".into(),
+        ));
+    };
+    let max_accounts = charts::community_accounts(days, super::users::MAX_FOLLOWING);
+    let (following, accounts) =
+        charts_db::community_accounts(&state.db, viewer_id, max_accounts).await?;
+    let min_listeners = i64::from(state.rankings.min_listeners);
+    let kind = match kind {
+        Kind::Artists => CommunityKind::Artists,
+        Kind::Tracks => CommunityKind::Tracks,
+        Kind::Albums => CommunityKind::Albums,
+    };
+    let key = community_key(kind, from, range.to, min_listeners, &accounts);
+    let ranking =
+        community_ranking(state, &key, kind, &accounts, from, range.to, min_listeners).await?;
+    let etag = format!(
+        "W/\"cc1-{}-{}\"",
+        &key[key.len() - 16..],
+        ranking.computed_at.timestamp_micros()
+    );
+    if let Some(tags) = headers.get(header::IF_NONE_MATCH)
+        && caching::matches(tags, &etag)
+    {
+        return Ok(with_community_caching(
+            StatusCode::NOT_MODIFIED.into_response(),
+            &etag,
+        ));
+    }
+
+    let ranked = ranking.entries;
+    let page: Vec<_> = ranked
+        .iter()
+        .enumerate()
+        .skip(offset.min(COMMUNITY_POSITIONS) as usize)
+        .take(limit as usize)
+        .collect();
+    let ids: Vec<i64> = page.iter().map(|(_, r)| r.entity_id).collect();
+    let names: HashMap<i64, charts_db::Named> = charts_db::names(&state.db, kind, &ids)
+        .await?
+        .into_iter()
+        .map(|n| (n.entity_id, n))
+        .collect();
+    let info = CommunityChartInfo {
+        period: range.period,
+        from,
+        to: range.to,
+        following,
+        accounts: accounts.len() as i64,
+        min_listeners,
+        total: ranked.len() as i64,
+        offset,
+        limit,
+    };
+    let entries = page
+        .into_iter()
+        .filter_map(|(i, r)| Some((i as i32 + 1, r, names.get(&r.entity_id)?)));
+    let body = match kind {
+        CommunityKind::Artists => Json(CommunityArtistChart {
+            info,
+            entries: entries
+                .map(|(position, r, n)| RankedArtist {
+                    position,
+                    artist_id: r.entity_id,
+                    artist_name: n.name.clone(),
+                    image_url: n.image.clone(),
+                    listeners: whole(r.listeners),
+                    plays: whole(r.weight),
+                })
+                .collect(),
+        })
+        .into_response(),
+        CommunityKind::Tracks => Json(CommunityTrackChart {
+            info,
+            entries: entries
+                .map(|(position, r, n)| RankedTrack {
+                    position,
+                    track_id: r.entity_id,
+                    track_title: n.name.clone(),
+                    artist_id: n.artist_id,
+                    artist_name: n.artist_name.clone(),
+                    album_image: n.image.clone(),
+                    listeners: whole(r.listeners),
+                    plays: whole(r.weight),
+                })
+                .collect(),
+        })
+        .into_response(),
+        CommunityKind::Albums => Json(CommunityAlbumChart {
+            info,
+            entries: entries
+                .map(|(position, r, n)| RankedAlbum {
+                    position,
+                    album_id: r.entity_id,
+                    album_title: n.name.clone(),
+                    artist_id: n.artist_id,
+                    artist_name: n.artist_name.clone(),
+                    image_url: n.image.clone(),
+                    listeners: whole(r.listeners),
+                    plays: whole(r.weight),
+                })
+                .collect(),
+        })
+        .into_response(),
+    };
+    Ok(with_community_caching(body, &etag))
+}
+
+/// Keyed by the accounts themselves (any viewer covering the same ones
+/// gets the same ranking): a follow, an unfollow, or an account turning
+/// private or leaving changes them, so no entry needs invalidating.
+fn community_key(
+    kind: CommunityKind,
+    from: NaiveDate,
+    to: NaiveDate,
+    min: i64,
+    accounts: &[i64],
+) -> String {
+    let mut sorted = accounts.to_vec();
+    sorted.sort_unstable();
+    let mut hash = Sha256::new();
+    for id in sorted {
+        hash.update(id.to_le_bytes());
+    }
+    let kind = match kind {
+        CommunityKind::Artists => "artists",
+        CommunityKind::Tracks => "tracks",
+        CommunityKind::Albums => "albums",
+    };
+    format!(
+        "community:v1:{kind}:{from}:{to}:{min}:{}",
+        &hex::encode(hash.finalize())[..32]
+    )
+}
+
+/// The ranking stored under `key` within the last five minutes, or a new
+/// one. A credit is one account at most, so fewer accounts than the
+/// minimum make none. Redis failing only costs the computation.
+async fn community_ranking(
+    state: &AppState,
+    key: &str,
+    kind: CommunityKind,
+    accounts: &[i64],
+    from: NaiveDate,
+    to: NaiveDate,
+    min_listeners: i64,
+) -> ApiResult<Computed> {
+    match state.redis.get::<Option<String>, _>(key).await {
+        Ok(Some(json)) => match serde_json::from_str(&json) {
+            Ok(cached) => return Ok(cached),
+            Err(e) => tracing::warn!("unreadable cached community ranking: {e}"),
+        },
+        Ok(None) => {}
+        Err(e) => tracing::warn!("community ranking cache unavailable: {e}"),
+    }
+    let entries = if (accounts.len() as i64) < min_listeners {
+        Vec::new()
+    } else {
+        charts_db::community(
+            &state.db,
+            kind,
+            accounts,
+            from,
+            to,
+            min_listeners * FULL,
+            COMMUNITY_POSITIONS,
+        )
+        .await?
+    };
+    let computed = Computed {
+        computed_at: Utc::now(),
+        entries,
+    };
+    if let Ok(json) = serde_json::to_string(&computed) {
+        let stored = state
+            .redis
+            .set::<(), _, _>(
+                key,
+                json,
+                Some(Expiration::EX(COMMUNITY_CACHE_SECS)),
+                None,
+                false,
+            )
+            .await;
+        if let Err(e) = stored {
+            tracing::warn!("community ranking cache unavailable: {e}");
+        }
+    }
+    Ok(computed)
+}
+
+fn with_community_caching(mut response: Response, etag: &str) -> Response {
+    let headers = response.headers_mut();
+    if let Ok(etag) = HeaderValue::from_str(etag) {
+        headers.insert(header::ETAG, etag);
+    }
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static(COMMUNITY_CACHE_CONTROL),
+    );
+    response
+}
+
+fn community_headers<T>(r: TransformResponse<'_, T>) -> TransformResponse<'_, T> {
+    caching::headers(
+        r,
+        "The ranking's version, for `If-None-Match`",
+        COMMUNITY_CACHE_CONTROL,
+    )
+}
+
+fn community_doc<'t>(
+    op: TransformOperation<'t>,
+    summary: &str,
+    things: &str,
+) -> TransformOperation<'t> {
+    let max = charts::community_accounts(7, super::users::MAX_FOLLOWING);
+    let year = charts::community_accounts(365, super::users::MAX_FOLLOWING);
+    op.summary(summary)
+        .description(&format!(
+            "The {things} the accounts the signed-in user follows listened to most over a period \
+             (`7d` by default, `30d`, `90d` or `12m`: UTC days ending today, today included) or \
+             a custom range of UTC days (`from` and `to`, both included, 366 days at most, within \
+             the last year: older weights aren't kept, hence no `all`), ranked as the global \
+             rankings are: by listeners, then by plays, each account counting once at most, and \
+             less when its plays don't look like real listening, plays weighed the same way, and \
+             both rounded.\n\n\
+             It covers the accounts followed that anyone may see (`following`; private ones and \
+             those waiting to be deleted are left out), the most recently active first, as many \
+             as the range allows, so a chart's cost doesn't grow with the follows: {max} over a \
+             week, {year} over a year (`accounts`). No account is named, and entities fewer than \
+             `min_listeners` of those accounts played are left out (the server's \
+             `RANKING_MIN_LISTENERS`, 5 unless configured), so no entry stands for one or two \
+             people's listening: following fewer accounts than that gives an empty chart. At most \
+             {COMMUNITY_POSITIONS} entries; paged by `limit` (50 by default, 200 at most) and \
+             `offset`.\n\n\
+             A ranking, once computed, is reused for {} minutes by every request covering the \
+             same accounts and days, so pages of one chart agree and positions are that old at \
+             most; following or unfollowing, or an account turning private, makes another. \
+             Pages carry a weak `ETag` and `Cache-Control: {COMMUNITY_CACHE_CONTROL}`: send the \
+             tag back in `If-None-Match` for a 304 while the ranking is the same.",
+            COMMUNITY_CACHE_SECS / 60
+        ))
+        .tag("Charts")
+        .with(|op| {
+            caching::if_none_match(
+                op,
+                "The `ETag` of a page fetched before: 304 if the ranking hasn't changed since",
+            )
+        })
+        .response_with::<304, (), _>(|r| {
+            community_headers(r).description("Not modified since the `ETag` in `If-None-Match`")
+        })
+        .response_with::<400, ErrorJson, _>(|r| {
+            r.description("Unknown period, `all`, a period with a range, an invalid, too long or too old range, or a negative offset")
+        })
 }
 
 #[cfg(test)]
@@ -562,6 +912,183 @@ mod tests {
                     "{path}"
                 );
             }
+        })
+        .await;
+    }
+
+    /// `n` accounts, 30 days old, each weighing a full listener of the
+    /// returned artist's track yesterday.
+    async fn listeners(app: &TestApp, n: usize, artist: &str) -> (Vec<i64>, i64) {
+        let ruleset = db::queries::rankings::register_ruleset(
+            &app.pool,
+            &shared::ranking::RankingParams::default(),
+        )
+        .await
+        .unwrap();
+        let song = track(app, artist, Some("Record"), "Song", Some(200_000)).await;
+        let mut ids = Vec::new();
+        for _ in 0..n {
+            let (id, _, _) = app.other_user("fan").await;
+            sqlx::query("UPDATE users SET created_at = NOW() - INTERVAL '30 days', last_seen_at = NOW() WHERE id = $1")
+                .bind(id)
+                .execute(&app.pool)
+                .await
+                .unwrap();
+            sqlx::query(
+                "INSERT INTO ranking_days (user_id, day, ruleset_id, classified_at, plays, weighted, weight,
+                     unclassified, suspect, duplicate, no_data, imported, new_account, short_listen,
+                     no_listened, unknown_client, track_cap, artist_cap)
+                 VALUES ($1, $2, $3, NOW(), 2, 2, 2000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)",
+            )
+            .bind(id)
+            .bind(days_ago(1))
+            .bind(ruleset.id)
+            .execute(&app.pool)
+            .await
+            .unwrap();
+            sqlx::query(
+                "INSERT INTO ranking_daily (user_id, day, track_id, artist_id, plays, weight)
+                 VALUES ($1, $2, $3, $4, 2, 2000)",
+            )
+            .bind(id)
+            .bind(days_ago(1))
+            .bind(song.0)
+            .bind(song.1)
+            .execute(&app.pool)
+            .await
+            .unwrap();
+            ids.push(id);
+        }
+        (ids, song.1)
+    }
+
+    async fn follow_all(app: &TestApp, ids: &[i64]) {
+        sqlx::query(
+            "INSERT INTO user_follows (follower_id, followee_id) SELECT $1, unnest($2::bigint[])",
+        )
+        .bind(app.user_id)
+        .bind(ids)
+        .execute(&app.pool)
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "needs Postgres and Redis: just test-db"]
+    async fn community_charts_cover_visible_follows_past_the_minimum() {
+        with_app(Default::default(), |app| async move {
+            let (fans, band) = listeners(&app, 7, "Band").await;
+            let (few, _) = listeners(&app, 4, "Niche").await;
+            follow_all(&app, &fans).await;
+            follow_all(&app, &few).await;
+            sqlx::query("UPDATE users SET is_private = TRUE WHERE id = $1")
+                .bind(fans[0])
+                .execute(&app.pool)
+                .await
+                .unwrap();
+            sqlx::query("UPDATE users SET delete_after = NOW() + INTERVAL '7 days' WHERE id = $1")
+                .bind(fans[1])
+                .execute(&app.pool)
+                .await
+                .unwrap();
+
+            let (status, chart) = app
+                .api(Method::GET, "/v1/user/me/community/artists", None)
+                .await;
+            assert_eq!(status, StatusCode::OK, "{chart}");
+            assert_eq!(
+                (
+                    &chart["following"],
+                    &chart["accounts"],
+                    &chart["min_listeners"]
+                ),
+                (&json!(9), &json!(9), &json!(5))
+            );
+            // Five visible listeners of Band; Niche's four aren't enough.
+            assert_eq!(chart["total"], 1);
+            assert_eq!(chart["entries"][0]["artist_id"], band);
+            assert_eq!(chart["entries"][0]["position"], 1);
+            assert_eq!(
+                (
+                    &chart["entries"][0]["listeners"],
+                    &chart["entries"][0]["plays"]
+                ),
+                (&json!(5), &json!(10))
+            );
+            let (_, tracks) = app
+                .api(Method::GET, "/v1/user/me/community/tracks?period=30d", None)
+                .await;
+            assert_eq!(tracks["entries"][0]["track_title"], "Song");
+            let (_, albums) = app
+                .api(Method::GET, "/v1/user/me/community/albums?period=12m", None)
+                .await;
+            assert_eq!(albums["entries"][0]["album_title"], "Record");
+            assert_eq!(albums["entries"][0]["artist_name"], "Band");
+
+            // The same ranking again, from the cache: a 304 on its tag.
+            let path = "/v1/user/me/community/artists";
+            let request = |etag: Option<&str>| {
+                let mut req = Request::get(path)
+                    .header(header::AUTHORIZATION, format!("Bearer {}", app.session));
+                if let Some(etag) = etag {
+                    req = req.header(header::IF_NONE_MATCH, etag);
+                }
+                req.body(Body::empty()).unwrap()
+            };
+            let (_, headers, _) = app.send(request(None)).await;
+            assert_eq!(headers[header::CACHE_CONTROL], "private, max-age=60");
+            let etag = headers[header::ETAG].to_str().unwrap().to_owned();
+            let (status, _, _) = app.send(request(Some(&etag))).await;
+            assert_eq!(status, StatusCode::NOT_MODIFIED);
+
+            // One more turns private: under the minimum.
+            sqlx::query("UPDATE users SET is_private = TRUE WHERE id = $1")
+                .bind(fans[2])
+                .execute(&app.pool)
+                .await
+                .unwrap();
+            let (status, _, body) = app.send(request(Some(&etag))).await;
+            assert_eq!(
+                status,
+                StatusCode::OK,
+                "another set of accounts, another ranking"
+            );
+            let chart: Value = serde_json::from_str(&body).unwrap();
+            assert_eq!(
+                (&chart["total"], &chart["entries"]),
+                (&json!(0), &json!([]))
+            );
+
+            // Someone following none of them has an empty chart.
+            let (_, _, stranger) = app.other_user("stranger").await;
+            let (status, chart) = app
+                .api_as(&stranger, Method::GET, "/v1/user/me/community/tracks", None)
+                .await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(
+                (&chart["following"], &chart["entries"]),
+                (&json!(0), &json!([]))
+            );
+
+            let today = days_ago(0);
+            let old = today - TimeDelta::days(400);
+            for bad in [
+                "period=all".to_string(),
+                format!("from={old}&to={}", old + TimeDelta::days(10)),
+                "period=7d&from=2026-01-01&to=2026-01-02".into(),
+                "offset=-1".into(),
+            ] {
+                let (status, body) = app
+                    .api(
+                        Method::GET,
+                        &format!("/v1/user/me/community/albums?{bad}"),
+                        None,
+                    )
+                    .await;
+                assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}: {body}");
+            }
+            let (status, _) = get(&app, "/v1/user/me/community/artists", None).await;
+            assert_eq!(status, StatusCode::UNAUTHORIZED);
         })
         .await;
     }

@@ -175,8 +175,10 @@ pub fn resolve(
 }
 
 /// Community charts read at most this many (account, day) pairs of
-/// weights: the accounts followed, up to this over the days covered.
-pub const COMMUNITY_USER_DAYS: i64 = 36_500;
+/// weights: a chart's cost grows with them (about 20 ms a thousand on the
+/// synthetic population), never with the follows. 40 accounts over a
+/// year, every followed account (2,000 at most) over a week.
+pub const COMMUNITY_USER_DAYS: i64 = 40 * 365;
 
 /// How many accounts a community chart over `days` days covers.
 pub fn community_accounts(days: i64, max_following: i64) -> i64 {
@@ -329,8 +331,9 @@ mod tests {
     #[test]
     fn community_charts_read_a_bounded_number_of_user_days() {
         assert_eq!(community_accounts(7, 2000), 2000);
-        assert_eq!(community_accounts(30, 2000), 1216);
-        assert_eq!(community_accounts(365, 2000), 100);
+        assert_eq!(community_accounts(30, 2000), 486);
+        assert_eq!(community_accounts(90, 2000), 162);
+        assert_eq!(community_accounts(365, 2000), 40);
         for days in [1, 7, 30, 90, 365, 366] {
             assert!(community_accounts(days, 2000) * days <= COMMUNITY_USER_DAYS);
         }

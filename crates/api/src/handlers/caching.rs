@@ -40,29 +40,32 @@ pub fn if_none_match<'t>(
 
 /// Documents a response's `ETag` and `Cache-Control` headers.
 pub fn headers<'t, T>(
-    mut r: TransformResponse<'t, T>,
+    r: TransformResponse<'t, T>,
     etag: &str,
     cache_control: &str,
 ) -> TransformResponse<'t, T> {
-    let headers = &mut r.inner().headers;
-    for (name, description) in [
-        ("ETag", etag.to_owned()),
-        ("Cache-Control", format!("`{cache_control}`")),
-    ] {
-        headers.insert(
-            name.into(),
-            ReferenceOr::Item(Header {
-                description: Some(description),
-                style: Default::default(),
-                required: true,
-                deprecated: None,
-                format: string_schema(),
-                example: None,
-                examples: Default::default(),
-                extensions: Default::default(),
-            }),
-        );
-    }
+    let r = header(r, "ETag", etag.to_owned());
+    header(r, "Cache-Control", format!("`{cache_control}`"))
+}
+
+fn header<'t, T>(
+    mut r: TransformResponse<'t, T>,
+    name: &str,
+    description: String,
+) -> TransformResponse<'t, T> {
+    r.inner().headers.insert(
+        name.into(),
+        ReferenceOr::Item(Header {
+            description: Some(description),
+            style: Default::default(),
+            required: true,
+            deprecated: None,
+            format: string_schema(),
+            example: None,
+            examples: Default::default(),
+            extensions: Default::default(),
+        }),
+    );
     r
 }
 

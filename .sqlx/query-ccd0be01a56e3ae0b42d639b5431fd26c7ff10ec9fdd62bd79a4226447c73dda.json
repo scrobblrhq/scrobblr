@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT t.id AS \"entity_id!\", t.title AS \"name!\", t.artist_id AS \"artist_id!\",\n                       a.name AS \"artist_name!\", al.image_url AS \"image?\"\n                FROM tracks t\n                JOIN artists a ON a.id = t.artist_id\n                LEFT JOIN albums al ON al.id = t.album_id\n                WHERE t.id = ANY($1)\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "entity_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "artist_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "artist_name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "image?",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "ccd0be01a56e3ae0b42d639b5431fd26c7ff10ec9fdd62bd79a4226447c73dda"
+}

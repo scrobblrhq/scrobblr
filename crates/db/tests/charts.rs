@@ -4,11 +4,13 @@ use std::collections::BTreeMap;
 
 use chrono::{NaiveDate, NaiveTime, TimeDelta, Utc};
 use common::with_db;
-use db::queries::charts::{self as charts_db, Page};
+use db::queries::charts::{self as charts_db, CommunityKind, Page, Ranked};
 use db::queries::classification as cdb;
+use db::queries::rankings as rdb;
 use db::queries::scrobbles as scrobbles_db;
 use shared::charts::{ChartPeriod, ChartRange};
 use shared::classification::BudgetParams;
+use shared::ranking::{FULL, RankingParams};
 use sqlx::PgPool;
 
 /// 6 users over 50 days of 10 artists' 30 tracks, two thirds of them on an
@@ -186,6 +188,178 @@ async fn personal_charts_equal_a_recount_of_the_scrobbles() {
                 );
             }
         }
+    })
+    .await;
+}
+
+/// `accounts`' entities over `[from, to]` recounted from the stored weights
+/// and coordination factors, as `community` ranks them.
+async fn recount_weights(
+    pool: &PgPool,
+    accounts: &[i64],
+    from: NaiveDate,
+    to: NaiveDate,
+    kind: CommunityKind,
+    min_listeners: i64,
+) -> Vec<Ranked> {
+    let full = FULL;
+    let listener_weight = RankingParams::default().listener_weight();
+    let rows: Vec<(i64, i64, i64, Option<i64>, i32)> = sqlx::query_as(
+        "SELECT r.user_id, r.track_id, r.artist_id, t.album_id, r.weight
+         FROM ranking_daily r JOIN tracks t ON t.id = r.track_id
+         WHERE r.user_id = ANY($1) AND r.day BETWEEN $2 AND $3",
+    )
+    .bind(accounts)
+    .bind(from)
+    .bind(to)
+    .fetch_all(pool)
+    .await
+    .unwrap();
+    let days: Vec<(i64, NaiveDate, i64, Option<i32>)> = sqlx::query_as(
+        "SELECT r.user_id, r.day, r.weight, c.factor
+         FROM ranking_days r
+         LEFT JOIN coordination_days c ON c.user_id = r.user_id AND c.day = r.day
+         WHERE r.user_id = ANY($1) AND r.day BETWEEN $2 AND $3",
+    )
+    .bind(accounts)
+    .bind(from)
+    .bind(to)
+    .fetch_all(pool)
+    .await
+    .unwrap();
+    let mut factors: BTreeMap<i64, i64> = BTreeMap::new();
+    for user in accounts {
+        let mine: Vec<_> = days.iter().filter(|d| d.0 == *user).collect();
+        let total: i64 = mine.iter().map(|d| d.2).sum();
+        let dented: i64 = mine
+            .iter()
+            .filter_map(|d| d.3.map(|f| d.2 * (full - i64::from(f))))
+            .sum();
+        if mine.iter().any(|d| d.3.is_some()) && total > 0 {
+            factors.insert(*user, full - dented / total);
+        }
+    }
+    let mut per_user: BTreeMap<(i64, i64), i64> = BTreeMap::new();
+    for (user, track, artist, album, weight) in rows {
+        let entity = match kind {
+            CommunityKind::Artists => Some(artist),
+            CommunityKind::Tracks => Some(track),
+            CommunityKind::Albums => album,
+        };
+        if let Some(entity) = entity {
+            *per_user.entry((entity, user)).or_default() += i64::from(weight);
+        }
+    }
+    let mut per_entity: BTreeMap<i64, (i64, i64)> = BTreeMap::new();
+    for ((entity, user), weight) in per_user {
+        let factor = factors.get(&user).copied().unwrap_or(full);
+        let sums = per_entity.entry(entity).or_default();
+        sums.0 += (weight * full / listener_weight).min(full) * factor / full;
+        sums.1 += weight * factor / full;
+    }
+    let mut ranked: Vec<Ranked> = per_entity
+        .into_iter()
+        .filter(|(_, (listeners, _))| *listeners >= min_listeners)
+        .map(|(entity_id, (listeners, weight))| Ranked {
+            entity_id,
+            listeners,
+            weight,
+        })
+        .collect();
+    ranked.sort_by_key(|r| (-r.listeners, -r.weight, r.entity_id));
+    ranked
+}
+
+#[tokio::test]
+#[ignore = "needs Postgres: just test-db"]
+async fn community_charts_equal_a_recount_of_the_weights() {
+    with_db(true, |pool| async move {
+        let users = history(&pool).await;
+        // All but the last are established; that one's plays weigh nothing.
+        sqlx::query(
+            "UPDATE users SET created_at = NOW() - INTERVAL '100 days',
+                              last_seen_at = NOW() - make_interval(mins => id::int % 7)
+             WHERE id <> $1",
+        )
+        .bind(users[5])
+        .execute(&pool)
+        .await
+        .unwrap();
+        let ruleset = rdb::register_ruleset(&pool, &RankingParams::default()).await.unwrap();
+        let days: Vec<(i64, NaiveDate)> = sqlx::query_as(
+            "SELECT user_id, day FROM scrobble_classification_days ORDER BY 1, 2",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        for (user, day) in days {
+            rdb::weigh_user_day(&pool, &ruleset, user, day, false).await.unwrap();
+        }
+        // Two accounts dented by the coordination detection on some days.
+        sqlx::query(
+            "INSERT INTO coordination_days (user_id, day, factor, run_id)
+             SELECT $1, d, 300, 1 FROM generate_series(CURRENT_DATE - 20, CURRENT_DATE - 2, INTERVAL '3 days') d
+             UNION ALL SELECT $2, CURRENT_DATE - 12, 0, 1",
+        )
+        .bind(users[1])
+        .bind(users[2])
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // A viewer following them all, a private account and one leaving.
+        let viewer: i64 = sqlx::query_scalar(
+            "INSERT INTO users (username, email, password_hash) VALUES ('viewer', 'v@test', 'x') RETURNING id",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let hidden: Vec<i64> = sqlx::query_scalar(
+            "INSERT INTO users (username, email, password_hash, is_private, delete_after)
+             VALUES ('hidden', 'h@test', 'x', TRUE, NULL), ('leaving', 'l@test', 'x', FALSE, NOW())
+             RETURNING id",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO user_follows (follower_id, followee_id) SELECT $1, unnest($2::bigint[])")
+            .bind(viewer)
+            .bind([users.clone(), hidden].concat())
+            .execute(&pool)
+            .await
+            .unwrap();
+        let (following, accounts) = charts_db::community_accounts(&pool, viewer, 2000).await.unwrap();
+        assert_eq!(following, 6);
+        let mut sorted = accounts.clone();
+        sorted.sort();
+        assert_eq!(sorted, users);
+        assert_eq!(*accounts.last().unwrap(), users[5], "never seen, last");
+        let (_, capped) = charts_db::community_accounts(&pool, viewer, 4).await.unwrap();
+        assert_eq!(capped, accounts[..4]);
+
+        let today = Utc::now().date_naive();
+        let mut compared = 0;
+        for (from, to) in [
+            (today - TimeDelta::days(6), today),
+            (today - TimeDelta::days(29), today),
+            (today - TimeDelta::days(40), today - TimeDelta::days(10)),
+        ] {
+            for kind in [CommunityKind::Artists, CommunityKind::Tracks, CommunityKind::Albums] {
+                for min in [FULL, 2 * FULL] {
+                    let chart = charts_db::community(&pool, kind, &accounts, from, to, min, 1000)
+                        .await
+                        .unwrap();
+                    let expected = recount_weights(&pool, &accounts, from, to, kind, min).await;
+                    assert_eq!(chart, expected, "{kind:?} {from}..{to}, min {min}");
+                    compared += chart.len();
+                }
+            }
+        }
+        assert!(compared > 100, "{compared}");
+        let few = charts_db::community(&pool, CommunityKind::Tracks, &accounts, today - TimeDelta::days(29), today, FULL, 3)
+            .await
+            .unwrap();
+        assert_eq!(few.len(), 3);
     })
     .await;
 }

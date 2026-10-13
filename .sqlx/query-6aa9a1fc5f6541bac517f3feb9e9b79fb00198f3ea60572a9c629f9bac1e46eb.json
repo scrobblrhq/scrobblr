@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH lw AS (\n                SELECT GREATEST(1, COALESCE(\n                    (SELECT round((r.params->>'no_listened')::numeric * $6::bigint)::bigint\n                     FROM ranking_snapshots s JOIN ranking_rulesets r ON r.id = s.ruleset_id\n                     ORDER BY s.computed_at DESC LIMIT 1), $7)) AS weight\n            ), per_user AS (\n                SELECT user_id,\n                       CASE WHEN $4 THEN track_id ELSE artist_id END AS entity_id,\n                       sum(weight)::bigint AS weight\n                FROM ranking_daily\n                WHERE user_id = ANY($1) AND day BETWEEN $2 AND $3\n                GROUP BY 1, 2\n            ), factors AS (\n                SELECT c.user_id,\n                       ($6::bigint - sum(r.weight::bigint * ($6::bigint - c.factor))::bigint\n                                     / NULLIF(t.weight, 0))::bigint AS factor\n                FROM coordination_days c\n                JOIN ranking_days r ON r.user_id = c.user_id AND r.day = c.day\n                JOIN (SELECT user_id, sum(weight)::bigint AS weight FROM ranking_days\n                      WHERE user_id = ANY($1) AND day BETWEEN $2 AND $3 GROUP BY 1) t\n                  ON t.user_id = c.user_id\n                WHERE c.user_id = ANY($1) AND c.day BETWEEN $2 AND $3\n                GROUP BY c.user_id, t.weight\n            )\n            SELECT p.entity_id AS \"entity_id!\",\n                   sum(LEAST($6::bigint, p.weight * $6 / lw.weight) * COALESCE(f.factor, $6) / $6)::bigint\n                       AS \"listeners!\",\n                   sum(p.weight * COALESCE(f.factor, $6) / $6)::bigint AS \"weight!\"\n            FROM per_user p\n            CROSS JOIN lw\n            LEFT JOIN factors f USING (user_id)\n            GROUP BY p.entity_id\n            HAVING sum(LEAST($6::bigint, p.weight * $6 / lw.weight) * COALESCE(f.factor, $6) / $6)::bigint\n                   >= $5::bigint\n            ORDER BY 2 DESC, 3 DESC, 1\n            LIMIT $8\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "entity_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "listeners!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "weight!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "Date",
+        "Date",
+        "Bool",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "6aa9a1fc5f6541bac517f3feb9e9b79fb00198f3ea60572a9c629f9bac1e46eb"
+}

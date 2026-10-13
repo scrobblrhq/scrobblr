@@ -534,6 +534,222 @@
         ],
         "type": "object"
       },
+      "CommunityAlbumChart": {
+        "description": "A page of the albums the accounts a user follows listen to.",
+        "properties": {
+          "accounts": {
+            "description": "Those the chart covers: the most recently active, as many as the\n range allows (every one over a week, 40 over a year).",
+            "format": "int64",
+            "type": "integer"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/RankedAlbum"
+            },
+            "type": "array"
+          },
+          "following": {
+            "description": "Accounts the viewer follows that the chart may cover: public ones\n not waiting to be deleted.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "from": {
+            "description": "The first UTC day covered.",
+            "format": "date",
+            "type": "string"
+          },
+          "limit": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "min_listeners": {
+            "description": "Listeners an entry needs: entities fewer of these accounts played\n are left out, so no entry stands for one or two people's listening.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "offset": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "period": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChartPeriod"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The period asked for; `null` for a custom range."
+          },
+          "to": {
+            "description": "The last UTC day covered, included: today for a period.",
+            "format": "date",
+            "type": "string"
+          },
+          "total": {
+            "description": "Entries the chart has; a page past them is empty.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "following",
+          "accounts",
+          "min_listeners",
+          "total",
+          "offset",
+          "limit",
+          "entries"
+        ],
+        "type": "object"
+      },
+      "CommunityArtistChart": {
+        "description": "A page of the artists the accounts a user follows listen to.",
+        "properties": {
+          "accounts": {
+            "description": "Those the chart covers: the most recently active, as many as the\n range allows (every one over a week, 40 over a year).",
+            "format": "int64",
+            "type": "integer"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/RankedArtist"
+            },
+            "type": "array"
+          },
+          "following": {
+            "description": "Accounts the viewer follows that the chart may cover: public ones\n not waiting to be deleted.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "from": {
+            "description": "The first UTC day covered.",
+            "format": "date",
+            "type": "string"
+          },
+          "limit": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "min_listeners": {
+            "description": "Listeners an entry needs: entities fewer of these accounts played\n are left out, so no entry stands for one or two people's listening.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "offset": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "period": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChartPeriod"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The period asked for; `null` for a custom range."
+          },
+          "to": {
+            "description": "The last UTC day covered, included: today for a period.",
+            "format": "date",
+            "type": "string"
+          },
+          "total": {
+            "description": "Entries the chart has; a page past them is empty.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "following",
+          "accounts",
+          "min_listeners",
+          "total",
+          "offset",
+          "limit",
+          "entries"
+        ],
+        "type": "object"
+      },
+      "CommunityTrackChart": {
+        "description": "A page of the tracks the accounts a user follows listen to.",
+        "properties": {
+          "accounts": {
+            "description": "Those the chart covers: the most recently active, as many as the\n range allows (every one over a week, 40 over a year).",
+            "format": "int64",
+            "type": "integer"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/RankedTrack"
+            },
+            "type": "array"
+          },
+          "following": {
+            "description": "Accounts the viewer follows that the chart may cover: public ones\n not waiting to be deleted.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "from": {
+            "description": "The first UTC day covered.",
+            "format": "date",
+            "type": "string"
+          },
+          "limit": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "min_listeners": {
+            "description": "Listeners an entry needs: entities fewer of these accounts played\n are left out, so no entry stands for one or two people's listening.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "offset": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "period": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChartPeriod"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The period asked for; `null` for a custom range."
+          },
+          "to": {
+            "description": "The last UTC day covered, included: today for a period.",
+            "format": "date",
+            "type": "string"
+          },
+          "total": {
+            "description": "Entries the chart has; a page past them is empty.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "following",
+          "accounts",
+          "min_listeners",
+          "total",
+          "offset",
+          "limit",
+          "entries"
+        ],
+        "type": "object"
+      },
       "ConnectResult": {
         "properties": {
           "connected": {
@@ -1283,6 +1499,56 @@
         },
         "required": [
           "provider"
+        ],
+        "type": "object"
+      },
+      "RankedAlbum": {
+        "description": "An album's place in a ranking.",
+        "properties": {
+          "album_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "album_title": {
+            "type": "string"
+          },
+          "artist_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "artist_name": {
+            "type": "string"
+          },
+          "image_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "listeners": {
+            "description": "As in [`RankedArtist`].",
+            "format": "int64",
+            "type": "integer"
+          },
+          "plays": {
+            "description": "As in [`RankedArtist`].",
+            "format": "int64",
+            "type": "integer"
+          },
+          "position": {
+            "description": "1 for the first.",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "position",
+          "album_id",
+          "album_title",
+          "artist_id",
+          "artist_name",
+          "listeners",
+          "plays"
         ],
         "type": "object"
       },
@@ -7935,6 +8201,603 @@
         "summary": "Upload avatar",
         "tags": [
           "Users"
+        ]
+      }
+    },
+    "/v1/user/me/community/albums": {
+      "get": {
+        "description": "The albums the accounts the signed-in user follows listened to most over a period (`7d` by default, `30d`, `90d` or `12m`: UTC days ending today, today included) or a custom range of UTC days (`from` and `to`, both included, 366 days at most, within the last year: older weights aren't kept, hence no `all`), ranked as the global rankings are: by listeners, then by plays, each account counting once at most, and less when its plays don't look like real listening, plays weighed the same way, and both rounded.\n\nIt covers the accounts followed that anyone may see (`following`; private ones and those waiting to be deleted are left out), the most recently active first, as many as the range allows, so a chart's cost doesn't grow with the follows: 2000 over a week, 40 over a year (`accounts`). No account is named, and entities fewer than `min_listeners` of those accounts played are left out (the server's `RANKING_MIN_LISTENERS`, 5 unless configured), so no entry stands for one or two people's listening: following fewer accounts than that gives an empty chart. At most 1000 entries; paged by `limit` (50 by default, 200 at most) and `offset`.\n\nA ranking, once computed, is reused for 5 minutes by every request covering the same accounts and days, so pages of one chart agree and positions are that old at most; following or unfollowing, or an account turning private, makes another. Pages carry a weak `ETag` and `Cache-Control: private, max-age=60`: send the tag back in `If-None-Match` for a 304 while the ranking is the same.",
+        "parameters": [
+          {
+            "description": "The first UTC day of a custom range (`YYYY-MM-DD`), with `to`.",
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "description": "The first UTC day of a custom range (`YYYY-MM-DD`), with `to`.",
+              "format": "date",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "Entries per page: 50 by default, 200 at most.",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Entries per page: 50 by default, 200 at most.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "Entries to skip, 0 by default: `offset=50` starts at the 51st.",
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "description": "Entries to skip, 0 by default: `offset=50` starts at the 51st.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "`7d` (the default), `30d`, `90d`, `12m` (365 days) or `all`: UTC days\n ending today, today included. Not with `from` and `to`.",
+            "in": "query",
+            "name": "period",
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ChartPeriod"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`7d` (the default), `30d`, `90d`, `12m` (365 days) or `all`: UTC days\n ending today, today included. Not with `from` and `to`."
+            },
+            "style": "form"
+          },
+          {
+            "description": "The last UTC day of a custom range, included, with `from`: not after\n today, and 366 days at most from `from`.",
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "description": "The last UTC day of a custom range, included, with `from`: not after\n today, and 366 days at most from `from`.",
+              "format": "date",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "The `ETag` of a page fetched before: 304 if the ranking hasn't changed since",
+            "in": "header",
+            "name": "If-None-Match",
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommunityAlbumChart"
+                }
+              }
+            },
+            "description": "A page of the chart",
+            "headers": {
+              "Cache-Control": {
+                "description": "`private, max-age=60`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              },
+              "ETag": {
+                "description": "The ranking's version, for `If-None-Match`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified since the `ETag` in `If-None-Match`",
+            "headers": {
+              "Cache-Control": {
+                "description": "`private, max-age=60`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              },
+              "ETag": {
+                "description": "The ranking's version, for `If-None-Match`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown period, `all`, a period with a range, an invalid, too long or too old range, or a negative offset"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No credential, or an invalid or expired one"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Needs a session or an API token with the `read` scope"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Community album chart",
+        "tags": [
+          "Charts"
+        ]
+      }
+    },
+    "/v1/user/me/community/artists": {
+      "get": {
+        "description": "The artists the accounts the signed-in user follows listened to most over a period (`7d` by default, `30d`, `90d` or `12m`: UTC days ending today, today included) or a custom range of UTC days (`from` and `to`, both included, 366 days at most, within the last year: older weights aren't kept, hence no `all`), ranked as the global rankings are: by listeners, then by plays, each account counting once at most, and less when its plays don't look like real listening, plays weighed the same way, and both rounded.\n\nIt covers the accounts followed that anyone may see (`following`; private ones and those waiting to be deleted are left out), the most recently active first, as many as the range allows, so a chart's cost doesn't grow with the follows: 2000 over a week, 40 over a year (`accounts`). No account is named, and entities fewer than `min_listeners` of those accounts played are left out (the server's `RANKING_MIN_LISTENERS`, 5 unless configured), so no entry stands for one or two people's listening: following fewer accounts than that gives an empty chart. At most 1000 entries; paged by `limit` (50 by default, 200 at most) and `offset`.\n\nA ranking, once computed, is reused for 5 minutes by every request covering the same accounts and days, so pages of one chart agree and positions are that old at most; following or unfollowing, or an account turning private, makes another. Pages carry a weak `ETag` and `Cache-Control: private, max-age=60`: send the tag back in `If-None-Match` for a 304 while the ranking is the same.",
+        "parameters": [
+          {
+            "description": "The first UTC day of a custom range (`YYYY-MM-DD`), with `to`.",
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "description": "The first UTC day of a custom range (`YYYY-MM-DD`), with `to`.",
+              "format": "date",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "Entries per page: 50 by default, 200 at most.",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Entries per page: 50 by default, 200 at most.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "Entries to skip, 0 by default: `offset=50` starts at the 51st.",
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "description": "Entries to skip, 0 by default: `offset=50` starts at the 51st.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "`7d` (the default), `30d`, `90d`, `12m` (365 days) or `all`: UTC days\n ending today, today included. Not with `from` and `to`.",
+            "in": "query",
+            "name": "period",
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ChartPeriod"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`7d` (the default), `30d`, `90d`, `12m` (365 days) or `all`: UTC days\n ending today, today included. Not with `from` and `to`."
+            },
+            "style": "form"
+          },
+          {
+            "description": "The last UTC day of a custom range, included, with `from`: not after\n today, and 366 days at most from `from`.",
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "description": "The last UTC day of a custom range, included, with `from`: not after\n today, and 366 days at most from `from`.",
+              "format": "date",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "The `ETag` of a page fetched before: 304 if the ranking hasn't changed since",
+            "in": "header",
+            "name": "If-None-Match",
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommunityArtistChart"
+                }
+              }
+            },
+            "description": "A page of the chart",
+            "headers": {
+              "Cache-Control": {
+                "description": "`private, max-age=60`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              },
+              "ETag": {
+                "description": "The ranking's version, for `If-None-Match`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified since the `ETag` in `If-None-Match`",
+            "headers": {
+              "Cache-Control": {
+                "description": "`private, max-age=60`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              },
+              "ETag": {
+                "description": "The ranking's version, for `If-None-Match`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown period, `all`, a period with a range, an invalid, too long or too old range, or a negative offset"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No credential, or an invalid or expired one"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Needs a session or an API token with the `read` scope"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Community artist chart",
+        "tags": [
+          "Charts"
+        ]
+      }
+    },
+    "/v1/user/me/community/tracks": {
+      "get": {
+        "description": "The tracks the accounts the signed-in user follows listened to most over a period (`7d` by default, `30d`, `90d` or `12m`: UTC days ending today, today included) or a custom range of UTC days (`from` and `to`, both included, 366 days at most, within the last year: older weights aren't kept, hence no `all`), ranked as the global rankings are: by listeners, then by plays, each account counting once at most, and less when its plays don't look like real listening, plays weighed the same way, and both rounded.\n\nIt covers the accounts followed that anyone may see (`following`; private ones and those waiting to be deleted are left out), the most recently active first, as many as the range allows, so a chart's cost doesn't grow with the follows: 2000 over a week, 40 over a year (`accounts`). No account is named, and entities fewer than `min_listeners` of those accounts played are left out (the server's `RANKING_MIN_LISTENERS`, 5 unless configured), so no entry stands for one or two people's listening: following fewer accounts than that gives an empty chart. At most 1000 entries; paged by `limit` (50 by default, 200 at most) and `offset`.\n\nA ranking, once computed, is reused for 5 minutes by every request covering the same accounts and days, so pages of one chart agree and positions are that old at most; following or unfollowing, or an account turning private, makes another. Pages carry a weak `ETag` and `Cache-Control: private, max-age=60`: send the tag back in `If-None-Match` for a 304 while the ranking is the same.",
+        "parameters": [
+          {
+            "description": "The first UTC day of a custom range (`YYYY-MM-DD`), with `to`.",
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "description": "The first UTC day of a custom range (`YYYY-MM-DD`), with `to`.",
+              "format": "date",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "Entries per page: 50 by default, 200 at most.",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Entries per page: 50 by default, 200 at most.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "Entries to skip, 0 by default: `offset=50` starts at the 51st.",
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "description": "Entries to skip, 0 by default: `offset=50` starts at the 51st.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "`7d` (the default), `30d`, `90d`, `12m` (365 days) or `all`: UTC days\n ending today, today included. Not with `from` and `to`.",
+            "in": "query",
+            "name": "period",
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ChartPeriod"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`7d` (the default), `30d`, `90d`, `12m` (365 days) or `all`: UTC days\n ending today, today included. Not with `from` and `to`."
+            },
+            "style": "form"
+          },
+          {
+            "description": "The last UTC day of a custom range, included, with `from`: not after\n today, and 366 days at most from `from`.",
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "description": "The last UTC day of a custom range, included, with `from`: not after\n today, and 366 days at most from `from`.",
+              "format": "date",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "The `ETag` of a page fetched before: 304 if the ranking hasn't changed since",
+            "in": "header",
+            "name": "If-None-Match",
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommunityTrackChart"
+                }
+              }
+            },
+            "description": "A page of the chart",
+            "headers": {
+              "Cache-Control": {
+                "description": "`private, max-age=60`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              },
+              "ETag": {
+                "description": "The ranking's version, for `If-None-Match`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified since the `ETag` in `If-None-Match`",
+            "headers": {
+              "Cache-Control": {
+                "description": "`private, max-age=60`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              },
+              "ETag": {
+                "description": "The ranking's version, for `If-None-Match`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown period, `all`, a period with a range, an invalid, too long or too old range, or a negative offset"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No credential, or an invalid or expired one"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Needs a session or an API token with the `read` scope"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Community track chart",
+        "tags": [
+          "Charts"
         ]
       }
     },

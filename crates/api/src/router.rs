@@ -137,6 +137,18 @@ pub fn build(state: AppState) -> Router {
         .api_route(
             "/v1/user/me",
             get_with(users::get_own_profile, users::_get_own_profile_doc),
+        )
+        .api_route(
+            "/v1/user/me/community/artists",
+            get_with(charts::community_artists, charts::_community_artists_doc),
+        )
+        .api_route(
+            "/v1/user/me/community/tracks",
+            get_with(charts::community_tracks, charts::_community_tracks_doc),
+        )
+        .api_route(
+            "/v1/user/me/community/albums",
+            get_with(charts::community_albums, charts::_community_albums_doc),
         );
 
     // Changing the account and posting as it.
