@@ -1,0 +1,58 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH flagged AS (\n            SELECT t.artist_id,\n                   count(*) FILTER (WHERE f.status = 'duplicate') AS duplicates,\n                   count(*) FILTER (WHERE f.status IN ('suspect', 'no_data')) AS unverified\n            FROM scrobble_flags f\n            JOIN tracks t ON t.id = f.track_id\n            WHERE f.user_id = $1 AND ($2::date IS NULL OR f.day >= $2) AND f.day <= $3\n            GROUP BY t.artist_id\n        ), plays AS (\n            SELECT artist_id, sum(play_count)::bigint AS play_count\n            FROM scrobbles_daily_by_artist\n            WHERE user_id = $1 AND ($4::timestamptz IS NULL OR day >= $4) AND day < $5\n            GROUP BY artist_id\n        ), counted AS (\n            SELECT p.artist_id, p.play_count - COALESCE(fl.duplicates, 0) AS play_count,\n                   COALESCE(fl.unverified, 0) AS unverified\n            FROM plays p\n            LEFT JOIN flagged fl USING (artist_id)\n            WHERE p.play_count > COALESCE(fl.duplicates, 0)\n        )\n        SELECT c.total AS \"total!\", e.artist_id AS \"artist_id?\", e.name AS \"name?\",\n               e.image_url AS \"image_url?\", e.play_count AS \"play_count?\",\n               e.unverified AS \"unverified?\"\n        FROM (SELECT count(*) AS total FROM counted) c\n        LEFT JOIN LATERAL (\n            SELECT k.artist_id, a.name, a.image_url, k.play_count::bigint, k.unverified::bigint\n            FROM (SELECT * FROM counted ORDER BY play_count DESC, artist_id LIMIT $6 OFFSET $7) k\n            JOIN artists a ON a.id = k.artist_id\n        ) e ON true\n        ORDER BY e.play_count DESC, e.artist_id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "total!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "artist_id?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "image_url?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "play_count?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "unverified?",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Date",
+        "Date",
+        "Timestamptz",
+        "Timestamptz",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      true,
+      false,
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "4dc5e5be62903e77802948a793f4f029910b505f33e869800283d8bb550d58df"
+}

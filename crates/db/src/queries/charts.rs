@@ -5,7 +5,9 @@
 //! hypertable itself, whose compressed chunks would be decompressed.
 //!
 //! An album's plays are its tracks' (`tracks.album_id`), as in the album's
-//! count.
+//! count. A page is cut from the counted entities before their names are
+//! looked up: the planner otherwise looks up every entity of a long
+//! history first.
 
 use chrono::{DateTime, NaiveDate, NaiveTime, TimeDelta, Utc};
 use sqlx::PgPool;
@@ -63,10 +65,8 @@ pub async fn user_artists(
         FROM (SELECT count(*) AS total FROM counted) c
         LEFT JOIN LATERAL (
             SELECT k.artist_id, a.name, a.image_url, k.play_count::bigint, k.unverified::bigint
-            FROM counted k
+            FROM (SELECT * FROM counted ORDER BY play_count DESC, artist_id LIMIT $6 OFFSET $7) k
             JOIN artists a ON a.id = k.artist_id
-            ORDER BY k.play_count DESC, k.artist_id
-            LIMIT $6 OFFSET $7
         ) e ON true
         ORDER BY e.play_count DESC, e.artist_id
         "#,
@@ -135,12 +135,10 @@ pub async fn user_tracks(
         LEFT JOIN LATERAL (
             SELECT k.track_id, t.title, t.artist_id, a.name AS artist_name,
                    al.image_url AS album_image, k.play_count::bigint, k.unverified::bigint
-            FROM counted k
+            FROM (SELECT * FROM counted ORDER BY play_count DESC, track_id LIMIT $6 OFFSET $7) k
             JOIN tracks t       ON t.id = k.track_id
             JOIN artists a      ON a.id = t.artist_id
             LEFT JOIN albums al ON al.id = t.album_id
-            ORDER BY k.play_count DESC, k.track_id
-            LIMIT $6 OFFSET $7
         ) e ON true
         ORDER BY e.play_count DESC, e.track_id
         "#,
@@ -220,11 +218,9 @@ pub async fn user_albums(
         LEFT JOIN LATERAL (
             SELECT k.album_id, al.title, al.artist_id, a.name AS artist_name, al.image_url,
                    k.play_count::bigint, k.unverified::bigint
-            FROM counted k
+            FROM (SELECT * FROM counted ORDER BY play_count DESC, album_id LIMIT $6 OFFSET $7) k
             JOIN albums al ON al.id = k.album_id
             JOIN artists a ON a.id = al.artist_id
-            ORDER BY k.play_count DESC, k.album_id
-            LIMIT $6 OFFSET $7
         ) e ON true
         ORDER BY e.play_count DESC, e.album_id
         "#,
