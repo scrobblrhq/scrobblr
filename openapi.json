@@ -20,7 +20,7 @@
         "type": "object"
       },
       "Album": {
-        "description": "Album. Its tracks are those the catalog files under it (each track has\n one album: the first a scrobble of it named), and their plays are its\n plays.",
+        "description": "Album. Its tracks are those the catalog files under it (each track has\n one album, the one the accounts playing it named, decided as\n docs/social.md says), and their plays are its plays.",
         "properties": {
           "artist_id": {
             "format": "int64",
@@ -4184,7 +4184,7 @@
     },
     "/v1/album/{id}": {
       "get": {
-        "description": "Returns catalog metadata for a single album by its internal ID, with its artist's name. Each track belongs to one album, the first a scrobble of it named, and its plays count for that album here and in charts, from whichever release they were played. `scrobble_count` (the plays of its tracks) is `null` for an album fewer than the minimum of listeners played. Catalog-wide counts include every user's plays, private profiles' too, so they are served only for entities at least `RANKING_MIN_LISTENERS` (5 by default) distinct users have played, counted from the daily aggregates (a new listener counts from their next refresh, within the hour; today's plays from tomorrow): a count is never one or two people's listening.",
+        "description": "Returns catalog metadata for a single album by its internal ID, with its artist's name. Each track belongs to one album, the one the accounts playing it named (one say per account at least a week old, a release MusicBrainz lists the recording on counting double; another album needs half again the current one's accounts to take the track), and its plays count for that album here and in charts, from whichever release they were played. `scrobble_count` (the plays of its tracks) is `null` for an album fewer than the minimum of listeners played. Catalog-wide counts include every user's plays, private profiles' too, so they are served only for entities at least `RANKING_MIN_LISTENERS` (5 by default) distinct users have played, counted from the daily aggregates (a new listener counts from their next refresh, within the hour; today's plays from tomorrow): a count is never one or two people's listening.",
         "parameters": [
           {
             "in": "path",
@@ -4206,7 +4206,7 @@
                 }
               }
             },
-            "description": "Album. Its tracks are those the catalog files under it (each track has\n one album: the first a scrobble of it named), and their plays are its\n plays."
+            "description": "Album. Its tracks are those the catalog files under it (each track has\n one album, the one the accounts playing it named, decided as\n docs/social.md says), and their plays are its plays."
           },
           "404": {
             "content": {

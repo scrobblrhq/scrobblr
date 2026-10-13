@@ -153,8 +153,8 @@ pub struct Artist {
 }
 
 /// Album. Its tracks are those the catalog files under it (each track has
-/// one album: the first a scrobble of it named), and their plays are its
-/// plays.
+/// one album, the one the accounts playing it named, decided as
+/// docs/social.md says), and their plays are its plays.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, JsonSchema, TS)]
 #[ts(export)]
 pub struct Album {

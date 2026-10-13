@@ -1,4 +1,5 @@
 mod accounts;
+mod albums;
 mod classification;
 mod connected_accounts;
 mod enrichment;
@@ -247,6 +248,12 @@ async fn main() -> anyhow::Result<()> {
     let coordination_handle =
         supervise(&db, "coordination", move |beat| detector.clone().run(beat));
 
+    // Decides the albums of tracks whose accounts' say changed.
+    let attributor = Arc::new(albums::Attributor::from_env(db.clone())?);
+    let albums_handle = supervise(&db, "album attribution", move |beat| {
+        attributor.clone().run(beat)
+    });
+
     let eraser = Arc::new(accounts::Eraser::from_env(db.clone()));
     let accounts_handle = supervise(&db, "account erasure", move |beat| eraser.clone().run(beat));
 
@@ -267,6 +274,7 @@ async fn main() -> anyhow::Result<()> {
         _ = rankings_sweep_handle => "rankings sweep",
         _ = snapshots_handle => "ranking snapshots",
         _ = coordination_handle => "coordination",
+        _ = albums_handle => "album attribution",
         _ = accounts_handle => "account erasure",
         _ = tokio::signal::ctrl_c() => {
             tracing::info!("received Ctrl-C, shutting down");

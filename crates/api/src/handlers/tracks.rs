@@ -76,7 +76,7 @@ pub async fn get_album(
 
 pub fn _get_album_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Get an album")
-        .description(&format!("Returns catalog metadata for a single album by its internal ID, with its artist's name. Each track belongs to one album, the first a scrobble of it named, and its plays count for that album here and in charts, from whichever release they were played. `scrobble_count` (the plays of its tracks) is `null` for an album fewer than the minimum of listeners played. {COUNTS_RULE}"))
+        .description(&format!("Returns catalog metadata for a single album by its internal ID, with its artist's name. Each track belongs to one album, the one the accounts playing it named (one say per account at least a week old, a release MusicBrainz lists the recording on counting double; another album needs half again the current one's accounts to take the track), and its plays count for that album here and in charts, from whichever release they were played. `scrobble_count` (the plays of its tracks) is `null` for an album fewer than the minimum of listeners played. {COUNTS_RULE}"))
         .tag("Catalog")
         .response::<200, Json<Album>>()
         .response_with::<404, ErrorJson, _>(|r| r.description("Album not found"))
