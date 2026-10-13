@@ -33,12 +33,13 @@ async fn main() -> anyhow::Result<()> {
         Some("help" | "--help" | "-h")
     ) {
         println!(
-            "{USAGE}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+            "{USAGE}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
             status::USAGE,
             classification::cli::USAGE,
             rankings::cli::USAGE,
             lastfm_import::cli::USAGE,
             tracks::USAGE,
+            albums::USAGE,
             uploads::USAGE,
             accounts::USAGE
         );
@@ -85,6 +86,10 @@ async fn main() -> anyhow::Result<()> {
         Some("tracks") => {
             db::migrate::ensure_current(&db).await?;
             return tracks::run(&db, &args[1..]).await;
+        }
+        Some("albums") => {
+            db::migrate::ensure_current(&db).await?;
+            return albums::run(&db, &args[1..]).await;
         }
         Some("uploads") => {
             db::migrate::ensure_current(&db).await?;

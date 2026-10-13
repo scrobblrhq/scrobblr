@@ -1,10 +1,13 @@
 //! Which album a track belongs to: the worker loop deciding queued tracks
-//! from their accounts' votes (`shared::albums`).
+//! from their accounts' votes (`shared::albums`), and `worker albums
+//! backfill`, which makes the votes of the history so far and decides
+//! every track from them.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::{Context, bail};
 use chrono::{DateTime, TimeDelta, Utc};
 use sqlx::{PgConnection, PgPool};
 
@@ -14,6 +17,12 @@ use shared::albums::{Candidate, choose};
 
 const POLL_INTERVAL: Duration = Duration::from_secs(30);
 const BATCH: i64 = 200;
+
+pub const USAGE: &str = "       worker albums backfill [--dry-run] [--limit N]
+                               make every account's album votes from the scrobbles
+                               stored so far and decide every track's album from them
+                               (once, after migration 0032); --dry-run reports how many
+                               tracks would move, and the N (20) most listened to";
 
 /// Who counts: accounts as old as rankings want them, flagged ones at
 /// their factors of the coordination window.
@@ -47,6 +56,7 @@ struct Decision {
     from: Option<i64>,
     to: Option<i64>,
     recheck_at: Option<DateTime<Utc>>,
+    candidates: Vec<CandidateRow>,
 }
 
 fn decide(current: &[(i64, Option<i64>)], rows: Vec<CandidateRow>, rules: &Rules) -> Vec<Decision> {
@@ -76,6 +86,7 @@ fn decide(current: &[(i64, Option<i64>)], rows: Vec<CandidateRow>, rules: &Rules
                 from,
                 to: choose(from, &scored),
                 recheck_at,
+                candidates,
             }
         })
         .collect()
@@ -179,6 +190,222 @@ async fn settle(conn: &mut PgConnection, decisions: &[Decision]) -> Result<u64, 
         albums_db::enqueue(&mut *conn, &ids, group[0].0).await?;
     }
     Ok(moved)
+}
+
+pub async fn run(db: &PgPool, args: &[String]) -> anyhow::Result<()> {
+    if args.first().map(String::as_str) != Some("backfill") {
+        bail!("unknown albums command (see `worker --help`)");
+    }
+    let mut dry_run = false;
+    let mut limit = 20;
+    let mut args = args[1..].iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--dry-run" => dry_run = true,
+            "--limit" => {
+                limit = args
+                    .next()
+                    .context("--limit needs a number")?
+                    .parse()
+                    .context("--limit: expected a number")?
+            }
+            other => bail!("unknown option `{other}` (see `worker --help`)"),
+        }
+    }
+    let report = backfill(db, &Rules::from_env()?, dry_run).await?;
+    print_report(db, &report, dry_run, limit).await
+}
+
+/// What a backfill found.
+#[derive(Debug, Default)]
+pub struct Report {
+    pub chunks: usize,
+    pub votes: i64,
+    pub tracks: usize,
+    pub filed: usize,
+    pub moved: usize,
+    pub moved_to_confirmed: usize,
+    pub took: Duration,
+    /// The moves, the most listened to first.
+    pub moves: Vec<(Move, i64, i64)>,
+}
+
+/// Makes the votes of every scrobble stored so far, the latest play of a
+/// track naming an album being each account's say, in a table of this
+/// connection's, one chunk a statement (no long transaction holds the
+/// chunks), then decides every track with votes from them. Unless
+/// `dry_run`, merges them into `track_album_votes` (a later vote stays) and
+/// moves the tracks, in one transaction.
+pub async fn backfill(pool: &PgPool, rules: &Rules, dry_run: bool) -> anyhow::Result<Report> {
+    let started = std::time::Instant::now();
+    let mut report = Report::default();
+    let mut conn = pool.acquire().await?;
+    sqlx::query("DROP TABLE IF EXISTS pg_temp.backfill_votes")
+        .execute(&mut *conn)
+        .await?;
+    sqlx::query(
+        "CREATE TEMP TABLE backfill_votes (LIKE track_album_votes INCLUDING DEFAULTS, \
+         PRIMARY KEY (track_id, user_id))",
+    )
+    .execute(&mut *conn)
+    .await?;
+    sqlx::query("INSERT INTO backfill_votes SELECT * FROM track_album_votes")
+        .execute(&mut *conn)
+        .await?;
+    let chunks: Vec<String> =
+        sqlx::query_scalar("SELECT c::text FROM show_chunks('scrobbles') AS c ORDER BY 1")
+            .fetch_all(&mut *conn)
+            .await?;
+    for chunk in &chunks {
+        sqlx::query(&format!(
+            r#"
+            INSERT INTO backfill_votes (track_id, user_id, album_id, played_at)
+            SELECT DISTINCT ON (s.track_id, s.user_id) s.track_id, s.user_id, s.album_id, s.played_at
+            FROM {chunk} s
+            WHERE s.album_id IS NOT NULL AND EXISTS (SELECT 1 FROM albums al WHERE al.id = s.album_id)
+            ORDER BY s.track_id, s.user_id, s.played_at DESC
+            ON CONFLICT (track_id, user_id) DO UPDATE
+                SET album_id = EXCLUDED.album_id, played_at = EXCLUDED.played_at
+                WHERE backfill_votes.played_at < EXCLUDED.played_at
+            "#
+        ))
+        .execute(&mut *conn)
+        .await?;
+    }
+    report.chunks = chunks.len();
+    report.votes = sqlx::query_scalar("SELECT count(*) FROM backfill_votes")
+        .fetch_one(&mut *conn)
+        .await?;
+    sqlx::query("ANALYZE backfill_votes")
+        .execute(&mut *conn)
+        .await?;
+
+    let tracks: Vec<i64> =
+        sqlx::query_scalar("SELECT DISTINCT track_id FROM backfill_votes ORDER BY 1")
+            .fetch_all(&mut *conn)
+            .await?;
+    report.tracks = tracks.len();
+    let mut decisions = Vec::new();
+    for batch in tracks.chunks(2_000) {
+        decisions.extend(decide_tracks(&mut conn, "backfill_votes", batch, rules).await?);
+    }
+    for d in &decisions {
+        let Some(to) = d.to else { continue };
+        let accounts = |album: Option<i64>| {
+            d.candidates
+                .iter()
+                .find(|c| Some(c.album_id) == album)
+                .map_or(0, |c| c.accounts)
+        };
+        if d.from.is_none() {
+            report.filed += 1;
+        } else {
+            report.moved += 1;
+        }
+        if d.candidates.iter().any(|c| c.album_id == to && c.confirmed) {
+            report.moved_to_confirmed += 1;
+        }
+        report.moves.push((
+            Move {
+                track_id: d.track_id,
+                from: d.from,
+                to,
+            },
+            accounts(d.from),
+            accounts(Some(to)),
+        ));
+    }
+    report
+        .moves
+        .sort_by_key(|(m, from, to)| (std::cmp::Reverse(from + to), m.track_id));
+
+    if !dry_run {
+        let mut tx = sqlx::Connection::begin(&mut *conn).await?;
+        sqlx::query(
+            r#"
+            INSERT INTO track_album_votes (track_id, user_id, album_id, played_at)
+            SELECT track_id, user_id, album_id, played_at FROM backfill_votes
+            ORDER BY track_id, user_id
+            ON CONFLICT (track_id, user_id) DO UPDATE
+                SET album_id = EXCLUDED.album_id, played_at = EXCLUDED.played_at
+                WHERE track_album_votes.played_at < EXCLUDED.played_at
+            "#,
+        )
+        .execute(&mut *tx)
+        .await?;
+        settle(&mut tx, &decisions).await?;
+        tx.commit().await?;
+    }
+    sqlx::query("DROP TABLE backfill_votes")
+        .execute(&mut *conn)
+        .await?;
+    report.took = started.elapsed();
+    Ok(report)
+}
+
+async fn print_report(
+    db: &PgPool,
+    report: &Report,
+    dry_run: bool,
+    limit: usize,
+) -> anyhow::Result<()> {
+    let verb = if dry_run { "would " } else { "" };
+    println!(
+        "{} votes from {} chunks of scrobbles, {} tracks with votes ({:.1} s)",
+        report.votes,
+        report.chunks,
+        report.tracks,
+        report.took.as_secs_f64()
+    );
+    println!(
+        "{} tracks {verb}move to another album ({} to one MusicBrainz lists), {} without one {verb}get one",
+        report.moved, report.moved_to_confirmed, report.filed
+    );
+    let shown: Vec<&(Move, i64, i64)> = report
+        .moves
+        .iter()
+        .filter(|(m, _, _)| m.from.is_some())
+        .take(limit)
+        .collect();
+    if shown.is_empty() {
+        return Ok(());
+    }
+    let mut ids: Vec<i64> = shown
+        .iter()
+        .flat_map(|(m, _, _)| [m.from.unwrap_or(0), m.to])
+        .collect();
+    ids.sort_unstable();
+    ids.dedup();
+    let titles: HashMap<i64, String> =
+        sqlx::query_as::<_, (i64, String)>("SELECT id, title FROM albums WHERE id = ANY($1)")
+            .bind(&ids)
+            .fetch_all(db)
+            .await?
+            .into_iter()
+            .collect();
+    let track_ids: Vec<i64> = shown.iter().map(|(m, _, _)| m.track_id).collect();
+    let tracks: HashMap<i64, (String, String)> = sqlx::query_as::<_, (i64, String, String)>(
+        "SELECT t.id, a.name, t.title FROM tracks t JOIN artists a ON a.id = t.artist_id \
+         WHERE t.id = ANY($1)",
+    )
+    .bind(&track_ids)
+    .fetch_all(db)
+    .await?
+    .into_iter()
+    .map(|(id, artist, title)| (id, (artist, title)))
+    .collect();
+    println!("\nthe most listened to:");
+    for (m, from_accounts, to_accounts) in shown {
+        let (artist, title) = tracks.get(&m.track_id).cloned().unwrap_or_default();
+        let album = |id: i64| titles.get(&id).cloned().unwrap_or_else(|| format!("#{id}"));
+        println!(
+            "  #{:<8} {artist} — {title}: {} ({from_accounts} accounts) → {} ({to_accounts} accounts)",
+            m.track_id,
+            album(m.from.unwrap_or(0)),
+            album(m.to),
+        );
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -448,6 +675,58 @@ mod tests {
             assert!(db::queries::accounts::restore(&pool, c).await.unwrap());
             decide_now(&pool).await;
             assert_eq!(album_of(&pool, "Safe From Harm").await, "Singles");
+        })
+        .await;
+    }
+
+    /// History stored before votes existed: the backfill makes each
+    /// account's say from its latest play naming an album, reports what
+    /// would move without writing anything, then moves it; a live vote
+    /// newer than the history stays.
+    #[tokio::test]
+    #[ignore = "needs Postgres: just test-db"]
+    async fn the_backfill_makes_the_historys_votes_and_moves_what_they_say() {
+        with_db(|pool| async move {
+            let fans = accounts(&pool, "fan", 3, 400).await;
+            let [first] = accounts(&pool, "first", 1, 400).await[..] else {
+                unreachable!()
+            };
+            play(&pool, first, "Teardrop", "Singles", 300).await;
+            for &fan in &fans {
+                play(&pool, fan, "Teardrop", "Mezzanine", 200).await;
+            }
+            sqlx::query("DELETE FROM track_album_votes")
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query("DELETE FROM album_attribution_queue")
+                .execute(&pool)
+                .await
+                .unwrap();
+            // A live say newer than the history: the first account's latest.
+            play(&pool, first, "Teardrop", "Mezzanine", 10).await;
+
+            let report = backfill(&pool, &RULES, true).await.unwrap();
+            assert_eq!((report.votes, report.tracks, report.moved), (4, 1, 1));
+            assert_eq!(album_of(&pool, "Teardrop").await, "Singles");
+            let votes: i64 = sqlx::query_scalar("SELECT count(*) FROM track_album_votes")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(votes, 1, "a dry run writes nothing");
+
+            let report = backfill(&pool, &RULES, false).await.unwrap();
+            assert_eq!(report.moved, 1);
+            assert_eq!(album_of(&pool, "Teardrop").await, "Mezzanine");
+            let says: Vec<String> = sqlx::query_scalar(
+                "SELECT al.title FROM track_album_votes v JOIN albums al ON al.id = v.album_id
+                 ORDER BY v.user_id",
+            )
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+            assert_eq!(says, vec!["Mezzanine"; 4]);
+            assert_eq!(backfill(&pool, &RULES, false).await.unwrap().moved, 0);
         })
         .await;
     }
