@@ -388,16 +388,11 @@ pub async fn community(
                     (SELECT round((r.params->>'no_listened')::numeric * $5::bigint)::bigint
                      FROM ranking_snapshots s JOIN ranking_rulesets r ON r.id = s.ruleset_id
                      ORDER BY s.computed_at DESC LIMIT 1), $6)) AS weight
-            ), per_track AS (
-                SELECT user_id, track_id, sum(weight)::bigint AS weight
-                FROM ranking_daily
-                WHERE user_id = ANY($1) AND day BETWEEN $2 AND $3
-                GROUP BY 1, 2
             ), per_user AS (
-                SELECT p.user_id, t.album_id AS entity_id, sum(p.weight)::bigint AS weight
-                FROM per_track p
-                JOIN tracks t ON t.id = p.track_id
-                WHERE t.album_id IS NOT NULL
+                SELECT r.user_id, t.album_id AS entity_id, sum(r.weight)::bigint AS weight
+                FROM ranking_daily r
+                JOIN tracks t ON t.id = r.track_id
+                WHERE r.user_id = ANY($1) AND r.day BETWEEN $2 AND $3 AND t.album_id IS NOT NULL
                 GROUP BY 1, 2
             ), factors AS (
                 SELECT c.user_id,
