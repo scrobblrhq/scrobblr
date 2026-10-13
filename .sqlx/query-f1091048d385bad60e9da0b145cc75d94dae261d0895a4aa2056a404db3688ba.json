@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT EXISTS (SELECT 1 FROM user_follows\n                       WHERE follower_id = $1 AND followee_id = $2) AS \"already!\",\n               (SELECT count(*) FROM user_follows WHERE follower_id = $1) AS \"following!\"\n        ",
+  "query": "\n        SELECT EXISTS (SELECT 1 FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2)\n                   AS \"already!\",\n               (SELECT count(*) FROM user_blocks WHERE blocker_id = $1) AS \"blocking!\"\n        ",
   "describe": {
     "columns": [
       {
@@ -10,7 +10,7 @@
       },
       {
         "ordinal": 1,
-        "name": "following!",
+        "name": "blocking!",
         "type_info": "Int8"
       }
     ],
@@ -25,5 +25,5 @@
       null
     ]
   },
-  "hash": "1c61df4ea21ac7a4206015b4358689706e34e37b63a99d532d0a8e6316f99cd0"
+  "hash": "f1091048d385bad60e9da0b145cc75d94dae261d0895a4aa2056a404db3688ba"
 }

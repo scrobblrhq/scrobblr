@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        DELETE FROM user_follows\n        WHERE (follower_id = $1 AND followee_id = $2) OR (follower_id = $2 AND followee_id = $1)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0b0347e390f013194839122061271879810224a580db040337b8d7bcc8dedc53"
+}

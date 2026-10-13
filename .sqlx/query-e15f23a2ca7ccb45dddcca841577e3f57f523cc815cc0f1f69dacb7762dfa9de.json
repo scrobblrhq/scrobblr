@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT EXISTS (SELECT 1 FROM user_follows\n                       WHERE follower_id = $1 AND followee_id = $2) AS \"already!\",\n               (SELECT count(*) FROM user_follows WHERE follower_id = $1) AS \"following!\",\n               EXISTS (SELECT 1 FROM user_blocks\n                       WHERE blocker_id = $2 AND blocked_id = $1) AS \"blocked_by!\",\n               EXISTS (SELECT 1 FROM user_blocks\n                       WHERE blocker_id = $1 AND blocked_id = $2) AS \"blocking!\",\n               EXISTS (SELECT 1 FROM follower_removals\n                       WHERE user_id = $2 AND follower_id = $1 AND until > NOW()) AS \"removed!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "already!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "following!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "blocked_by!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "blocking!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "removed!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "e15f23a2ca7ccb45dddcca841577e3f57f523cc815cc0f1f69dacb7762dfa9de"
+}

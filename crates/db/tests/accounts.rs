@@ -322,12 +322,14 @@ async fn an_erase_leaves_no_row_about_the_user_and_corrects_shared_numbers() {
         let gone = populate(&pool, "erasable_qx", artwork).await;
         let stays = populate(&pool, "stays_qx", artwork).await;
         for (a, b) in [(gone, stays), (stays, gone)] {
-            sqlx::query("INSERT INTO user_follows (follower_id, followee_id) VALUES ($1, $2)")
-                .bind(a)
-                .bind(b)
-                .execute(&pool)
-                .await
-                .unwrap();
+            for sql in [
+                "INSERT INTO user_follows (follower_id, followee_id) VALUES ($1, $2)",
+                "INSERT INTO user_blocks (blocker_id, blocked_id) VALUES ($1, $2)",
+                "INSERT INTO follower_removals (user_id, follower_id, until)
+                 VALUES ($1, $2, NOW() + INTERVAL '30 days')",
+            ] {
+                sqlx::query(sql).bind(a).bind(b).execute(&pool).await.unwrap();
+            }
         }
         // One of the erased user's uploads became the artist's image.
         sqlx::query(
@@ -410,6 +412,8 @@ async fn an_erase_leaves_no_row_about_the_user_and_corrects_shared_numbers() {
             "public.scrobbles_daily_by_track.user_id",
             "public.coordination_accounts.user_id",
             "public.user_follows.follower_id",
+            "public.user_blocks.blocked_id",
+            "public.follower_removals.follower_id",
         ] {
             let n = about_gone.iter().find(|(t, _)| t == table).map(|(_, n)| *n);
             assert!(n.is_some_and(|n| n > 0), "the fixture puts rows in {table}");
@@ -454,11 +458,17 @@ async fn an_erase_leaves_no_row_about_the_user_and_corrects_shared_numbers() {
         assert_eq!(not_cascading, Vec::<String>::new());
 
         // The other user keeps their own rows; only rows relating them to
-        // the erased one (a follow, a like of its upload) went.
+        // the erased one (follows, blocks and removals either way, a like of
+        // its upload) went.
         let after: Vec<(String, i64)> = rows_about(&pool, stays).await;
         for ((table, n), (_, m)) in about_stays.iter().zip(&after) {
             let lost = match table.as_str() {
-                "public.user_follows.follower_id" | "public.user_follows.followee_id" => 1,
+                "public.user_follows.follower_id"
+                | "public.user_follows.followee_id"
+                | "public.user_blocks.blocker_id"
+                | "public.user_blocks.blocked_id"
+                | "public.follower_removals.user_id"
+                | "public.follower_removals.follower_id" => 1,
                 _ => 0,
             };
             assert_eq!(n - lost, *m, "{table}");

@@ -109,7 +109,8 @@ async fn main() -> anyhow::Result<()> {
     heartbeat::register(&db).await?;
     tracing::info!("worker: starting background loops");
 
-    // Runs every 5 minutes and purges expired sessions + now_playing rows.
+    // Runs every 5 minutes and purges expired sessions, now_playing rows,
+    // authorizations and follower removals.
     let db_cleanup = db.clone();
     let cleanup_handle = supervise(&db, "cleanup", move |beat| {
         let db = db_cleanup.clone();
@@ -118,9 +119,9 @@ async fn main() -> anyhow::Result<()> {
             loop {
                 interval.tick().await;
                 match cleanup_expired(&db).await {
-                    Ok((sessions, now_playing, authorizations)) => {
+                    Ok((sessions, now_playing, authorizations, removals)) => {
                         tracing::info!(
-                            "cleanup: removed {sessions} expired sessions, {now_playing} stale now_playing rows, {authorizations} expired scrobbler authorizations"
+                            "cleanup: removed {sessions} expired sessions, {now_playing} stale now_playing rows, {authorizations} expired scrobbler authorizations, {removals} follower removals past their cooldown"
                         );
                         beat.ok().await;
                     }
@@ -390,7 +391,7 @@ pub(crate) async fn connect_redis() -> Option<fred::clients::Client> {
 
 /// Purges expired `user_sessions`, stale `now_playing` rows and expired
 /// scrobbler authorizations, returning how many of each.
-async fn cleanup_expired(db: &sqlx::PgPool) -> Result<(u64, u64, u64), sqlx::Error> {
+async fn cleanup_expired(db: &sqlx::PgPool) -> Result<(u64, u64, u64, u64), sqlx::Error> {
     let sessions = db::queries::auth::delete_expired_sessions(db).await?;
 
     let np_result = sqlx::query!("DELETE FROM now_playing WHERE expires_at <= NOW()")
@@ -398,8 +399,14 @@ async fn cleanup_expired(db: &sqlx::PgPool) -> Result<(u64, u64, u64), sqlx::Err
         .await?;
 
     let authorizations = db::queries::scrobblers::delete_expired_authorizations(db).await?;
+    let removals = db::queries::blocks::purge_expired_removals(db).await?;
 
-    Ok((sessions, np_result.rows_affected(), authorizations))
+    Ok((
+        sessions,
+        np_result.rows_affected(),
+        authorizations,
+        removals,
+    ))
 }
 
 #[cfg(test)]

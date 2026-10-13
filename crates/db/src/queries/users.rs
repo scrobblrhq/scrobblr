@@ -127,12 +127,19 @@ pub enum Followed {
     Already,
     /// The follower already follows `max` accounts.
     AtLimit,
+    /// The followee blocks the follower.
+    BlockedBy,
+    /// The follower blocks the followee.
+    Blocking,
+    /// The followee removed the follower, and its cooldown isn't over.
+    Removed,
 }
 
 /// Follows `followee_id` unless `follower_id` already follows `max`
-/// accounts (every follow counts, private and leaving accounts' too).
-/// Serialized per follower, so concurrent follows can't pass the cap
-/// together.
+/// accounts (every follow counts, private and leaving accounts' too), or a
+/// block or a removal between them stands. Serialized per follower, so
+/// concurrent follows can't pass the cap together, and per pair, so no
+/// follow lands beside a block made at the same time.
 pub async fn follow_user(
     pool: &PgPool,
     follower_id: i64,
@@ -144,19 +151,35 @@ pub async fn follow_user(
         .bind(follower_id.to_string())
         .execute(&mut *tx)
         .await?;
+    crate::queries::blocks::lock_pair(&mut tx, follower_id, followee_id).await?;
     let r = sqlx::query!(
         r#"
         SELECT EXISTS (SELECT 1 FROM user_follows
                        WHERE follower_id = $1 AND followee_id = $2) AS "already!",
-               (SELECT count(*) FROM user_follows WHERE follower_id = $1) AS "following!"
+               (SELECT count(*) FROM user_follows WHERE follower_id = $1) AS "following!",
+               EXISTS (SELECT 1 FROM user_blocks
+                       WHERE blocker_id = $2 AND blocked_id = $1) AS "blocked_by!",
+               EXISTS (SELECT 1 FROM user_blocks
+                       WHERE blocker_id = $1 AND blocked_id = $2) AS "blocking!",
+               EXISTS (SELECT 1 FROM follower_removals
+                       WHERE user_id = $2 AND follower_id = $1 AND until > NOW()) AS "removed!"
         "#,
         follower_id,
         followee_id,
     )
     .fetch_one(&mut *tx)
     .await?;
+    if r.blocked_by {
+        return Ok(Followed::BlockedBy);
+    }
+    if r.blocking {
+        return Ok(Followed::Blocking);
+    }
     if r.already {
         return Ok(Followed::Already);
+    }
+    if r.removed {
+        return Ok(Followed::Removed);
     }
     if r.following >= max {
         return Ok(Followed::AtLimit);

@@ -1,5 +1,6 @@
 pub mod accounts;
 pub mod auth;
+pub mod blocks;
 pub mod charts;
 pub mod classification;
 pub mod community;

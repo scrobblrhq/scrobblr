@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM follower_removals WHERE until <= NOW()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "dda8b37f8fb38043459c8354970a405731216155a2b271d1df5caef9cb2a479a"
+}

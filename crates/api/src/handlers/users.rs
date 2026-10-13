@@ -377,6 +377,13 @@ pub async fn follow(
         Followed::AtLimit => Err(AppError::Conflict(format!(
             "you already follow {MAX_FOLLOWING} accounts, the most allowed"
         ))),
+        Followed::BlockedBy => Err(AppError::NotFound),
+        Followed::Blocking => Err(AppError::Conflict(
+            "you block this account; unblock it to follow it".into(),
+        )),
+        Followed::Removed => Err(AppError::Conflict(
+            "this account removed you from its followers; you can't follow it again yet".into(),
+        )),
     }
 }
 
