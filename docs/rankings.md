@@ -8,7 +8,9 @@ precomputed; the API serves those at `/v1/rankings/artists` and
 `/v1/rankings/tracks` ([Public routes](#public-routes)), `worker rank
 report` compares raw and filtered rankings and `worker rank top` prints a
 stored one. Profiles read the labels: they leave duplicates out and say how
-much of a user's listening is verified (below).
+much of a user's listening is verified (below). Community charts (the
+accounts a user follows, [social.md](social.md#community-charts)) are
+ranked from the same weights and factors, per request.
 
 ## Profiles
 

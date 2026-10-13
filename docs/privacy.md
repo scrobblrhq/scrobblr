@@ -55,6 +55,13 @@ errors.
 **Social and community**: follows, comments, uploaded artist and album
 images (as candidates, with their likes), likes given.
 
+**Who sees it** ([social.md](social.md#who-sees-whom)): a public profile's
+listening is shown to anyone, a private one's only to its owner, followers
+included (following takes no approval). Followers' feeds and community
+charts include only public accounts; follow lists, listener lists and
+search name only public ones; counts and catalog numbers include private
+ones, unnamed.
+
 **Uploaded images**: files under `UPLOAD_DIR`, re-encoded as JPEG (no
 metadata survives), served at `/uploads` with a one-year immutable cache
 lifetime ([uploads.md](uploads.md)).
@@ -110,7 +117,7 @@ too), API token, scrobbler credential and approved authorization and linked
 account (with its OAuth tokens) is deleted, imports in progress are
 cancelled, now playing is cleared. The account disappears from profiles,
 the Last.fm-compatible API, search, listener lists, follower lists,
-comments and image candidates. Its history and the totals made from it
+followers' feeds and community charts, comments and image candidates. Its history and the totals made from it
 stay, and still count in catalog numbers and rankings.
 
 **Grace period**: `ACCOUNT_DELETION_GRACE_DAYS` (7 by default, 0 to 30).
@@ -166,6 +173,11 @@ erase NAME` erases one now, for a request made outside the app.
   over time show that someone among them played it.
 - **During the grace period** the account's plays still count in catalog
   numbers and rankings.
+- **Community charts** are served only for entities `RANKING_MIN_LISTENERS`
+  (5) of the viewer's followed accounts played, but the viewer knows who
+  those accounts are and can see their profiles; a chart computed before an
+  account turned private or left is no longer served once it has (its key
+  covers the accounts), but one already fetched stays with the client.
 - **An export is a snapshot read page by page**: a play arriving while it
   streams may or may not be in it.
 
