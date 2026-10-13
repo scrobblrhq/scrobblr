@@ -176,12 +176,12 @@ missing or leaving one). Entries are the profile's top lists' `TopArtist`,
   `unverified_count`, with plays of tracks without a known length), the
   classifier's duplicates left out; today's count as they arrive; a play
   counts until it is classified.
-- **Albums:** each track belongs to one album, the first a scrobble of it
-  named (`tracks.album_id`), and its plays count for that album, from
-  whichever release they were played, in charts and in the album's own
-  count (`GET /v1/album/{id}`, `null` below `RANKING_MIN_LISTENERS`
-  listeners like a track's or an artist's, migration `0029`). A track
-  filed under no album isn't in album charts.
+- **Albums:** each track belongs to one album (`tracks.album_id`, decided
+  by the accounts playing it: [Albums](#albums)), and its plays count for
+  that album, from whichever release they were played, in charts and in
+  the album's own count (`GET /v1/album/{id}`, `null` below
+  `RANKING_MIN_LISTENERS` listeners like a track's or an artist's,
+  migration `0029`). A track filed under no album isn't in album charts.
 - **Cost:** the daily aggregates and the classifier's flags, never the
   scrobbles hypertable (`db::queries::charts`). A page is cut before names
   and images are looked up.
@@ -243,6 +243,123 @@ older weights are purged.
 - **Plans:** the chart's transaction sets `plan_cache_mode =
   force_custom_plan` and `enable_mergejoin = off`: after five runs Postgres
   moved the prepared statement to a generic plan three times as slow.
+
+## Albums
+
+Each track belongs to one album (`tracks.album_id`), and its plays count
+for that album, from whichever release they were played, in a user's
+charts, in community charts and in the album's own count. Until migration
+`0032` that album was the first one a scrobble named, so one account could
+file a popular track under any album for everyone.
+
+- **Every account has one say per track** (`track_album_votes`): the album
+  its plays of the track named, the latest when they change; a play
+  arriving late (a phone's queue) doesn't take it back. Every live source
+  records it (`ingest_scrobble`: the native API, the scrobbler-compatible
+  ones, Spotify) and so do imports; `worker albums backfill` makes the
+  history's. Recording it costs a scrobble one primary-key probe, and a
+  write only when the account's album changes.
+- **An album's weight** is one per account behind it that is at least 7
+  days old (`RANKING_MIN_ACCOUNT_DAYS`, as for rankings) and not waiting to
+  be deleted; an account the coordination detection flagged counts at its
+  lowest factor of the last 28 days. MusicBrainz listing the track's
+  recording on a release of that title (`tracks.mb_release_titles`,
+  lowercased, from the recording's last lookup) doubles it.
+- **The heaviest album takes the track only with half again the current
+  album's weight and one account more** (`shared::albums`): 3 accounts take
+  it from 2, 15 from 10, and going back from 15 takes 23, so a close race
+  doesn't flip it back and forth. A tie stays; an album with nobody left
+  behind it gives way to any.
+- **The worker decides** (the `album attribution` loop, every 30 s, 200
+  tracks a transaction) a track 30 seconds after an account's say on it
+  changed (a burst costs one decision), when an account behind one of its
+  albums comes of age, when one asks for deletion, is restored or erased,
+  and when MusicBrainz's releases for it arrive or go. A coordination run
+  re-decides nothing by itself: a flagged farm's albums go back at the
+  track's next vote, which popular tracks get all the time, or at the next
+  backfill.
+- **A new track** takes the first album named, as before, until the worker
+  decides otherwise: being first decides nothing once others disagree.
+- **Reads don't change**: every chart and count reads `tracks.album_id`
+  when computed. A move shows in a cached personal chart within the hour
+  (its version is the hour), in a community chart within 5 minutes.
+- **MusicBrainz release titles** come with every recording lookup the
+  enrichment makes; tracks enriched before `0032` get theirs from the
+  re-sweep (200 a sweep, most played first, at MusicBrainz's 1 request a
+  second) or a forced refresh (`POST /v1/track/{id}/refresh`); `worker
+  tracks mb-review --apply` clears them with the match.
+
+**`worker albums backfill [--dry-run] [--limit N]`**, once after migrating
+to `0032`: every stored scrobble's say, read a chunk a statement (no long
+transaction holds a chunk) into a table of its own connection, then every
+track with votes decided from them; it reports how many tracks move and
+the most listened to of them, and without `--dry-run` merges the votes (a
+later live one stays) and moves the tracks in one transaction.
+
+**What an attack takes** (`scripts/synthetic/album-attack.sql`, on the
+synthetic population with albums, below; every farm account established
+and unflagged, the worst case):
+
+| attack | the track's album | farm | album after |
+| --- | --- | --- | --- |
+| 2,000 accounts, one play each, on the most listened-to track | 3,006 accounts | 2,000 | unchanged |
+| one account playing it 1,000 times in a day | 3,006 | 1 | unchanged |
+| a track 98 accounts file under its album | 98 | 146 | unchanged |
+| a track 99 accounts file under its album | 99 | 149 | the farm's |
+
+Moving a track takes accounts, not plays: half again as many as stand
+behind its album, plus one, each at least a week old, each having played
+the track from the attacker's album last, none flagged by the coordination
+detection (a flagged one counts at its factor), and three times as many
+when MusicBrainz lists the recording on the real album and not the fake
+one. A track three people listen to takes five such accounts; a popular one
+takes thousands, which a farm that size has to keep aged, unflagged and
+playing, and lose again as soon as the real listeners outnumber it by half.
+An attacker who also controls MusicBrainz data (a release of their title
+listing the recording) halves that. Being first on a new track only holds
+it until two accounts disagree.
+
+**Measured** on the synthetic population (4,006 accounts, 4,100,001
+scrobbles, 152 of 157 chunks compressed; `albums.sql`: 85 % of accounts
+name albums, one in ten of those the deluxe edition, each track first
+filed under the album its earliest scrobble named):
+
+- `backfill --dry-run`: 895,835 votes, 107,120 tracks, 95 s; 4,395 tracks
+  would move, every one from a deluxe edition scrobbled first to the
+  standard edition most accounts named (Track 2 of Synth Artist 2: 295
+  accounts on the deluxe, 2,639 on the standard). With the attacks: 85 s
+  dry, 197 s applied.
+- Votes: 898,131 rows, 87 MB (52 MB of table), a fifth of what
+  `ranking_daily` takes on the same population (459 MB): one row per
+  account and track ever played naming an album.
+- Deciding 200 ordinary tracks takes 7 ms; the 200 most voted (228,468
+  votes) 630 ms, during which a scrobble of one of them waits that long to
+  record its say.
+- Recording a say that didn't change: 111 µs a scrobble (server side), no
+  write.
+- Community album charts join `tracks` once per (account, day, track)
+  row: 1.1 to 1.3 times the tracks chart (2,000 follows over 7 days 366 ms,
+  536 before; 100 over 7 days 38 ms, 88 before). An album column in
+  `ranking_daily` reached 243 ms, for 8 bytes a row (+13 % of its table)
+  and an index on `track_id` to rewrite a track's rows whenever its album
+  changes: not kept.
+
+```bash
+psql "$SCRATCH_URL" -f scripts/synthetic/albums.sql       # after follows.sql, before 0032
+DATABASE_URL="$SCRATCH_URL" worker migrate
+DATABASE_URL="$SCRATCH_URL" worker albums backfill --dry-run
+psql "$SCRATCH_URL" -f scripts/synthetic/album-attack.sql
+DATABASE_URL="$SCRATCH_URL" worker albums backfill
+psql "$SCRATCH_URL" -f scripts/synthetic/album-attack-results.sql
+```
+
+Open: a new coordination run doesn't re-decide the tracks a flagged farm
+voted on (their next vote does); a track whose listeners split between two
+editions stays with whichever came first until one has half again the
+other's accounts; an account's say follows its latest change of album, not
+its latest play (a late play naming the album it left doesn't move it back);
+the personal album chart still sums by track and then by album (310 ms
+cold for three years of plays, unmeasured since).
 
 ## Feed
 
@@ -382,8 +499,8 @@ followed:
 | 2,000 | 276.8 / 396 ms | 277.9 / 369 ms | 168.5 / 207 ms |
 
 Artists take about two thirds of that (2,000 follows, 30 days: 187 ms),
-albums about 1.4 times (401 ms: every (account, track) is mapped to its
-album). The history is 60 days long, so 90 days reads 60 and 12 months
+albums 1.1 to 1.3 times (each row of `ranking_daily` joined to its
+track's album once; [Albums](#albums)). The history is 60 days long, so 90 days reads 60 and 12 months
 (40 accounts) only 2,400 user-days, 51 ms; a real year reads 14,600 like
 30 days with 486 accounts, about 270 ms by the cost model below
 (unverified). Cached: 2.6 ms p50 for 35 follows, 9.3 ms for 2,000 (the
@@ -430,10 +547,10 @@ DATABASE_URL="$SCRATCH_URL" worker rank refresh
   the response says how many it covered (`accounts`) of how many it could
   (`following`).
 - **Albums by the catalog's track:** a track on several releases counts
-  for the first one a scrobble named, so a deluxe edition's chart holds
-  only its bonus tracks, and whoever scrobbles a track first chooses its
-  album for everyone. Community album charts also map every (account,
-  track) to its album by joining `tracks`, which grows with the catalog.
+  for the one its accounts named ([Albums](#albums)), so a deluxe
+  edition's chart holds only its bonus tracks. Community album charts map
+  every (account, day, track) to its album by joining `tracks`, which
+  grows with the catalog.
 - **First views of long histories:** a cold all-time album chart of an
   account with 150,000 plays takes ~300 ms, more with more; only repeat
   views are cached.

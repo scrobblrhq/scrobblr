@@ -347,8 +347,8 @@ pub const NOT_INCLUDED: &[(&str, &str)] = &[
         "Their decisions, about you: the export holds what you did, and nobody is told who blocked or removed them.",
     ),
     (
-        "Daily aggregates and catalog counters",
-        "Totals computed from your scrobbles.",
+        "Daily aggregates, catalog counters and album votes",
+        "Totals computed from your scrobbles, and the album each track's last play naming one named, which counts towards the album the track is filed under: scrobbles.csv has them all.",
     ),
     (
         "Server logs, rate-limit counters and backups",

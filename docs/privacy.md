@@ -32,6 +32,9 @@ is kept until the track would have ended.
 - Coordination factors per user and day, and the accounts flagged in each
   detection run, for anti-botting ([rankings.md](rankings.md)). Runs are
   kept 30 days.
+- Each account's say on which album a track belongs to: the album its
+  plays of the track named last ([social.md](social.md#albums)), kept
+  with the history.
 
 **Where an account registered from** (`registration_origins`), only when the
 operator sets `REGISTRATION_HASH_KEY`: two 64-bit keyed hashes (HMAC-SHA256)
@@ -110,7 +113,8 @@ up); linked accounts' OAuth tokens; the registration origin's hashes
 everyone's); ranking weights, coordination factors and cohort membership
 (anti-abuse scores computed from the scrobbles, which are included); who
 blocks the user or removed them from their followers (their decisions); daily
-totals and counters (computed from the scrobbles); logs, Redis and backups.
+totals, album says and counters (computed from the scrobbles); logs, Redis
+and backups.
 
 ## Deletion
 
@@ -134,9 +138,10 @@ links have to be made again. The username and email stay taken.
 a chunk at a time, each taking its plays off the track, artist and album
 counters in the same transaction; the user's rows in the daily totals
 (deleted directly, not by recomputing everyone's); labels, weights,
-coordination factors and flags; then the user row, which every other table
-referencing it follows (`ON DELETE CASCADE`, checked by a test that looks
-for any column holding a user id): sessions and tokens left, origins,
+coordination factors and flags; then the user row (its album says go
+with it, and the tracks they were on are decided again without them),
+which every other table referencing it follows (`ON DELETE CASCADE`,
+checked by a test that looks for any column holding a user id): sessions and tokens left, origins,
 imports, follows, blocks and removals either way, comments, likes (taken
 off the candidates' counts),
 uploads, queued work. The global rankings are recomputed on the worker's
