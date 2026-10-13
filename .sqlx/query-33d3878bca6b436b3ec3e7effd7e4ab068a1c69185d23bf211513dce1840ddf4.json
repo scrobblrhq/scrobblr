@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT u.id, u.last_seen_at AS \"last_seen_at!\"\n        FROM user_follows f\n        JOIN users u ON u.id = f.followee_id\n        WHERE f.follower_id = $1 AND NOT u.is_private AND u.delete_after IS NULL\n          AND NOT EXISTS (SELECT 1 FROM user_blocks b\n                          WHERE (b.blocker_id = u.id AND b.blocked_id = $1)\n                             OR (b.blocker_id = $1 AND b.blocked_id = u.id))\n          AND u.last_seen_at >= $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "last_seen_at!",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "33d3878bca6b436b3ec3e7effd7e4ab068a1c69185d23bf211513dce1840ddf4"
+}

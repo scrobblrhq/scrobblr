@@ -254,8 +254,8 @@ pub async fn user_albums(
 }
 
 /// The accounts `viewer_id` follows and may see (public, not waiting to be
-/// erased), the most recently active first: how many there are, and the
-/// first `max` of them.
+/// erased, no block between them), the most recently active first: how
+/// many there are, and the first `max` of them.
 pub async fn community_accounts(
     pool: &PgPool,
     viewer_id: i64,
@@ -267,6 +267,9 @@ pub async fn community_accounts(
         FROM user_follows f
         JOIN users u ON u.id = f.followee_id
         WHERE f.follower_id = $1 AND NOT u.is_private AND u.delete_after IS NULL
+          AND NOT EXISTS (SELECT 1 FROM user_blocks b
+                          WHERE (b.blocker_id = u.id AND b.blocked_id = $1)
+                             OR (b.blocker_id = $1 AND b.blocked_id = u.id))
         ORDER BY u.last_seen_at DESC NULLS LAST, u.id
         "#,
         viewer_id,

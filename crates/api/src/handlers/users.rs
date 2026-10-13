@@ -15,6 +15,7 @@ use crate::{
     middleware::{auth::AuthUser, rate_limit::ClientIp},
     state::AppState,
 };
+use db::queries::blocks as blocks_db;
 use db::queries::users::{self as users_db, FollowList, Followed};
 use shared::cursor::Cursor;
 use shared::models::{FollowEntry, FollowPage, ScrobbleBreakdown, UserProfile};
@@ -28,6 +29,8 @@ pub struct ProfileResponse {
     pub is_following: Option<bool>,
     /// Whether this account follows the signed-in viewer; `null` likewise.
     pub follows_you: Option<bool>,
+    /// Whether the signed-in viewer blocks this account; `null` likewise.
+    pub blocking: Option<bool>,
     /// Accounts following this one, private ones included (lists don't
     /// name them).
     pub followers_count: i64,
@@ -49,21 +52,16 @@ pub async fn get_profile(
         .ok_or(AppError::NotFound)?;
 
     let viewer_id = auth_user.map(|Extension(a)| a.id);
-    let is_following =
+    let relation =
         crate::middleware::visibility::ensure_profile_visible(&state, viewer_id, &user).await?;
-    let follows_you = match viewer_id {
-        Some(viewer) if viewer != user.id => {
-            Some(users_db::is_following(&state.db, user.id, viewer).await?)
-        }
-        _ => None,
-    };
     let (followers_count, following_count) = users_db::follow_counts(&state.db, user.id).await?;
     let scrobble_breakdown = users_db::scrobble_breakdown(&state.db, user.id).await?;
 
     Ok(Json(ProfileResponse {
         profile: user.into(),
-        is_following,
-        follows_you,
+        is_following: relation.map(|r| r.following),
+        follows_you: relation.map(|r| r.follows_you),
+        blocking: relation.map(|r| r.blocking),
         followers_count,
         following_count,
         scrobble_breakdown,
@@ -72,11 +70,13 @@ pub async fn get_profile(
 
 pub fn _get_profile_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Get user profile")
-        .description("Returns the public profile for a user, with how many accounts follow it and it follows (`followers_count`, `following_count`: every follow, private accounts' included). A signed-in viewer also gets `is_following` (the viewer follows this account) and `follows_you` (it follows the viewer); both are `null` otherwise. `scrobble_count` leaves out the scrobbles the classifier found to be the same listen reported again (duplicates); `scrobble_breakdown` divides it into verified plays and unverified ones (over the listening time real time allows, of tracks with no known length, or not classified yet). Private profiles return 403 to everyone but their owner, followers included (following takes no approval).")
+        .description("Returns the public profile for a user, with how many accounts follow it and it follows (`followers_count`, `following_count`: every follow, private accounts' included). A signed-in viewer also gets `is_following` (the viewer follows this account), `follows_you` (it follows the viewer) and `blocking` (the viewer blocks it); all three are `null` otherwise. An account that blocks the signed-in viewer is not found (404), as one that doesn't exist. `scrobble_count` leaves out the scrobbles the classifier found to be the same listen reported again (duplicates); `scrobble_breakdown` divides it into verified plays and unverified ones (over the listening time real time allows, of tracks with no known length, or not classified yet). Private profiles return 403 to everyone but their owner, followers included (following takes no approval).")
         .tag("Users")
         .response::<200, Json<ProfileResponse>>()
         .response_with::<403, ErrorJson, _>(|r| r.description("Profile is private"))
-        .response_with::<404, ErrorJson, _>(|r| r.description("User not found"))
+        .response_with::<404, ErrorJson, _>(|r| {
+            r.description("User not found, waiting to be deleted, or blocking the viewer")
+        })
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -100,6 +100,7 @@ pub async fn get_own_profile(
         profile: user.into(),
         is_following: None,
         follows_you: None,
+        blocking: None,
         followers_count,
         following_count,
         scrobble_breakdown,
@@ -108,7 +109,7 @@ pub async fn get_own_profile(
 
 pub fn _get_own_profile_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Get my own profile")
-        .description("Alias for fetching the authenticated user's own profile, regardless of privacy settings, with the same counts and `scrobble_breakdown`; `is_following` and `follows_you` are `null`.")
+        .description("Alias for fetching the authenticated user's own profile, regardless of privacy settings, with the same counts and `scrobble_breakdown`; `is_following`, `follows_you` and `blocking` are `null`.")
         .tag("Users")
         .response::<200, Json<ProfileResponse>>()
         .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
@@ -243,7 +244,7 @@ pub async fn get_friends(
 
 pub fn _get_friends_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Get followers and following")
-        .description(&format!("Returns the {FRIENDS_LIMIT} most recent followers and the {FRIENDS_LIMIT} most recent accounts followed, newest follow first; `GET /v1/user/{{username}}/followers` and `/following` page through all of them. Private accounts are left out of both, except the viewer's own, and so are accounts waiting to be deleted. Private profiles return 403 to everyone but their owner."))
+        .description(&format!("Returns the {FRIENDS_LIMIT} most recent followers and the {FRIENDS_LIMIT} most recent accounts followed, newest follow first; `GET /v1/user/{{username}}/followers` and `/following` page through all of them. Private accounts are left out of both, except the viewer's own, and so are accounts waiting to be deleted and, for a signed-in viewer, accounts blocking it or blocked by it. Private profiles return 403 to everyone but their owner."))
         .tag("Users")
         .response::<200, Json<FriendsResponse>>()
         .response_with::<403, ErrorJson, _>(|r| r.description("Profile is private"))
@@ -341,7 +342,7 @@ fn follow_list_doc<'t>(
     what: &str,
 ) -> TransformOperation<'t> {
     op.summary(summary)
-        .description(&format!("A page of {what}, newest follow first: pass `next` as `before` for the following page; `next` is `null` on the last. Private accounts are left out, except the viewer's own, and so are accounts waiting to be deleted, so a page can hold fewer entries than `limit` while more follow. A signed-in viewer gets `is_following` and `follows_you` for each account. Private profiles return 403 to everyone but their owner."))
+        .description(&format!("A page of {what}, newest follow first: pass `next` as `before` for the following page; `next` is `null` on the last. Private accounts are left out, except the viewer's own, and so are accounts waiting to be deleted and, for a signed-in viewer, accounts blocking it or blocked by it, so a page can hold fewer entries than `limit` while more follow. A signed-in viewer gets `is_following` and `follows_you` for each account. Private profiles return 403 to everyone but their owner."))
         .tag("Users")
         .response::<200, Json<FollowPage>>()
         .response_with::<400, ErrorJson, _>(|r| r.description("Invalid `before` cursor"))
@@ -371,6 +372,16 @@ pub async fn follow(
     if target.id == auth_user.id {
         return Err(AppError::BadRequest("cannot follow yourself".into()));
     }
+    let relation = blocks_db::relation(&state.db, auth_user.id, target.id).await?;
+    if relation.blocked_by {
+        return Err(AppError::NotFound);
+    }
+    if relation.blocking {
+        return Err(blocking_conflict());
+    }
+    if relation.following {
+        return Ok(StatusCode::NO_CONTENT);
+    }
 
     match users_db::follow_user(&state.db, auth_user.id, target.id, MAX_FOLLOWING).await? {
         Followed::Now | Followed::Already => Ok(StatusCode::NO_CONTENT),
@@ -378,13 +389,15 @@ pub async fn follow(
             "you already follow {MAX_FOLLOWING} accounts, the most allowed"
         ))),
         Followed::BlockedBy => Err(AppError::NotFound),
-        Followed::Blocking => Err(AppError::Conflict(
-            "you block this account; unblock it to follow it".into(),
-        )),
+        Followed::Blocking => Err(blocking_conflict()),
         Followed::Removed => Err(AppError::Conflict(
             "this account removed you from its followers; you can't follow it again yet".into(),
         )),
     }
+}
+
+fn blocking_conflict() -> AppError {
+    AppError::Conflict("you block this account; unblock it to follow it".into())
 }
 
 pub fn _follow_doc(op: TransformOperation) -> TransformOperation {
@@ -421,6 +434,9 @@ pub async fn unfollow(
     if target.id == auth_user.id {
         return Err(AppError::BadRequest("cannot unfollow yourself".into()));
     }
+    if blocks_db::blocks(&state.db, target.id, auth_user.id).await? {
+        return Err(AppError::NotFound);
+    }
 
     users_db::unfollow_user(&state.db, auth_user.id, target.id).await?;
     Ok(StatusCode::NO_CONTENT)
@@ -428,7 +444,7 @@ pub async fn unfollow(
 
 pub fn _unfollow_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Unfollow a user")
-        .description("Unfollows the specified user on behalf of the authenticated user.")
+        .description("Unfollows the specified user on behalf of the authenticated user. An account that blocks the user is not found, as one that doesn't exist.")
         .tag("Users")
         .response_with::<204, (), _>(|r| r.description("Successfully unfollowed"))
         .response_with::<400, ErrorJson, _>(|r| r.description("Cannot unfollow yourself"))

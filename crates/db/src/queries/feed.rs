@@ -30,7 +30,8 @@ pub struct Page {
 }
 
 /// The accounts `viewer_id` follows and may see (public, not waiting to be
-/// erased) with a play at or after `since`, and their latest play.
+/// erased, no block between them) with a play at or after `since`, and
+/// their latest play.
 async fn active_follows(
     pool: &PgPool,
     viewer_id: i64,
@@ -42,6 +43,9 @@ async fn active_follows(
         FROM user_follows f
         JOIN users u ON u.id = f.followee_id
         WHERE f.follower_id = $1 AND NOT u.is_private AND u.delete_after IS NULL
+          AND NOT EXISTS (SELECT 1 FROM user_blocks b
+                          WHERE (b.blocker_id = u.id AND b.blocked_id = $1)
+                             OR (b.blocker_id = $1 AND b.blocked_id = u.id))
           AND u.last_seen_at >= $2
         "#,
         viewer_id,

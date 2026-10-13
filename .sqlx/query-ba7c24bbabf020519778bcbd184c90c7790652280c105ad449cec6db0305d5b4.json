@@ -1,0 +1,48 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT u.id           AS \"user_id!\",\n               u.username     AS \"username!\",\n               u.display_name AS \"display_name?\",\n               u.image_url    AS \"image_url?\",\n               l.play_count   AS \"play_count!\"\n        FROM (\n            SELECT user_id, SUM(play_count)::BIGINT AS play_count\n            FROM scrobbles_daily_by_artist\n            WHERE artist_id = $1\n            GROUP BY user_id\n        ) l\n        JOIN users u ON u.id = l.user_id\n        WHERE NOT u.is_private AND u.delete_after IS NULL\n          AND ($3::bigint IS NULL OR NOT EXISTS (\n                  SELECT 1 FROM user_blocks b\n                  WHERE (b.blocker_id = u.id AND b.blocked_id = $3)\n                     OR (b.blocker_id = $3 AND b.blocked_id = u.id)))\n        ORDER BY l.play_count DESC, u.id\n        LIMIT $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "username!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "display_name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "image_url?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "play_count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "ba7c24bbabf020519778bcbd184c90c7790652280c105ad449cec6db0305d5b4"
+}

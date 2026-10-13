@@ -1569,6 +1569,13 @@
               "null"
             ]
           },
+          "blocking": {
+            "description": "Whether the signed-in viewer blocks this account; `null` likewise.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "country": {
             "type": [
               "string",
@@ -4371,7 +4378,7 @@
     },
     "/v1/album/{id}/images": {
       "get": {
-        "description": "Returns the community cover candidates for an album, most-liked first.",
+        "description": "Returns the community cover candidates for an album, most-liked first, as for an artist.",
         "parameters": [
           {
             "in": "path",
@@ -4594,7 +4601,7 @@
     },
     "/v1/artist/{id}/comments": {
       "get": {
-        "description": "Returns comments on an artist, newest first.",
+        "description": "Returns comments on an artist, newest first; for a signed-in viewer, without those of accounts blocking it or blocked by it.",
         "parameters": [
           {
             "in": "path",
@@ -4652,6 +4659,12 @@
             "description": "An error, as `{ \"error\": message }`"
           }
         },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ],
         "summary": "List artist comments",
         "tags": [
           "Catalog"
@@ -4897,7 +4910,7 @@
     },
     "/v1/artist/{id}/images": {
       "get": {
-        "description": "Returns the community image candidates for an artist, most-liked first. `has_voted` reflects the authenticated viewer; `is_default` marks the currently displayed image.",
+        "description": "Returns the community image candidates for an artist, most-liked first. `has_voted` reflects the authenticated viewer; `is_default` marks the currently displayed image. A signed-in viewer doesn't get those uploaded by accounts blocking it or blocked by it.",
         "parameters": [
           {
             "in": "path",
@@ -4969,7 +4982,7 @@
     },
     "/v1/artist/{id}/listeners": {
       "get": {
-        "description": "Returns the users who scrobble this artist the most (public profiles only, never accounts waiting to be deleted), ranked by play count: what their public profiles already show.",
+        "description": "Returns the users who scrobble this artist the most (public profiles only, never accounts waiting to be deleted nor, for a signed-in viewer, accounts blocking it or blocked by it), ranked by play count: what their public profiles already show.",
         "parameters": [
           {
             "in": "path",
@@ -5039,6 +5052,12 @@
             "description": "An error, as `{ \"error\": message }`"
           }
         },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ],
         "summary": "Artist's top listeners",
         "tags": [
           "Catalog"
@@ -7669,7 +7688,7 @@
     },
     "/v1/search": {
       "get": {
-        "description": "Full-text search across artists, tracks and users. Use the `type` parameter to restrict results to `track`, `artist`, `user`, or `all` (default). Returns up to 30 results per type. Query must not be empty. Users are public profiles only. Artists' and tracks' `scrobble_count` are as `GET /v1/artist/{id}` and `GET /v1/track/{id}` serve them. Catalog-wide counts include every user's plays, private profiles' too, so they are served only for entities at least `RANKING_MIN_LISTENERS` (5 by default) distinct users have played, counted from the daily aggregates (a new listener counts from their next refresh, within the hour; today's plays from tomorrow): a count is never one or two people's listening.",
+        "description": "Full-text search across artists, tracks and users. Use the `type` parameter to restrict results to `track`, `artist`, `user`, or `all` (default). Returns up to 30 results per type. Query must not be empty. Users are public profiles only, never accounts waiting to be deleted nor, for a signed-in viewer, accounts blocking it or blocked by it. Artists' and tracks' `scrobble_count` are as `GET /v1/artist/{id}` and `GET /v1/track/{id}` serve them. Catalog-wide counts include every user's plays, private profiles' too, so they are served only for entities at least `RANKING_MIN_LISTENERS` (5 by default) distinct users have played, counted from the daily aggregates (a new listener counts from their next refresh, within the hour; today's plays from tomorrow): a count is never one or two people's listening.",
         "parameters": [
           {
             "in": "query",
@@ -7746,6 +7765,12 @@
             "description": "An error, as `{ \"error\": message }`"
           }
         },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ],
         "summary": "Search catalog and users",
         "tags": [
           "Catalog"
@@ -7817,7 +7842,7 @@
     },
     "/v1/track/{id}/comments": {
       "get": {
-        "description": "Returns comments on a track, newest first.",
+        "description": "Returns comments on a track, newest first; for a signed-in viewer, without those of accounts blocking it or blocked by it.",
         "parameters": [
           {
             "in": "path",
@@ -7875,6 +7900,12 @@
             "description": "An error, as `{ \"error\": message }`"
           }
         },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ],
         "summary": "List track comments",
         "tags": [
           "Catalog"
@@ -7989,7 +8020,7 @@
     },
     "/v1/track/{id}/listeners": {
       "get": {
-        "description": "Returns the users who scrobble this track the most (public profiles only, never accounts waiting to be deleted), ranked by play count: what their public profiles already show.",
+        "description": "Returns the users who scrobble this track the most (public profiles only, never accounts waiting to be deleted nor, for a signed-in viewer, accounts blocking it or blocked by it), ranked by play count: what their public profiles already show.",
         "parameters": [
           {
             "in": "path",
@@ -8059,6 +8090,12 @@
             "description": "An error, as `{ \"error\": message }`"
           }
         },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ],
         "summary": "Track's top listeners",
         "tags": [
           "Catalog"
@@ -8155,7 +8192,7 @@
     },
     "/v1/user/me": {
       "get": {
-        "description": "Alias for fetching the authenticated user's own profile, regardless of privacy settings, with the same counts and `scrobble_breakdown`; `is_following` and `follows_you` are `null`.",
+        "description": "Alias for fetching the authenticated user's own profile, regardless of privacy settings, with the same counts and `scrobble_breakdown`; `is_following`, `follows_you` and `blocking` are `null`.",
         "responses": {
           "200": {
             "content": {
@@ -9482,7 +9519,7 @@
     },
     "/v1/user/{username}": {
       "get": {
-        "description": "Returns the public profile for a user, with how many accounts follow it and it follows (`followers_count`, `following_count`: every follow, private accounts' included). A signed-in viewer also gets `is_following` (the viewer follows this account) and `follows_you` (it follows the viewer); both are `null` otherwise. `scrobble_count` leaves out the scrobbles the classifier found to be the same listen reported again (duplicates); `scrobble_breakdown` divides it into verified plays and unverified ones (over the listening time real time allows, of tracks with no known length, or not classified yet). Private profiles return 403 to everyone but their owner, followers included (following takes no approval).",
+        "description": "Returns the public profile for a user, with how many accounts follow it and it follows (`followers_count`, `following_count`: every follow, private accounts' included). A signed-in viewer also gets `is_following` (the viewer follows this account), `follows_you` (it follows the viewer) and `blocking` (the viewer blocks it); all three are `null` otherwise. An account that blocks the signed-in viewer is not found (404), as one that doesn't exist. `scrobble_count` leaves out the scrobbles the classifier found to be the same listen reported again (duplicates); `scrobble_breakdown` divides it into verified plays and unverified ones (over the listening time real time allows, of tracks with no known length, or not classified yet). Private profiles return 403 to everyone but their owner, followers included (following takes no approval).",
         "parameters": [
           {
             "in": "path",
@@ -9523,7 +9560,7 @@
                 }
               }
             },
-            "description": "User not found"
+            "description": "User not found, waiting to be deleted, or blocking the viewer"
           },
           "429": {
             "content": {
@@ -10365,7 +10402,7 @@
     },
     "/v1/user/{username}/follow": {
       "delete": {
-        "description": "Unfollows the specified user on behalf of the authenticated user.",
+        "description": "Unfollows the specified user on behalf of the authenticated user. An account that blocks the user is not found, as one that doesn't exist.",
         "parameters": [
           {
             "in": "path",
@@ -10553,7 +10590,7 @@
     },
     "/v1/user/{username}/followers": {
       "get": {
-        "description": "A page of the accounts following the user, newest follow first: pass `next` as `before` for the following page; `next` is `null` on the last. Private accounts are left out, except the viewer's own, and so are accounts waiting to be deleted, so a page can hold fewer entries than `limit` while more follow. A signed-in viewer gets `is_following` and `follows_you` for each account. Private profiles return 403 to everyone but their owner.",
+        "description": "A page of the accounts following the user, newest follow first: pass `next` as `before` for the following page; `next` is `null` on the last. Private accounts are left out, except the viewer's own, and so are accounts waiting to be deleted and, for a signed-in viewer, accounts blocking it or blocked by it, so a page can hold fewer entries than `limit` while more follow. A signed-in viewer gets `is_following` and `follows_you` for each account. Private profiles return 403 to everyone but their owner.",
         "parameters": [
           {
             "in": "path",
@@ -10668,7 +10705,7 @@
     },
     "/v1/user/{username}/following": {
       "get": {
-        "description": "A page of the accounts the user follows, newest follow first: pass `next` as `before` for the following page; `next` is `null` on the last. Private accounts are left out, except the viewer's own, and so are accounts waiting to be deleted, so a page can hold fewer entries than `limit` while more follow. A signed-in viewer gets `is_following` and `follows_you` for each account. Private profiles return 403 to everyone but their owner.",
+        "description": "A page of the accounts the user follows, newest follow first: pass `next` as `before` for the following page; `next` is `null` on the last. Private accounts are left out, except the viewer's own, and so are accounts waiting to be deleted and, for a signed-in viewer, accounts blocking it or blocked by it, so a page can hold fewer entries than `limit` while more follow. A signed-in viewer gets `is_following` and `follows_you` for each account. Private profiles return 403 to everyone but their owner.",
         "parameters": [
           {
             "in": "path",
@@ -10783,7 +10820,7 @@
     },
     "/v1/user/{username}/friends": {
       "get": {
-        "description": "Returns the 100 most recent followers and the 100 most recent accounts followed, newest follow first; `GET /v1/user/{username}/followers` and `/following` page through all of them. Private accounts are left out of both, except the viewer's own, and so are accounts waiting to be deleted. Private profiles return 403 to everyone but their owner.",
+        "description": "Returns the 100 most recent followers and the 100 most recent accounts followed, newest follow first; `GET /v1/user/{username}/followers` and `/following` page through all of them. Private accounts are left out of both, except the viewer's own, and so are accounts waiting to be deleted and, for a signed-in viewer, accounts blocking it or blocked by it. Private profiles return 403 to everyone but their owner.",
         "parameters": [
           {
             "in": "path",

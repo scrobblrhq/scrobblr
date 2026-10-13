@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT c.id, c.user_id, c.body, c.created_at,\n               u.username     AS \"username!\",\n               u.display_name AS \"display_name?\",\n               u.image_url    AS \"image_url?\"\n        FROM comments c\n        JOIN users u ON u.id = c.user_id\n        WHERE c.entity_type = $1 AND c.entity_id = $2 AND u.delete_after IS NULL\n        ORDER BY c.created_at DESC\n        LIMIT $3\n        ",
+  "query": "\n        SELECT c.id, c.user_id, c.body, c.created_at,\n               u.username     AS \"username!\",\n               u.display_name AS \"display_name?\",\n               u.image_url    AS \"image_url?\"\n        FROM comments c\n        JOIN users u ON u.id = c.user_id\n        WHERE c.entity_type = $1 AND c.entity_id = $2 AND u.delete_after IS NULL\n          AND ($4::bigint IS NULL OR NOT EXISTS (\n                  SELECT 1 FROM user_blocks b\n                  WHERE (b.blocker_id = u.id AND b.blocked_id = $4)\n                     OR (b.blocker_id = $4 AND b.blocked_id = u.id)))\n        ORDER BY c.created_at DESC\n        LIMIT $3\n        ",
   "describe": {
     "columns": [
       {
@@ -43,6 +43,7 @@
       "Left": [
         "Text",
         "Int8",
+        "Int8",
         "Int8"
       ]
     },
@@ -56,5 +57,5 @@
       true
     ]
   },
-  "hash": "9b6c4337829fe3493ca56903db25f0cf7e96b3b7eacc05058cda1b4d3beb5ac3"
+  "hash": "fb43427a32e6175beae92a95d1592460c4a9c962afc551bcd7d9b929f67a54f7"
 }

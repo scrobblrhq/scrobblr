@@ -3,7 +3,7 @@ use aide::axum::IntoApiResponse;
 use aide::transform::TransformOperation;
 use axum::{
     Json,
-    extract::{Path, Query, State},
+    extract::{Extension, Path, Query, State},
     http::StatusCode,
 };
 use schemars::JsonSchema;
@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     errors::{ApiResult, AppError, ErrorJson},
+    middleware::auth::AuthUser,
     state::AppState,
 };
 use db::queries::{enrichment as enrichment_db, tracks as tracks_db, users as users_db};
@@ -101,6 +102,7 @@ const SEARCH_MAX_CHARS: usize = 200;
 pub async fn search(
     State(state): State<AppState>,
     Query(q): Query<SearchQuery>,
+    auth_user: Option<Extension<AuthUser>>,
 ) -> ApiResult<impl IntoApiResponse> {
     if q.q.trim().is_empty() {
         return Err(AppError::BadRequest("search query cannot be empty".into()));
@@ -128,7 +130,7 @@ pub async fn search(
     };
 
     let users = if wants("user") {
-        users_db::search_users(&state.db, &q.q, limit)
+        users_db::search_users(&state.db, &q.q, limit, auth_user.map(|Extension(a)| a.id))
             .await?
             .into_iter()
             .map(UserProfile::from)
@@ -146,7 +148,7 @@ pub async fn search(
 
 pub fn _search_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Search catalog and users")
-        .description(&format!("Full-text search across artists, tracks and users. Use the `type` parameter to restrict results to `track`, `artist`, `user`, or `all` (default). Returns up to 30 results per type. Query must not be empty. Users are public profiles only. Artists' and tracks' `scrobble_count` are as `GET /v1/artist/{{id}}` and `GET /v1/track/{{id}}` serve them. {COUNTS_RULE}"))
+        .description(&format!("Full-text search across artists, tracks and users. Use the `type` parameter to restrict results to `track`, `artist`, `user`, or `all` (default). Returns up to 30 results per type. Query must not be empty. Users are public profiles only, never accounts waiting to be deleted nor, for a signed-in viewer, accounts blocking it or blocked by it. Artists' and tracks' `scrobble_count` are as `GET /v1/artist/{{id}}` and `GET /v1/track/{{id}}` serve them. {COUNTS_RULE}"))
         .tag("Catalog")
         .response::<200, Json<SearchResponse>>()
         .response_with::<400, ErrorJson, _>(|r| r.description("Empty or overlong search query"))
@@ -192,17 +194,19 @@ pub async fn artist_listeners(
     State(state): State<AppState>,
     Path(IdPath { id }): Path<IdPath>,
     Query(q): Query<SectionQuery>,
+    auth_user: Option<Extension<AuthUser>>,
 ) -> ApiResult<Json<Vec<TopListener>>> {
     tracks_db::find_artist_by_id(&state.db, id)
         .await?
         .ok_or(AppError::NotFound)?;
-    let listeners = tracks_db::artist_listeners(&state.db, id, section_limit(&q)).await?;
+    let viewer = auth_user.map(|Extension(a)| a.id);
+    let listeners = tracks_db::artist_listeners(&state.db, id, section_limit(&q), viewer).await?;
     Ok(Json(listeners))
 }
 
 pub fn _artist_listeners_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Artist's top listeners")
-        .description("Returns the users who scrobble this artist the most (public profiles only, never accounts waiting to be deleted), ranked by play count: what their public profiles already show.")
+        .description("Returns the users who scrobble this artist the most (public profiles only, never accounts waiting to be deleted nor, for a signed-in viewer, accounts blocking it or blocked by it), ranked by play count: what their public profiles already show.")
         .tag("Catalog")
         .response::<200, Json<Vec<TopListener>>>()
         .response_with::<404, ErrorJson, _>(|r| r.description("Artist not found"))
@@ -213,17 +217,19 @@ pub async fn track_listeners(
     State(state): State<AppState>,
     Path(IdPath { id }): Path<IdPath>,
     Query(q): Query<SectionQuery>,
+    auth_user: Option<Extension<AuthUser>>,
 ) -> ApiResult<Json<Vec<TopListener>>> {
     tracks_db::find_track_by_id(&state.db, id)
         .await?
         .ok_or(AppError::NotFound)?;
-    let listeners = tracks_db::track_listeners(&state.db, id, section_limit(&q)).await?;
+    let viewer = auth_user.map(|Extension(a)| a.id);
+    let listeners = tracks_db::track_listeners(&state.db, id, section_limit(&q), viewer).await?;
     Ok(Json(listeners))
 }
 
 pub fn _track_listeners_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Track's top listeners")
-        .description("Returns the users who scrobble this track the most (public profiles only, never accounts waiting to be deleted), ranked by play count: what their public profiles already show.")
+        .description("Returns the users who scrobble this track the most (public profiles only, never accounts waiting to be deleted nor, for a signed-in viewer, accounts blocking it or blocked by it), ranked by play count: what their public profiles already show.")
         .tag("Catalog")
         .response::<200, Json<Vec<TopListener>>>()
         .response_with::<404, ErrorJson, _>(|r| r.description("Track not found"))

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT id, username, email, password_hash, display_name, bio,\n               image_url, website_url, country, scrobble_count,\n               is_private, is_verified, last_seen_at, created_at, updated_at,\n               delete_after\n        FROM users\n        WHERE NOT is_private AND delete_after IS NULL\n          AND (username ILIKE $1 OR display_name ILIKE $1)\n        ORDER BY scrobble_count DESC\n        LIMIT $2\n        ",
+  "query": "\n        SELECT id, username, email, password_hash, display_name, bio,\n               image_url, website_url, country, scrobble_count,\n               is_private, is_verified, last_seen_at, created_at, updated_at,\n               delete_after\n        FROM users\n        WHERE NOT is_private AND delete_after IS NULL\n          AND (username ILIKE $1 OR display_name ILIKE $1)\n          AND ($3::bigint IS NULL OR NOT EXISTS (\n                  SELECT 1 FROM user_blocks b\n                  WHERE (b.blocker_id = users.id AND b.blocked_id = $3)\n                     OR (b.blocker_id = $3 AND b.blocked_id = users.id)))\n        ORDER BY scrobble_count DESC\n        LIMIT $2\n        ",
   "describe": {
     "columns": [
       {
@@ -87,6 +87,7 @@
     "parameters": {
       "Left": [
         "Text",
+        "Int8",
         "Int8"
       ]
     },
@@ -109,5 +110,5 @@
       true
     ]
   },
-  "hash": "d92770b5bc7c4820e5c59d91ed07136dff822d7c0efe260cdf207c0427a9e9ba"
+  "hash": "231e1603d13f78851f02d3fcc451f9230c56c50f34ab4a570ea87ff3764f1c20"
 }

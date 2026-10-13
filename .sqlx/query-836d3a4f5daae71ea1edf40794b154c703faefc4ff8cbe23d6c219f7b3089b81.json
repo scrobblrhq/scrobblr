@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT c.id, c.url, c.vote_count, c.created_at,\n               u.username AS uploaded_by,\n               ($4::bigint IS NOT NULL AND v.user_id IS NOT NULL) AS \"has_voted!\"\n        FROM image_candidates c\n        JOIN users u ON u.id = c.uploaded_by\n        LEFT JOIN image_candidate_votes v\n               ON v.candidate_id = c.id AND v.user_id = $4\n        WHERE c.entity_type = $1 AND c.entity_id = $2 AND u.delete_after IS NULL\n        ORDER BY c.vote_count DESC, c.created_at ASC\n        LIMIT $3\n        ",
+  "query": "\n        SELECT c.id, c.url, c.vote_count, c.created_at,\n               u.username AS uploaded_by,\n               ($4::bigint IS NOT NULL AND v.user_id IS NOT NULL) AS \"has_voted!\"\n        FROM image_candidates c\n        JOIN users u ON u.id = c.uploaded_by\n        LEFT JOIN image_candidate_votes v\n               ON v.candidate_id = c.id AND v.user_id = $4\n        WHERE c.entity_type = $1 AND c.entity_id = $2 AND u.delete_after IS NULL\n          AND ($4::bigint IS NULL OR NOT EXISTS (\n                  SELECT 1 FROM user_blocks b\n                  WHERE (b.blocker_id = u.id AND b.blocked_id = $4)\n                     OR (b.blocker_id = $4 AND b.blocked_id = u.id)))\n        ORDER BY c.vote_count DESC, c.created_at ASC\n        LIMIT $3\n        ",
   "describe": {
     "columns": [
       {
@@ -51,5 +51,5 @@
       null
     ]
   },
-  "hash": "20bcb700f2c83aace8caece0ef8d69254198a7ba3cee3291304c0fefd9217a39"
+  "hash": "836d3a4f5daae71ea1edf40794b154c703faefc4ff8cbe23d6c219f7b3089b81"
 }

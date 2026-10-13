@@ -87,11 +87,13 @@ pub async fn create_user(pool: &PgPool, input: &CreateUser<'_>) -> Result<User, 
 /// Substring match on username/display name, busiest scrobblers first.
 /// `%`/`_` in the query are escaped so they match literally. Private
 /// profiles are excluded — like the listener lists, they stay undiscoverable
-/// — and so are accounts waiting to be erased.
+/// — and so are accounts waiting to be erased, and those blocking
+/// `viewer_id` or blocked by it.
 pub async fn search_users(
     pool: &PgPool,
     query: &str,
     limit: i64,
+    viewer_id: Option<i64>,
 ) -> Result<Vec<User>, sqlx::Error> {
     let pattern = format!(
         "%{}%",
@@ -110,11 +112,16 @@ pub async fn search_users(
         FROM users
         WHERE NOT is_private AND delete_after IS NULL
           AND (username ILIKE $1 OR display_name ILIKE $1)
+          AND ($3::bigint IS NULL OR NOT EXISTS (
+                  SELECT 1 FROM user_blocks b
+                  WHERE (b.blocker_id = users.id AND b.blocked_id = $3)
+                     OR (b.blocker_id = $3 AND b.blocked_id = users.id)))
         ORDER BY scrobble_count DESC
         LIMIT $2
         "#,
         pattern,
         limit,
+        viewer_id,
     )
     .fetch_all(pool)
     .await
@@ -262,7 +269,8 @@ macro_rules! follow {
 /// A page of `user_id`'s followers or following, newest follow first,
 /// after `before` (the previous page's last follow time and account id).
 /// Only accounts `viewer_id` may see: private ones are left out unless they
-/// are the viewer's own, and accounts waiting to be erased always are.
+/// are the viewer's own, accounts waiting to be erased always are, and so
+/// are accounts blocking the viewer or blocked by it.
 pub async fn follow_page(
     pool: &PgPool,
     user_id: i64,
@@ -293,6 +301,10 @@ pub async fn follow_page(
         JOIN users u ON u.id = f.follower_id
         WHERE f.followee_id = $1 AND u.delete_after IS NULL
           AND (NOT u.is_private OR u.id = $2)
+          AND ($2::bigint IS NULL OR NOT EXISTS (
+                  SELECT 1 FROM user_blocks b
+                  WHERE (b.blocker_id = u.id AND b.blocked_id = $2)
+                     OR (b.blocker_id = $2 AND b.blocked_id = u.id)))
           AND ($3::timestamptz IS NULL OR (f.created_at, f.follower_id) < ($3, $4))
         ORDER BY f.created_at DESC, f.follower_id DESC
         LIMIT $5
@@ -328,6 +340,10 @@ pub async fn follow_page(
         JOIN users u ON u.id = f.followee_id
         WHERE f.follower_id = $1 AND u.delete_after IS NULL
           AND (NOT u.is_private OR u.id = $2)
+          AND ($2::bigint IS NULL OR NOT EXISTS (
+                  SELECT 1 FROM user_blocks b
+                  WHERE (b.blocker_id = u.id AND b.blocked_id = $2)
+                     OR (b.blocker_id = $2 AND b.blocked_id = u.id)))
           AND ($3::timestamptz IS NULL OR (f.created_at, f.followee_id) < ($3, $4))
         ORDER BY f.created_at DESC, f.followee_id DESC
         LIMIT $5
@@ -360,21 +376,6 @@ pub async fn follow_counts(pool: &PgPool, user_id: i64) -> Result<(i64, i64), sq
     .fetch_one(pool)
     .await?;
     Ok((r.followers, r.following))
-}
-
-pub async fn is_following(
-    pool: &PgPool,
-    follower_id: i64,
-    followee_id: i64,
-) -> Result<bool, sqlx::Error> {
-    let row = sqlx::query!(
-        "SELECT 1 AS exists FROM user_follows WHERE follower_id = $1 AND followee_id = $2",
-        follower_id,
-        followee_id,
-    )
-    .fetch_optional(pool)
-    .await?;
-    Ok(row.is_some())
 }
 
 /// Per-field patch semantics: `None` leaves the column unchanged,

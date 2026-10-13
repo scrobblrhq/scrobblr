@@ -216,6 +216,7 @@ pub fn _remove_follower_doc(op: TransformOperation) -> TransformOperation {
 #[cfg(test)]
 mod tests {
     use axum::http::{Method, StatusCode};
+    use chrono::{TimeDelta, Utc};
     use serde_json::{Value, json};
 
     use crate::test_app::{TestApp, with_app, with_custom_app};
@@ -231,6 +232,20 @@ mod tests {
 
     const ARTIST: &str = "Shared Band";
     const TRACK: &str = "Shared Song";
+
+    async fn scrobble(app: &TestApp, session: &str, minutes_ago: i64) {
+        let play = json!({
+            "track": TRACK,
+            "artist": ARTIST,
+            "album": "Shared Album",
+            "played_at": (Utc::now() - TimeDelta::minutes(minutes_ago)).to_rfc3339(),
+            "duration_ms": 200_000,
+        });
+        let (status, body) = app
+            .api_as(session, Method::POST, "/v1/scrobble", Some(play))
+            .await;
+        assert_eq!(status, StatusCode::CREATED, "{body}");
+    }
 
     /// The usernames in a list (or a page's `entries`, or a search's `users`).
     fn names(body: &Value) -> Vec<String> {
@@ -253,6 +268,255 @@ mod tests {
                 (status, serde_json::from_str(&body).unwrap_or(Value::Null))
             }
         }
+    }
+
+    /// The blocked account finds no trace of the blocker: every route of it
+    /// answers as for an account that doesn't exist, and every list of
+    /// people leaves it out. The blocker no longer sees the blocked account
+    /// in lists, but may look at its profile; anyone else sees both.
+    #[tokio::test]
+    #[ignore = "needs Postgres and Redis: just test-db"]
+    async fn a_blocked_account_finds_no_trace_of_the_blocker() {
+        with_custom_app(unlimited, |app| async move {
+            let a = app.session.to_string();
+            let a_name = app.username.clone();
+            let (b_id, b_name, b) = app.other_user("blocked").await;
+            let (_, c_name, c) = app.other_user("third").await;
+            for (session, ago) in [(&a, 30), (&b, 20), (&c, 10)] {
+                scrobble(&app, session, ago).await;
+            }
+            let (artist_id, track_id): (i64, i64) = sqlx::query_as(
+                "SELECT t.artist_id, t.id FROM tracks t WHERE t.title = $1",
+            )
+            .bind(TRACK)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+            for session in [&a, &b] {
+                for path in [
+                    format!("/v1/artist/{artist_id}/comments"),
+                    format!("/v1/track/{track_id}/comments"),
+                ] {
+                    let (status, _) = app
+                        .api_as(session, Method::POST, &path, Some(json!({ "body": "hi" })))
+                        .await;
+                    assert_eq!(status, StatusCode::CREATED);
+                }
+            }
+            sqlx::query(
+                "INSERT INTO image_candidates (entity_type, entity_id, url, uploaded_by, vote_count)
+                 SELECT 'artist', $1, 'https://img.test/' || id, id, 1 FROM users WHERE id = ANY($2)",
+            )
+            .bind(artist_id)
+            .bind(vec![app.user_id, b_id])
+            .execute(&app.pool)
+            .await
+            .unwrap();
+            // Follows every way: both follow the third account, and each other.
+            for (session, target) in [(&a, &c_name), (&b, &c_name), (&a, &b_name), (&b, &a_name)] {
+                let (status, _) = app
+                    .api_as(session, Method::POST, &format!("/v1/user/{target}/follow"), None)
+                    .await;
+                assert_eq!(status, StatusCode::NO_CONTENT);
+            }
+            let (_, token) = app
+                .api_as(&b, Method::POST, "/v1/scrobbler/tokens", Some(json!({ "name": "pano" })))
+                .await;
+            let b_sk = token["token"].as_str().unwrap().to_string();
+
+            let (status, _) = app
+                .api(Method::POST, &format!("/v1/user/{b_name}/block"), None)
+                .await;
+            assert_eq!(status, StatusCode::NO_CONTENT);
+            let follows: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM user_follows
+                 WHERE (follower_id = $1 AND followee_id = $2) OR (follower_id = $2 AND followee_id = $1)",
+            )
+            .bind(app.user_id)
+            .bind(b_id)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+            assert_eq!(follows, 0, "the follows between them ended");
+
+            // Every route of the blocker answers the blocked account as for
+            // an account that doesn't exist; everyone else as before.
+            let missing = get(&app, Some(&b), "/v1/user/nobody0here").await;
+            assert_eq!(missing.0, StatusCode::NOT_FOUND);
+            for suffix in [
+                "",
+                "/friends",
+                "/followers",
+                "/following",
+                "/recent",
+                "/top-artists",
+                "/top-tracks",
+                "/charts/artists",
+                "/charts/tracks",
+                "/charts/albums",
+                "/heatmap",
+                "/live",
+            ] {
+                let path = format!("/v1/user/{a_name}{suffix}");
+                assert_eq!(get(&app, Some(&b), &path).await, missing, "{path}");
+                if suffix != "/live" {
+                    assert_eq!(get(&app, Some(&c), &path).await.0, StatusCode::OK, "{path}");
+                    assert_eq!(get(&app, None, &path).await.0, StatusCode::OK, "{path}");
+                }
+            }
+            let missing_write = app
+                .api_as(&b, Method::POST, "/v1/user/nobody0here/follow", None)
+                .await;
+            for (method, path) in [
+                (Method::POST, format!("/v1/user/{a_name}/follow")),
+                (Method::DELETE, format!("/v1/user/{a_name}/follow")),
+                (Method::POST, format!("/v1/user/{a_name}/block")),
+                (Method::DELETE, format!("/v1/user/{a_name}/block")),
+                (Method::DELETE, format!("/v1/user/me/followers/{a_name}")),
+            ] {
+                let answer = app.api_as(&b, method.clone(), &path, None).await;
+                assert_eq!(answer, missing_write, "{method} {path}");
+            }
+
+            // Lists of people: the blocked account sees no blocker, the
+            // blocker no blocked account, the others both.
+            let lists = [
+                format!("/v1/user/{c_name}/followers"),
+                format!("/v1/user/{c_name}/friends"),
+                format!("/v1/artist/{artist_id}/listeners"),
+                format!("/v1/track/{track_id}/listeners"),
+                format!("/v1/artist/{artist_id}/comments"),
+                format!("/v1/track/{track_id}/comments"),
+                format!("/v1/artist/{artist_id}/images"),
+            ];
+            let usernames = |body: &Value| -> Vec<String> {
+                if let Some(followers) = body.get("followers") {
+                    return names(followers);
+                }
+                match body.as_array() {
+                    Some(list) if list.first().is_some_and(|e| e.get("uploaded_by").is_some()) => list
+                        .iter()
+                        .map(|e| e["uploaded_by"].as_str().unwrap().to_string())
+                        .collect(),
+                    _ => names(body),
+                }
+            };
+            for path in &lists {
+                let (status, body) = get(&app, Some(&b), path).await;
+                assert_eq!(status, StatusCode::OK, "{path}");
+                let seen = usernames(&body);
+                assert!(!seen.contains(&a_name), "{path}: {seen:?}");
+                let (_, body) = get(&app, Some(&a), path).await;
+                let seen = usernames(&body);
+                assert!(!seen.contains(&b_name), "{path}: {seen:?}");
+                for viewer in [Some(c.as_str()), None] {
+                    let (_, body) = get(&app, viewer, path).await;
+                    let seen = usernames(&body);
+                    assert!(seen.contains(&a_name) && seen.contains(&b_name), "{path}: {seen:?}");
+                }
+            }
+            for (viewer, wanted, found) in [(&b, &a_name, false), (&a, &b_name, false), (&c, &a_name, true)] {
+                let (_, body) = get(&app, Some(viewer), &format!("/v1/search?type=user&q={wanted}")).await;
+                assert_eq!(names(&body).contains(wanted), found, "{body}");
+            }
+            let (_, body) = get(&app, None, &format!("/v1/search?type=user&q={a_name}")).await;
+            assert_eq!(names(&body), vec![a_name.clone()]);
+
+            // The Last.fm-compatible API, with the blocked account's key.
+            let lastfm = |user: &str| {
+                format!("/2.0/?method=user.getInfo&user={user}&api_key={}&sk={b_sk}&format=json", "0".repeat(32))
+            };
+            let (status, _, nobody) = app.get(&lastfm("nobody0here")).await;
+            let (status_a, _, blocker) = app.get(&lastfm(&a_name)).await;
+            assert_eq!((status_a, &blocker), (status, &nobody));
+            assert!(blocker.contains("\"error\":6"), "{blocker}");
+            let (status, _, body) = app.get(&lastfm(&c_name)).await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+
+            // The blocker still sees the blocked profile, and that it blocks
+            // it; it can't follow it while it does. Nobody sees a list of
+            // who blocks them.
+            let (status, profile) = get(&app, Some(&a), &format!("/v1/user/{b_name}")).await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(
+                (&profile["blocking"], &profile["is_following"], &profile["follows_you"]),
+                (&json!(true), &json!(false), &json!(false))
+            );
+            let (_, profile) = get(&app, Some(&c), &format!("/v1/user/{b_name}")).await;
+            assert_eq!(profile["blocking"], json!(false));
+            let (status, body) = app
+                .api(Method::POST, &format!("/v1/user/{b_name}/follow"), None)
+                .await;
+            assert_eq!(status, StatusCode::CONFLICT, "{body}");
+            let (_, blocks) = get(&app, Some(&a), "/v1/user/me/blocks").await;
+            assert_eq!(names(&blocks), vec![b_name.clone()]);
+            assert_eq!(blocks["next"], json!(null));
+            let (_, blocks) = get(&app, Some(&b), "/v1/user/me/blocks").await;
+            assert_eq!(blocks["entries"], json!([]));
+            let (_, own) = get(&app, Some(&b), "/v1/user/me").await;
+            assert!(!own.to_string().contains(&a_name), "{own}");
+
+            // Unblocked, each sees the other again; the follows stay ended.
+            let (status, _) = app
+                .api(Method::DELETE, &format!("/v1/user/{b_name}/block"), None)
+                .await;
+            assert_eq!(status, StatusCode::NO_CONTENT);
+            assert_eq!(get(&app, Some(&b), &format!("/v1/user/{a_name}")).await.0, StatusCode::OK);
+            let (_, body) = get(&app, Some(&b), &format!("/v1/user/{c_name}/followers")).await;
+            assert!(names(&body).contains(&a_name));
+            let (_, profile) = get(&app, Some(&b), &format!("/v1/user/{a_name}")).await;
+            assert_eq!(profile["is_following"], json!(false));
+        })
+        .await;
+    }
+
+    /// The feed and the community charts cover followed accounts, so a
+    /// block takes each out of the other's at once, and with them out of
+    /// the chart's cache key.
+    #[tokio::test]
+    #[ignore = "needs Postgres and Redis: just test-db"]
+    async fn a_block_takes_each_out_of_the_others_feed_and_community_charts() {
+        with_app(Default::default(), |app| async move {
+            let a = app.session.to_string();
+            let (_, b_name, b) = app.other_user("blocked").await;
+            scrobble(&app, &a, 30).await;
+            scrobble(&app, &b, 20).await;
+            for (session, target) in [(&a, &b_name), (&b, &app.username)] {
+                app.api_as(
+                    session,
+                    Method::POST,
+                    &format!("/v1/user/{target}/follow"),
+                    None,
+                )
+                .await;
+            }
+            let feed_users = async |session: &str| -> Vec<String> {
+                let (_, feed) = get(&app, Some(session), "/v1/user/me/feed").await;
+                feed["entries"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|e| e["user"]["username"].as_str().unwrap().to_string())
+                    .collect()
+            };
+            assert_eq!(feed_users(&a).await, vec![b_name.clone()]);
+            assert_eq!(feed_users(&b).await, vec![app.username.clone()]);
+            let following = async |session: &str| {
+                let (status, chart) =
+                    get(&app, Some(session), "/v1/user/me/community/tracks").await;
+                assert_eq!(status, StatusCode::OK, "{chart}");
+                (chart["following"].clone(), chart["accounts"].clone())
+            };
+            assert_eq!(following(&a).await, (json!(1), json!(1)));
+
+            app.api(Method::POST, &format!("/v1/user/{b_name}/block"), None)
+                .await;
+            assert!(feed_users(&a).await.is_empty());
+            assert!(feed_users(&b).await.is_empty());
+            assert_eq!(following(&a).await, (json!(0), json!(0)));
+            assert_eq!(following(&b).await, (json!(0), json!(0)));
+        })
+        .await;
     }
 
     /// A blocked account watching the blocker's now playing is cut off when
@@ -413,6 +677,8 @@ mod tests {
             let session = login["token"].as_str().unwrap();
             let (_, page) = app.api_as(session, Method::GET, "/v1/user/me/blocks", None).await;
             assert_eq!(names(&page), vec![blocked[3].1.clone(), blocked[1].1.clone(), blocked[0].1.clone()]);
+            let (status, _) = get(&app, Some(&blocked[0].2), &format!("/v1/user/{}", app.username)).await;
+            assert_eq!(status, StatusCode::NOT_FOUND);
         })
         .await;
     }

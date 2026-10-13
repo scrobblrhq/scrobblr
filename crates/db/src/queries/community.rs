@@ -197,7 +197,8 @@ pub async fn promote_winning_image(
 
 /// Lists an entity's image candidates, most-liked first, flagging the
 /// viewer's own votes and which candidate is the entity's current image.
-/// Uploads of accounts waiting to be erased are left out.
+/// Uploads of accounts waiting to be erased are left out, and those of
+/// accounts blocking the viewer or blocked by it.
 pub async fn list_image_candidates(
     pool: &PgPool,
     entity_type: &str,
@@ -227,6 +228,10 @@ pub async fn list_image_candidates(
         LEFT JOIN image_candidate_votes v
                ON v.candidate_id = c.id AND v.user_id = $4
         WHERE c.entity_type = $1 AND c.entity_id = $2 AND u.delete_after IS NULL
+          AND ($4::bigint IS NULL OR NOT EXISTS (
+                  SELECT 1 FROM user_blocks b
+                  WHERE (b.blocker_id = u.id AND b.blocked_id = $4)
+                     OR (b.blocker_id = $4 AND b.blocked_id = u.id)))
         ORDER BY c.vote_count DESC, c.created_at ASC
         LIMIT $3
         "#,
@@ -252,12 +257,14 @@ pub async fn list_image_candidates(
     })
 }
 
-/// Newest first; comments of accounts waiting to be erased are left out.
+/// Newest first; comments of accounts waiting to be erased are left out,
+/// and those of accounts blocking `viewer_id` or blocked by it.
 pub async fn list_comments(
     pool: &PgPool,
     entity_type: &str,
     entity_id: i64,
     limit: i64,
+    viewer_id: Option<i64>,
 ) -> Result<Vec<Comment>, sqlx::Error> {
     sqlx::query_as!(
         Comment,
@@ -269,12 +276,17 @@ pub async fn list_comments(
         FROM comments c
         JOIN users u ON u.id = c.user_id
         WHERE c.entity_type = $1 AND c.entity_id = $2 AND u.delete_after IS NULL
+          AND ($4::bigint IS NULL OR NOT EXISTS (
+                  SELECT 1 FROM user_blocks b
+                  WHERE (b.blocker_id = u.id AND b.blocked_id = $4)
+                     OR (b.blocker_id = $4 AND b.blocked_id = u.id)))
         ORDER BY c.created_at DESC
         LIMIT $3
         "#,
         entity_type,
         entity_id,
         limit,
+        viewer_id,
     )
     .fetch_all(pool)
     .await

@@ -521,12 +521,14 @@ pub async fn artist_top_tracks(
     .await
 }
 
-/// Users who listen to this artist most, private profiles and accounts
-/// waiting to be erased excluded, from the daily aggregate.
+/// Users who listen to this artist most, private profiles, accounts
+/// waiting to be erased and accounts blocking `viewer_id` or blocked by it
+/// excluded, from the daily aggregate.
 pub async fn artist_listeners(
     pool: &PgPool,
     artist_id: i64,
     limit: i64,
+    viewer_id: Option<i64>,
 ) -> Result<Vec<TopListener>, sqlx::Error> {
     sqlx::query_as!(
         TopListener,
@@ -544,11 +546,16 @@ pub async fn artist_listeners(
         ) l
         JOIN users u ON u.id = l.user_id
         WHERE NOT u.is_private AND u.delete_after IS NULL
+          AND ($3::bigint IS NULL OR NOT EXISTS (
+                  SELECT 1 FROM user_blocks b
+                  WHERE (b.blocker_id = u.id AND b.blocked_id = $3)
+                     OR (b.blocker_id = $3 AND b.blocked_id = u.id)))
         ORDER BY l.play_count DESC, u.id
         LIMIT $2
         "#,
         artist_id,
         limit,
+        viewer_id,
     )
     .fetch_all(pool)
     .await
@@ -559,6 +566,7 @@ pub async fn track_listeners(
     pool: &PgPool,
     track_id: i64,
     limit: i64,
+    viewer_id: Option<i64>,
 ) -> Result<Vec<TopListener>, sqlx::Error> {
     sqlx::query_as!(
         TopListener,
@@ -576,11 +584,16 @@ pub async fn track_listeners(
         ) l
         JOIN users u ON u.id = l.user_id
         WHERE NOT u.is_private AND u.delete_after IS NULL
+          AND ($3::bigint IS NULL OR NOT EXISTS (
+                  SELECT 1 FROM user_blocks b
+                  WHERE (b.blocker_id = u.id AND b.blocked_id = $3)
+                     OR (b.blocker_id = $3 AND b.blocked_id = u.id)))
         ORDER BY l.play_count DESC, u.id
         LIMIT $2
         "#,
         track_id,
         limit,
+        viewer_id,
     )
     .fetch_all(pool)
     .await

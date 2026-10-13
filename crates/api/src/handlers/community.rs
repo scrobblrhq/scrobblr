@@ -58,7 +58,7 @@ pub async fn list_artist_images(
 
 pub fn _list_artist_images_doc(op: TransformOperation) -> TransformOperation {
     op.summary("List artist image candidates")
-        .description("Returns the community image candidates for an artist, most-liked first. `has_voted` reflects the authenticated viewer; `is_default` marks the currently displayed image.")
+        .description("Returns the community image candidates for an artist, most-liked first. `has_voted` reflects the authenticated viewer; `is_default` marks the currently displayed image. A signed-in viewer doesn't get those uploaded by accounts blocking it or blocked by it.")
         .tag("Catalog")
         .response::<200, Json<Vec<ImageCandidate>>>()
         .response_with::<404, ErrorJson, _>(|r| r.description("Artist not found"))
@@ -74,7 +74,7 @@ pub async fn list_album_images(
 
 pub fn _list_album_images_doc(op: TransformOperation) -> TransformOperation {
     op.summary("List album cover candidates")
-        .description("Returns the community cover candidates for an album, most-liked first.")
+        .description("Returns the community cover candidates for an album, most-liked first, as for an artist.")
         .tag("Catalog")
         .response::<200, Json<Vec<ImageCandidate>>>()
         .response_with::<404, ErrorJson, _>(|r| r.description("Album not found"))
@@ -146,9 +146,11 @@ async fn list_comments(
     state: &AppState,
     entity_type: &str,
     id: i64,
+    viewer: Option<i64>,
 ) -> ApiResult<Json<Vec<Comment>>> {
     ensure_comment_entity(state, entity_type, id).await?;
-    let comments = community_db::list_comments(&state.db, entity_type, id, COMMENTS_PAGE).await?;
+    let comments =
+        community_db::list_comments(&state.db, entity_type, id, COMMENTS_PAGE, viewer).await?;
     Ok(Json(comments))
 }
 
@@ -185,13 +187,14 @@ async fn create_comment(
 pub async fn list_artist_comments(
     State(state): State<AppState>,
     Path(IdPath { id }): Path<IdPath>,
+    auth_user: Option<Extension<AuthUser>>,
 ) -> ApiResult<impl IntoApiResponse> {
-    list_comments(&state, "artist", id).await
+    list_comments(&state, "artist", id, auth_user.map(|Extension(a)| a.id)).await
 }
 
 pub fn _list_artist_comments_doc(op: TransformOperation) -> TransformOperation {
     op.summary("List artist comments")
-        .description("Returns comments on an artist, newest first.")
+        .description("Returns comments on an artist, newest first; for a signed-in viewer, without those of accounts blocking it or blocked by it.")
         .tag("Catalog")
         .response::<200, Json<Vec<Comment>>>()
         .response_with::<404, ErrorJson, _>(|r| r.description("Artist not found"))
@@ -219,13 +222,14 @@ pub fn _add_artist_comment_doc(op: TransformOperation) -> TransformOperation {
 pub async fn list_track_comments(
     State(state): State<AppState>,
     Path(IdPath { id }): Path<IdPath>,
+    auth_user: Option<Extension<AuthUser>>,
 ) -> ApiResult<impl IntoApiResponse> {
-    list_comments(&state, "track", id).await
+    list_comments(&state, "track", id, auth_user.map(|Extension(a)| a.id)).await
 }
 
 pub fn _list_track_comments_doc(op: TransformOperation) -> TransformOperation {
     op.summary("List track comments")
-        .description("Returns comments on a track, newest first.")
+        .description("Returns comments on a track, newest first; for a signed-in viewer, without those of accounts blocking it or blocked by it.")
         .tag("Catalog")
         .response::<200, Json<Vec<Comment>>>()
         .response_with::<404, ErrorJson, _>(|r| r.description("Track not found"))

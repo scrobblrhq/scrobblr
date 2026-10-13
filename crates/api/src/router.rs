@@ -421,6 +421,20 @@ pub fn build(state: AppState) -> Router {
             "/v1/artist/{id}/top-tracks",
             get_with(tracks::artist_top_tracks, tracks::_artist_top_tracks_doc),
         )
+        // Global rankings: the same for everyone, cacheable by any proxy.
+        .api_route(
+            "/v1/rankings/artists",
+            get_with(rankings::artist_ranking, rankings::_artist_ranking_doc),
+        )
+        .api_route(
+            "/v1/rankings/tracks",
+            get_with(rankings::track_ranking, rankings::_track_ranking_doc),
+        );
+
+    // Optional auth: a signed-in viewer gets what concerns it (follows,
+    // votes), and doesn't get accounts blocking it or blocked by it.
+    let optional_authed_users = ApiRouter::new()
+        // Lists naming people
         .api_route(
             "/v1/artist/{id}/listeners",
             get_with(tracks::artist_listeners, tracks::_artist_listeners_doc),
@@ -429,7 +443,6 @@ pub fn build(state: AppState) -> Router {
             "/v1/track/{id}/listeners",
             get_with(tracks::track_listeners, tracks::_track_listeners_doc),
         )
-        // Community: reading comments (public)
         .api_route(
             "/v1/artist/{id}/comments",
             get_with(
@@ -445,17 +458,6 @@ pub fn build(state: AppState) -> Router {
             ),
         )
         .api_route("/v1/search", get_with(tracks::search, tracks::_search_doc))
-        // Global rankings: the same for everyone, cacheable by any proxy.
-        .api_route(
-            "/v1/rankings/artists",
-            get_with(rankings::artist_ranking, rankings::_artist_ranking_doc),
-        )
-        .api_route(
-            "/v1/rankings/tracks",
-            get_with(rankings::track_ranking, rankings::_track_ranking_doc),
-        );
-
-    let optional_authed_users = ApiRouter::new()
         // User profiles
         .api_route(
             "/v1/user/{username}",

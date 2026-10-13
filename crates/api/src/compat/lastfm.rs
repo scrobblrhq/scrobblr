@@ -26,7 +26,7 @@ use crate::handlers::auth::verify_password_login;
 use crate::state::AppState;
 use db::queries::scrobble_clients::{ClientIdentity, PROTOCOL_LASTFM};
 use db::queries::scrobblers::{self as scrobblers_db, Credential, KIND_SESSION, KIND_TOKEN};
-use db::queries::{scrobbles as scrobbles_db, users as users_db};
+use db::queries::{blocks as blocks_db, scrobbles as scrobbles_db, users as users_db};
 use shared::lastfm::signature;
 use shared::models::User;
 
@@ -639,7 +639,8 @@ async fn update_now_playing(state: &AppState, params: &Params) -> LfmResult {
 }
 
 /// The user named by `user`, or the session's, if the requester may see
-/// them: a private profile only to its owner.
+/// them: a private profile only to its owner, and not to an account it
+/// blocks, which finds no such user.
 async fn visible_user(state: &AppState, params: &Params) -> Result<User, LfmError> {
     let (api_key, _) = check_api_key(&state.compat, params, false)?;
     let viewer = match params.text("sk") {
@@ -655,6 +656,12 @@ async fn visible_user(state: &AppState, params: &Params) -> Result<User, LfmErro
         .await?
         .filter(|u| u.delete_after.is_none())
         .ok_or_else(|| LfmError::new(6, "User not found"))?;
+    if let Some(v) = &viewer
+        && v.user_id != user.id
+        && blocks_db::blocks(&state.db, user.id, v.user_id).await?
+    {
+        return Err(LfmError::new(6, "User not found"));
+    }
     if user.is_private && viewer.map(|v| v.user_id) != Some(user.id) {
         return Err(LfmError::new(17, "Login: User requires to be logged in"));
     }
