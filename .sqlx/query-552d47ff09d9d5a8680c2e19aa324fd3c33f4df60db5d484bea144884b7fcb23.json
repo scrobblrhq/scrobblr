@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT u.username, r.until\n        FROM follower_removals r\n        JOIN users u ON u.id = r.follower_id\n        WHERE r.user_id = $1 AND r.until > NOW()\n        ORDER BY r.until\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "username",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "until",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "552d47ff09d9d5a8680c2e19aa324fd3c33f4df60db5d484bea144884b7fcb23"
+}

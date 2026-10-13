@@ -112,6 +112,51 @@ pub async fn follows(
     .await
 }
 
+/// The accounts the user blocks; never who blocks the user.
+pub async fn blocks(pool: &PgPool, user_id: i64) -> Result<Vec<Follow>, sqlx::Error> {
+    sqlx::query_as!(
+        Follow,
+        r#"
+        SELECT u.username, b.created_at AS since
+        FROM user_blocks b
+        JOIN users u ON u.id = b.blocked_id
+        WHERE b.blocker_id = $1
+        ORDER BY b.created_at
+        "#,
+        user_id,
+    )
+    .fetch_all(pool)
+    .await
+}
+
+#[derive(Debug, Serialize)]
+pub struct RemovedFollower {
+    pub username: String,
+    /// Until when it can't follow the user again.
+    pub until: DateTime<Utc>,
+}
+
+/// Followers the user removed whose cooldown isn't over; never who removed
+/// the user.
+pub async fn removed_followers(
+    pool: &PgPool,
+    user_id: i64,
+) -> Result<Vec<RemovedFollower>, sqlx::Error> {
+    sqlx::query_as!(
+        RemovedFollower,
+        r#"
+        SELECT u.username, r.until
+        FROM follower_removals r
+        JOIN users u ON u.id = r.follower_id
+        WHERE r.user_id = $1 AND r.until > NOW()
+        ORDER BY r.until
+        "#,
+        user_id,
+    )
+    .fetch_all(pool)
+    .await
+}
+
 #[derive(Debug, Serialize)]
 pub struct ExportedComment {
     pub id: i64,

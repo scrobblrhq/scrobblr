@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT u.username, b.created_at AS since\n        FROM user_blocks b\n        JOIN users u ON u.id = b.blocked_id\n        WHERE b.blocker_id = $1\n        ORDER BY b.created_at\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "username",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "since",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "b99165ac24b067dd5570f78946a03a53ef2cf78aa82c44774b42b1427268609c"
+}

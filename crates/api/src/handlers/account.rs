@@ -117,7 +117,7 @@ pub async fn export_account(
 pub fn _export_account_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Export my account")
         .description(&format!(
-            "Downloads everything Scrobblr holds about the authenticated user as a ZIP archive (`{}`), streamed as it is read: `account.json` (profile and settings, follows, comments, image uploads and likes, sessions without their ids, API tokens and scrobbler credentials without their values, linked accounts without their OAuth tokens, imports, now playing, and `not_included`: what is left out and why), `scrobbles.csv` and `scrobbles.json` (every scrobble, oldest first, with its source, client, import and the classifier's label, never ranking weights), and `uploads/` (the avatar and artwork the user uploaded). Nothing is stored on the server: a broken download is asked for again. Takes a session, never an API token. At most {} exports a day per account and {} per address, and {EXPORTS_AT_ONCE} at once on the server.",
+            "Downloads everything Scrobblr holds about the authenticated user as a ZIP archive (`{}`), streamed as it is read: `account.json` (profile and settings, follows, the accounts the user blocks and the followers it removed (never who blocks or removed it), comments, image uploads and likes, sessions without their ids, API tokens and scrobbler credentials without their values, linked accounts without their OAuth tokens, imports, now playing, and `not_included`: what is left out and why), `scrobbles.csv` and `scrobbles.json` (every scrobble, oldest first, with its source, client, import and the classifier's label, never ranking weights), and `uploads/` (the avatar and artwork the user uploaded). Nothing is stored on the server: a broken download is asked for again. Takes a session, never an API token. At most {} exports a day per account and {} per address, and {EXPORTS_AT_ONCE} at once on the server.",
             export::FORMAT,
             limits::EXPORTS_PER_USER,
             limits::EXPORTS_PER_IP,
@@ -315,6 +315,46 @@ mod tests {
                 )
                 .await;
             let scrobbler = scrobbler["token"].as_str().unwrap().to_string();
+            // Whom the user blocks and removed is theirs; who blocks or
+            // removed them isn't.
+            let (_, blocked, _) = app.other_user("blockedqz").await;
+            let (_, removed, removed_session) = app.other_user("removedqz").await;
+            let (_, blocker, blocker_session) = app.other_user("blockerqz").await;
+            let (_, remover, remover_session) = app.other_user("removerqz").await;
+            app.api(Method::POST, &format!("/v1/user/{blocked}/block"), None)
+                .await;
+            for (session, target) in [
+                (&removed_session, &app.username),
+                (&app.session.to_string(), &remover),
+            ] {
+                app.api_as(
+                    session,
+                    Method::POST,
+                    &format!("/v1/user/{target}/follow"),
+                    None,
+                )
+                .await;
+            }
+            app.api(
+                Method::DELETE,
+                &format!("/v1/user/me/followers/{removed}"),
+                None,
+            )
+            .await;
+            app.api_as(
+                &blocker_session,
+                Method::POST,
+                &format!("/v1/user/{}/block", app.username),
+                None,
+            )
+            .await;
+            app.api_as(
+                &remover_session,
+                Method::DELETE,
+                &format!("/v1/user/me/followers/{}", app.username),
+                None,
+            )
+            .await;
 
             // Not with an API token, even one that may read.
             let (status, _) = export(&app, &token).await;
@@ -354,6 +394,14 @@ mod tests {
             assert_eq!(account["sessions"][0]["current"], true);
             assert!(account["sessions"][0].get("id").is_none());
             assert!(account["not_included"].as_array().unwrap().len() >= 5);
+            assert_eq!(account["blocks"][0]["username"], blocked.as_str());
+            assert_eq!(account["blocks"].as_array().unwrap().len(), 1);
+            assert_eq!(
+                account["removed_followers"][0]["username"],
+                removed.as_str()
+            );
+            assert!(account["removed_followers"][0]["until"].is_string());
+            assert_eq!(account["following"], json!([]));
             // No secret, hashed or not, anywhere in the archive (stored
             // entries are searched as they are, deflated ones decompressed).
             let everything: String = files
@@ -362,6 +410,12 @@ mod tests {
                 .collect::<Vec<_>>()
                 .join("\n")
                 + &text;
+            for other in [&blocker, &remover] {
+                assert!(
+                    !everything.contains(other.as_str()),
+                    "the export names {other}"
+                );
+            }
             for secret in [
                 app.session.to_string(),
                 token.clone(),

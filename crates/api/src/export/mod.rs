@@ -299,6 +299,8 @@ async fn account(
         },
         "following": export_db::follows(db, user.id, true).await?,
         "followers": export_db::follows(db, user.id, false).await?,
+        "blocks": export_db::blocks(db, user.id).await?,
+        "removed_followers": export_db::removed_followers(db, user.id).await?,
         "comments": export_db::comments(db, user.id).await?,
         "image_uploads": uploads,
         "image_votes": export_db::image_votes(db, user.id).await?,
@@ -341,6 +343,10 @@ pub const NOT_INCLUDED: &[(&str, &str)] = &[
         "Internal anti-abuse scores computed from your scrobbles, which are included with their labels. Publishing them would help tune botting. They never affect your profile.",
     ),
     (
+        "Who blocks you, or removed you from their followers",
+        "Their decisions, about you: the export holds what you did, and nobody is told who blocked or removed them.",
+    ),
+    (
         "Daily aggregates and catalog counters",
         "Totals computed from your scrobbles.",
     ),
@@ -354,7 +360,8 @@ const README: &str = "\
 Scrobblr account export
 =======================
 
-account.json     your profile and settings, follows, comments, image uploads
+account.json     your profile and settings, follows, the accounts you block
+                 and the followers you removed, comments, image uploads
                  and likes, sessions (without their ids), API tokens and
                  scrobbler credentials (names, scopes and dates, never their
                  values), linked accounts (never their OAuth tokens), imports,
