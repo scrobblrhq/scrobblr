@@ -39,6 +39,11 @@ pub const MAX_LIMIT: i64 = 200;
 /// profile can turn private.
 const PERSONAL_CACHE_CONTROL: &str = "private, max-age=60";
 
+/// How long a computed page is kept in Redis under its version (the
+/// version itself changes with the user's next play, and every hour): a
+/// long history's all-time chart takes a few hundred milliseconds.
+const PERSONAL_CACHE_SECS: i64 = 900;
+
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ChartQuery {
     /// `7d` (the default), `30d`, `90d`, `12m` (365 days) or `all`: UTC days
@@ -172,6 +177,21 @@ async fn personal(
         ));
     }
 
+    // The page as computed for this version of the user's data: the same
+    // for every viewer allowed to see it.
+    let key = format!(
+        "chart:v1:{}:{kind:?}:{:?}:{}:{}:{limit}:{offset}:{etag}",
+        user.id,
+        range.period,
+        range.from.map_or_else(String::new, |d| d.to_string()),
+        range.to,
+    );
+    match state.redis.get::<Option<String>, _>(&key).await {
+        Ok(Some(body)) => return Ok(with_personal_caching(json(body), &etag)),
+        Ok(None) => {}
+        Err(e) => tracing::warn!("chart cache unavailable: {e}"),
+    }
+
     let info = |total| ChartInfo {
         period: range.period,
         from: range.from,
@@ -184,30 +204,53 @@ async fn personal(
     let body = match kind {
         Kind::Artists => {
             let page = charts_db::user_artists(db, user.id, &range, limit, offset).await?;
-            Json(ArtistChart {
+            serde_json::to_string(&ArtistChart {
                 info: info(page.total),
                 entries: page.entries,
             })
-            .into_response()
         }
         Kind::Tracks => {
             let page = charts_db::user_tracks(db, user.id, &range, limit, offset).await?;
-            Json(TrackChart {
+            serde_json::to_string(&TrackChart {
                 info: info(page.total),
                 entries: page.entries,
             })
-            .into_response()
         }
         Kind::Albums => {
             let page = charts_db::user_albums(db, user.id, &range, limit, offset).await?;
-            Json(AlbumChart {
+            serde_json::to_string(&AlbumChart {
                 info: info(page.total),
                 entries: page.entries,
             })
-            .into_response()
         }
-    };
-    Ok(with_personal_caching(body, &etag))
+    }
+    .map_err(|e| AppError::Internal(e.into()))?;
+    let stored = state
+        .redis
+        .set::<(), _, _>(
+            &key,
+            body.as_str(),
+            Some(Expiration::EX(PERSONAL_CACHE_SECS)),
+            None,
+            false,
+        )
+        .await;
+    if let Err(e) = stored {
+        tracing::warn!("chart cache unavailable: {e}");
+    }
+    Ok(with_personal_caching(json(body), &etag))
+}
+
+/// A JSON body already serialized.
+fn json(body: String) -> Response {
+    (
+        [(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json"),
+        )],
+        body,
+    )
+        .into_response()
 }
 
 /// Weak. A chart changes when the user's scrobbles or their labels do,
@@ -266,8 +309,10 @@ fn personal_doc<'t>(
              Paged by `limit` (50 by default, 200 at most) and `offset`; `total` is how many \
              {things} the chart has, and a page past them is empty. Pages carry a weak `ETag` \
              and `Cache-Control: {PERSONAL_CACHE_CONTROL}`: send the tag back in \
-             `If-None-Match` for a 304 while the chart hasn't changed. Private profiles return \
-             403 to everyone but their owner."
+             `If-None-Match` for a 304 while the chart hasn't changed. The server keeps a page \
+             it computed until the user's next play or the hour's end, so a late play reaching \
+             an old day, or a new name or image, can take up to an hour to show. Private \
+             profiles return 403 to everyone but their owner."
         ))
         .tag("Charts")
         .with(|op| {
