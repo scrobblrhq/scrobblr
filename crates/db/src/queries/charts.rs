@@ -319,6 +319,12 @@ pub async fn community(
     sqlx::query("SET LOCAL enable_mergejoin = off")
         .execute(&mut *tx)
         .await?;
+    // A plan made for no accounts and days in particular, which Postgres
+    // moves a prepared statement to after five runs, takes three times as
+    // long as one made for these.
+    sqlx::query("SET LOCAL plan_cache_mode = force_custom_plan")
+        .execute(&mut *tx)
+        .await?;
     let rows = match kind {
         CommunityKind::Artists | CommunityKind::Tracks => sqlx::query_as!(
             Ranked,
