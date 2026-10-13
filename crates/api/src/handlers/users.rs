@@ -389,14 +389,14 @@ pub async fn follow(
 
 pub fn _follow_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Follow a user")
-        .description(&format!("Follows the specified user on behalf of the authenticated user; following an account already followed changes nothing. Following takes no approval, and opens nothing a private profile hides: its owner alone sees it. An account may follow {MAX_FOLLOWING} accounts at most, and follow {} times an hour ({} from one address), refused attempts included; unfollowing is free.", limits::FOLLOWS_PER_USER, limits::FOLLOWS_PER_IP))
+        .description(&format!("Follows the specified user on behalf of the authenticated user; following an account already followed changes nothing. Following takes no approval, and opens nothing a private profile hides: its owner alone sees it. An account may follow {MAX_FOLLOWING} accounts at most, and follow {} times an hour ({} from one address), refused attempts included; unfollowing is free. An account that blocks the follower is not found, as one that doesn't exist; one the follower blocks, or that removed the follower from its followers in the last {} days, can't be followed (409).", limits::FOLLOWS_PER_USER, limits::FOLLOWS_PER_IP, super::blocks::REMOVAL_COOLDOWN.num_days()))
         .tag("Users")
         .response_with::<204, (), _>(|r| r.description("Followed, now or before"))
         .response_with::<400, ErrorJson, _>(|r| r.description("Cannot follow yourself"))
         .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
         .response_with::<404, ErrorJson, _>(|r| r.description("Target user not found"))
         .response_with::<409, ErrorJson, _>(|r| {
-            r.description(&format!("Already following {MAX_FOLLOWING} accounts"))
+            r.description(&format!("Already following {MAX_FOLLOWING} accounts, blocking this account, or removed from its followers recently"))
         })
         .response_with::<429, ErrorJson, _>(|r| {
             r.description(&format!(

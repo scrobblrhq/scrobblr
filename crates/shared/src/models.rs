@@ -96,6 +96,25 @@ pub struct FollowPage {
     pub next: Option<String>,
 }
 
+/// An account the user blocks. A private account shows its username only.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct BlockEntry {
+    #[serde(flatten)]
+    #[ts(flatten)]
+    pub user: UserSummary,
+    pub blocked_at: DateTime<Utc>,
+}
+
+/// A page of the accounts the user blocks, newest block first.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct BlockPage {
+    pub entries: Vec<BlockEntry>,
+    /// `before` for the next page; `null` on the last one.
+    pub next: Option<String>,
+}
+
 impl From<User> for UserProfile {
     fn from(u: User) -> Self {
         Self {

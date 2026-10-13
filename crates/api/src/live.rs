@@ -25,6 +25,14 @@ pub fn channel(user_id: i64) -> String {
     format!("{CHANNEL_PREFIX}{user_id}")
 }
 
+/// Sent on a user's channel to end the streams a signed-in viewer holds of
+/// it (the user blocked them); never forwarded. Updates are JSON.
+const CLOSE_PREFIX: &str = "close:";
+
+pub fn close_for(viewer: i64) -> String {
+    format!("{CLOSE_PREFIX}{viewer}")
+}
+
 /// The streams open per user. Without [`subscribe`] nothing reaches them.
 #[derive(Default)]
 pub struct LiveHub {
@@ -52,6 +60,7 @@ impl LiveHub {
         Some(Listener {
             listeners: self.listeners.clone(),
             user_id,
+            viewer,
             rx,
             _slot: slot,
         })
@@ -74,6 +83,7 @@ impl LiveHub {
 pub struct Listener {
     listeners: Arc<Mutex<HashMap<i64, broadcast::Sender<String>>>>,
     user_id: i64,
+    viewer: Option<i64>,
     rx: broadcast::Receiver<String>,
     _slot: Slot,
 }
@@ -124,11 +134,16 @@ impl Drop for Slot {
 }
 
 impl Listener {
-    /// The next update; `None` once the hub is gone.
+    /// The next update; `None` once the hub is gone or the user closed the
+    /// viewer's streams.
     pub async fn recv(&mut self) -> Option<String> {
         loop {
             match self.rx.recv().await {
-                Ok(payload) => return Some(payload),
+                Ok(payload) => match payload.strip_prefix(CLOSE_PREFIX) {
+                    Some(viewer) if viewer.parse().ok() == self.viewer => return None,
+                    Some(_) => continue,
+                    None => return Some(payload),
+                },
                 Err(broadcast::error::RecvError::Lagged(_)) => continue,
                 Err(broadcast::error::RecvError::Closed) => return None,
             }
@@ -201,6 +216,20 @@ mod tests {
         drop(b);
         drop(other);
         assert!(hub.listeners.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_close_ends_only_the_named_viewers_streams_and_is_never_forwarded() {
+        let hub = LiveHub::default();
+        let mut blocked = hub.listen(1, "203.0.113.1", Some(7)).unwrap();
+        let mut other = hub.listen(1, "203.0.113.1", Some(8)).unwrap();
+        let mut signed_out = hub.listen(1, "203.0.113.1", None).unwrap();
+
+        hub.dispatch(&channel(1), close_for(7));
+        hub.dispatch(&channel(1), "{}".into());
+        assert_eq!(blocked.recv().await, None);
+        assert_eq!(other.recv().await.as_deref(), Some("{}"));
+        assert_eq!(signed_out.recv().await.as_deref(), Some("{}"));
     }
 
     #[test]

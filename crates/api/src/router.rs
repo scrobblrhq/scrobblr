@@ -35,8 +35,8 @@ use crate::{
     compat,
     errors::ErrorJson,
     handlers::{
-        account, auth, charts, community, connected_accounts, feed, imports, rankings, scrobbles,
-        tracks, uploads, users,
+        account, auth, blocks, charts, community, connected_accounts, feed, imports, rankings,
+        scrobbles, tracks, uploads, users,
     },
     limits,
     middleware::{
@@ -271,8 +271,25 @@ pub fn build(state: AppState) -> Router {
     // Credentials and account links: sessions only, so that a leaked API
     // token can't mint a credential (or link an account that scrobbles)
     // that outlives its revocation, nor revoke the user's others, nor
-    // export or delete the account.
+    // export or delete the account, nor read or lift its blocks.
     let session_routes = ApiRouter::new()
+        // Blocks and removed followers
+        .api_route(
+            "/v1/user/me/blocks",
+            get_with(blocks::list_blocks, blocks::_list_blocks_doc),
+        )
+        .api_route(
+            "/v1/user/{username}/block",
+            post_with(blocks::block, blocks::_block_doc),
+        )
+        .api_route(
+            "/v1/user/{username}/block",
+            delete_with(blocks::unblock, blocks::_unblock_doc),
+        )
+        .api_route(
+            "/v1/user/me/followers/{username}",
+            delete_with(blocks::remove_follower, blocks::_remove_follower_doc),
+        )
         .api_route(
             "/v1/user/me/export",
             get_with(account::export_account, account::_export_account_doc),

@@ -424,6 +424,62 @@
         ],
         "type": "object"
       },
+      "BlockEntry": {
+        "description": "An account the user blocks. A private account shows its username only.",
+        "properties": {
+          "blocked_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "display_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "image_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "username",
+          "blocked_at"
+        ],
+        "type": "object"
+      },
+      "BlockPage": {
+        "description": "A page of the accounts the user blocks, newest block first.",
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/BlockEntry"
+            },
+            "type": "array"
+          },
+          "next": {
+            "description": "`before` for the next page; `null` on the last one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "entries"
+        ],
+        "type": "object"
+      },
       "ChartPeriod": {
         "description": "A rolling window of UTC days ending today, today included, or all of\n history.",
         "oneOf": [
@@ -8354,6 +8410,111 @@
         ]
       }
     },
+    "/v1/user/me/blocks": {
+      "get": {
+        "description": "A page of the accounts the user blocks, newest block first: pass `next` as `before` for the following page; `next` is `null` on the last. A private account shows its username only (`display_name` and `image_url` are `null`); accounts waiting to be deleted are left out, so a page can hold fewer entries than `limit` while more follow. Nobody else can see this list, and nobody can see who blocks them.",
+        "parameters": [
+          {
+            "description": "The previous page's `next`, for the page after it.",
+            "in": "query",
+            "name": "before",
+            "schema": {
+              "description": "The previous page's `next`, for the page after it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "Entries per page: 50 by default, 200 at most.",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Entries per page: 50 by default, 200 at most.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlockPage"
+                }
+              }
+            },
+            "description": "A page of the accounts the user blocks, newest block first."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Invalid `before` cursor"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No credential, or an invalid or expired one"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Needs a session: API tokens can't do this"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Accounts I block",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
     "/v1/user/me/community/albums": {
       "get": {
         "description": "The albums the accounts the signed-in user follows listened to most over a period (`7d` by default, `30d`, `90d` or `12m`: UTC days ending today, today included) or a custom range of UTC days (`from` and `to`, both included, 366 days at most, within the last year: older weights aren't kept, hence no `all`), ranked as the global rankings are: by listeners, then by plays, each account counting once at most, and less when its plays don't look like real listening, plays weighed the same way, and both rounded.\n\nIt covers the accounts followed that anyone may see (`following`; private ones and those waiting to be deleted are left out), the most recently active first, as many as the range allows, so a chart's cost doesn't grow with the follows: 2000 over a week, 40 over a year (`accounts`). No account is named, and entities fewer than `min_listeners` of those accounts played are left out (the server's `RANKING_MIN_LISTENERS`, 5 unless configured), so no entry stands for one or two people's listening: following fewer accounts than that gives an empty chart. At most 1000 entries; paged by `limit` (50 by default, 200 at most) and `offset`.\n\nA ranking, once computed, is reused for 5 minutes by every request covering the same accounts and days, so pages of one chart agree and positions are that old at most; following or unfollowing, or an account turning private, makes another. Pages carry a weak `ETag` and `Cache-Control: private, max-age=60`: send the tag back in `If-None-Match` for a 304 while the ranking is the same.",
@@ -9229,6 +9390,96 @@
         ]
       }
     },
+    "/v1/user/me/followers/{username}": {
+      "delete": {
+        "description": "Ends the account's follow of the user, without blocking it: its profile and the user's stay visible to each other, and it can't follow the user again for 30 days (it is told so if it tries). Removing an account that doesn't follow the user changes nothing. Counts against the same hourly limits as blocking.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "username",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Not a follower any more"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Cannot remove yourself"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No credential, or an invalid or expired one"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Needs a session: API tokens can't do this"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "User not found, waiting to be deleted, or blocking the user"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over 200 blocks, unblocks and removed followers an hour for this account or 600 from this address, or over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Remove a follower",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
     "/v1/user/{username}": {
       "get": {
         "description": "Returns the public profile for a user, with how many accounts follow it and it follows (`followers_count`, `following_count`: every follow, private accounts' included). A signed-in viewer also gets `is_following` (the viewer follows this account) and `follows_you` (it follows the viewer); both are `null` otherwise. `scrobble_count` leaves out the scrobbles the classifier found to be the same listen reported again (duplicates); `scrobble_breakdown` divides it into verified plays and unverified ones (over the listening time real time allows, of tracks with no known length, or not classified yet). Private profiles return 403 to everyone but their owner, followers included (following takes no approval).",
@@ -9302,6 +9553,184 @@
           }
         ],
         "summary": "Get user profile",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/v1/user/{username}/block": {
+      "delete": {
+        "description": "Lifts the user's block of the account; the follows it ended don't come back. Unblocking an account not blocked changes nothing. Counts against the same hourly limits as blocking.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "username",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Not blocked any more"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No credential, or an invalid or expired one"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Needs a session: API tokens can't do this"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "User not found, or not blocked and waiting to be deleted or blocking the user"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over 200 blocks, unblocks and removed followers an hour for this account or 600 from this address, or over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Unblock a user",
+        "tags": [
+          "Users"
+        ]
+      },
+      "post": {
+        "description": "Blocks the account: the follows between the two end, and neither can follow the other while the block stands. The user disappears for the blocked account, which finds no such account wherever it looks while signed in (404 on the user's profile and everything under it, absent from lists of people, search, comments, image candidates, feeds and community charts) and is never told; a profile is public to anyone signed out, so a block hides it from the account, not from the person. The blocked account in turn leaves the user's lists of people, search, comments and image candidates; its profile stays visible to the user, with `blocking: true`. Blocking an account already blocked changes nothing. An account may block 10000 accounts at most, and block, unblock or remove followers 200 times an hour (600 from one address), refused attempts included.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "username",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Blocked, now or before"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Cannot block yourself"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No credential, or an invalid or expired one"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Needs a session: API tokens can't do this"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "User not found, waiting to be deleted, or blocking the user"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Already blocking 10000 accounts"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over 200 blocks, unblocks and removed followers an hour for this account or 600 from this address, or over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Block a user",
         "tags": [
           "Users"
         ]
@@ -10024,7 +10453,7 @@
         ]
       },
       "post": {
-        "description": "Follows the specified user on behalf of the authenticated user; following an account already followed changes nothing. Following takes no approval, and opens nothing a private profile hides: its owner alone sees it. An account may follow 2000 accounts at most, and follow 100 times an hour (300 from one address), refused attempts included; unfollowing is free.",
+        "description": "Follows the specified user on behalf of the authenticated user; following an account already followed changes nothing. Following takes no approval, and opens nothing a private profile hides: its owner alone sees it. An account may follow 2000 accounts at most, and follow 100 times an hour (300 from one address), refused attempts included; unfollowing is free. An account that blocks the follower is not found, as one that doesn't exist; one the follower blocks, or that removed the follower from its followers in the last 30 days, can't be followed (409).",
         "parameters": [
           {
             "in": "path",
@@ -10088,7 +10517,7 @@
                 }
               }
             },
-            "description": "Already following 2000 accounts"
+            "description": "Already following 2000 accounts, blocking this account, or removed from its followers recently"
           },
           "429": {
             "content": {

@@ -8,6 +8,8 @@ export * from "./ApiToken.js";
 export * from "./Artist.js";
 export * from "./ArtistChart.js";
 export * from "./ArtistRanking.js";
+export * from "./BlockEntry.js";
+export * from "./BlockPage.js";
 export * from "./ChartPeriod.js";
 export * from "./Comment.js";
 export * from "./CommunityAlbumChart.js";

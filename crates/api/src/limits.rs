@@ -1,7 +1,7 @@
 //! Limits counted in Redis: password logins and the scrobbles an account
 //! may submit per UTC day (shared by the native API and the
-//! scrobbler-compatible ones), image uploads, follows, account exports and
-//! deletion requests. Windows are part of the
+//! scrobbler-compatible ones), image uploads, follows, blocks, account
+//! exports and deletion requests. Windows are part of the
 //! keys, so a key that missed its expiry still stops counting when its
 //! window ends.
 
@@ -99,6 +99,30 @@ pub async fn follow_attempt(state: &AppState, user_id: i64, ip: &str) -> bool {
         ),
     ];
     take_or_pass(state, keys, FOLLOW_WINDOW_SECS, "follow").await
+}
+
+const BLOCK_WINDOW_SECS: i64 = 3600;
+pub const BLOCK_ACTIONS_PER_USER: i64 = 200;
+pub const BLOCK_ACTIONS_PER_IP: i64 = 600;
+
+/// Counts a block, an unblock or a removed follower and says whether it may
+/// go ahead: at most [`BLOCK_ACTIONS_PER_USER`] per account and
+/// [`BLOCK_ACTIONS_PER_IP`] per address an hour, refused ones included;
+/// enough to clear a follow farm out in an afternoon. Fails open: a block
+/// protects its maker.
+pub async fn block_attempt(state: &AppState, user_id: i64, ip: &str) -> bool {
+    let window = Utc::now().timestamp() / BLOCK_WINDOW_SECS;
+    let keys = [
+        (
+            format!("block:user:{user_id}:{window}"),
+            BLOCK_ACTIONS_PER_USER,
+        ),
+        (
+            format!("block:ip:{}:{window}", network(ip)),
+            BLOCK_ACTIONS_PER_IP,
+        ),
+    ];
+    take_or_pass(state, keys, BLOCK_WINDOW_SECS, "block").await
 }
 
 /// Counts before the work; a Redis failure lets it through.

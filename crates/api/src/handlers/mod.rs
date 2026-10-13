@@ -1,5 +1,6 @@
 pub mod account;
 pub mod auth;
+pub mod blocks;
 pub mod caching;
 pub mod charts;
 pub mod community;
