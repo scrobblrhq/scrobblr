@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT t.id, t.title, t.mbid, t.duration_ms, t.mb_duration_ms, t.mbid_hint,\n               t.artist_id, a.name AS \"artist_name!\", a.mbid AS \"artist_mbid?\",\n               t.album_id, al.title AS \"album_title?\", al.mbid AS \"album_mbid?\",\n               ARRAY(SELECT r.mbid FROM track_mbid_rejections r WHERE r.track_id = t.id)\n                   AS \"rejected_mbids!\"\n        FROM tracks t\n        JOIN artists a ON a.id = t.artist_id\n        LEFT JOIN albums al ON al.id = t.album_id\n        WHERE t.id = $1\n        ",
+  "query": "\n        SELECT t.id, t.title, t.mbid, t.duration_ms, t.mb_duration_ms, t.mbid_hint,\n               t.artist_id, a.name AS \"artist_name!\", a.mbid AS \"artist_mbid?\",\n               t.album_id, al.title AS \"album_title?\", al.mbid AS \"album_mbid?\",\n               ARRAY(SELECT r.mbid FROM track_mbid_rejections r WHERE r.track_id = t.id)\n                   AS \"rejected_mbids!\",\n               t.mb_release_titles IS NOT NULL AS \"releases_known!\"\n        FROM tracks t\n        JOIN artists a ON a.id = t.artist_id\n        LEFT JOIN albums al ON al.id = t.album_id\n        WHERE t.id = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -67,6 +67,11 @@
         "ordinal": 12,
         "name": "rejected_mbids!",
         "type_info": "UuidArray"
+      },
+      {
+        "ordinal": 13,
+        "name": "releases_known!",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -87,8 +92,9 @@
       true,
       false,
       true,
+      null,
       null
     ]
   },
-  "hash": "e867d01b246ad08099c886f20ee4d80ba901f9abeb558329fc7693024f9dfbb5"
+  "hash": "c1c1e59abad0402f4759b0a565e629d15edaebab435c89166b099035aeec4888"
 }

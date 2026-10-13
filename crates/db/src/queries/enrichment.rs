@@ -193,8 +193,8 @@ pub async fn enqueue_incomplete_resweep(
         r#"
         INSERT INTO enrichment_jobs (entity_type, entity_id, priority)
         SELECT 'track', id, $2 FROM tracks
-        WHERE enriched_at < NOW() - INTERVAL '30 days'
-          AND (mbid IS NULL OR duration_ms IS NULL)
+        WHERE (enriched_at < NOW() - INTERVAL '30 days' AND (mbid IS NULL OR duration_ms IS NULL))
+           OR (mbid IS NOT NULL AND mb_release_titles IS NULL AND enriched_at IS NOT NULL)
         ORDER BY scrobble_count DESC
         LIMIT $1
         ON CONFLICT (entity_type, entity_id) DO UPDATE
@@ -382,6 +382,8 @@ pub struct TrackCtx {
     pub album_mbid: Option<Uuid>,
     /// Recordings `worker tracks mb-review` took back: never adopted again.
     pub rejected_mbids: Vec<Uuid>,
+    /// Whether the releases of its recording were looked up.
+    pub releases_known: bool,
 }
 
 pub async fn get_track_ctx(pool: &PgPool, id: i64) -> Result<Option<TrackCtx>, sqlx::Error> {
@@ -392,7 +394,8 @@ pub async fn get_track_ctx(pool: &PgPool, id: i64) -> Result<Option<TrackCtx>, s
                t.artist_id, a.name AS "artist_name!", a.mbid AS "artist_mbid?",
                t.album_id, al.title AS "album_title?", al.mbid AS "album_mbid?",
                ARRAY(SELECT r.mbid FROM track_mbid_rejections r WHERE r.track_id = t.id)
-                   AS "rejected_mbids!"
+                   AS "rejected_mbids!",
+               t.mb_release_titles IS NOT NULL AS "releases_known!"
         FROM tracks t
         JOIN artists a ON a.id = t.artist_id
         LEFT JOIN albums al ON al.id = t.album_id
@@ -816,7 +819,7 @@ pub async fn unlink_musicbrainz(
     sqlx::query!(
         r#"
         UPDATE tracks
-        SET mbid = NULL, mb_duration_ms = NULL,
+        SET mbid = NULL, mb_duration_ms = NULL, mb_release_titles = NULL,
             mbid_hint = CASE WHEN mbid_hint = mbid THEN NULL ELSE mbid_hint END
         WHERE id = $1
         "#,
@@ -838,6 +841,7 @@ pub async fn unlink_musicbrainz(
     )
     .execute(&mut *tx)
     .await?;
+    crate::queries::albums::enqueue(&mut *tx, &[track_id], chrono::Utc::now()).await?;
     let days = sqlx::query!(
         r#"
         INSERT INTO classification_queue (user_id, day, priority)

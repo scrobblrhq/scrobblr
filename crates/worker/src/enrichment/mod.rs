@@ -32,6 +32,7 @@ use fred::interfaces::PubsubInterface;
 use rand::Rng;
 use sqlx::PgPool;
 
+use db::queries::albums as albums_db;
 use db::queries::classification as cdb;
 use db::queries::enrichment as edb;
 use db::queries::scrobbles as edb_scrobbles;
@@ -382,8 +383,16 @@ impl Enricher {
             (Some(mbid), None) => {
                 Some(mb::lookup_recording(&self.http, &self.musicbrainz, mbid).await)
             }
+            (Some(mbid), Some(_)) if !ctx.releases_known => {
+                Some(mb::lookup_recording(&self.http, &self.musicbrainz, mbid).await)
+            }
             (Some(_), Some(_)) => None, // nothing missing that MusicBrainz provides
         };
+        // A recording MusicBrainz no longer has lists no release: not asked
+        // about again.
+        if let (Some(mbid), Some(Ok(None))) = (ctx.mbid, &lookup) {
+            albums_db::record_releases(&self.db, ctx.id, mbid, &[]).await?;
+        }
         let recording = match lookup {
             Some(Ok(found)) => found,
             Some(Err(e)) => {
@@ -404,6 +413,16 @@ impl Enricher {
                 },
             )
             .await?;
+            // Which album the track belongs to weighs releases of these
+            // titles double; kept only if the recording is the track's.
+            let mut titles: Vec<String> = rec
+                .releases
+                .iter()
+                .map(|r| shared::scrobble::normalize_name(&r.title))
+                .collect();
+            titles.sort();
+            titles.dedup();
+            albums_db::record_releases(&self.db, ctx.id, rec.id, &titles).await?;
 
             // Recent plays were classified against a client-reported length
             // (or none); best-effort, the classifier's sweep covers the rest.
