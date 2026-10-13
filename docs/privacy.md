@@ -52,15 +52,18 @@ accounts: the account id there, OAuth tokens encrypted with
 **Imports**: each Last.fm import's Last.fm username, window, progress and
 errors.
 
-**Social and community**: follows, comments, uploaded artist and album
-images (as candidates, with their likes), likes given.
+**Social and community**: follows, blocks (who blocks whom, since when),
+followers removed (until when they may follow again), comments, uploaded
+artist and album images (as candidates, with their likes), likes given.
 
 **Who sees it** ([social.md](social.md#who-sees-whom)): a public profile's
 listening is shown to anyone, a private one's only to its owner, followers
 included (following takes no approval). Followers' feeds and community
 charts include only public accounts; follow lists, listener lists and
 search name only public ones; counts and catalog numbers include private
-ones, unnamed.
+ones, unnamed. An account that blocks a viewer doesn't exist for that
+viewer signed in, and neither appears in the other's lists of people;
+nobody is told who blocks them ([social.md](social.md#blocking-and-removing-followers)).
 
 **Uploaded images**: files under `UPLOAD_DIR`, re-encoded as JPEG (no
 metadata survives), served at `/uploads` with a one-year immutable cache
@@ -91,7 +94,8 @@ first, and their play counters, which add up everyone's plays.
 
 `GET /v1/user/me/export` (a session, not an API token; 3 a day per account,
 10 per address) streams a ZIP archive: `account.json` (the account,
-settings, follows, comments, uploads and likes, sessions without their ids,
+settings, follows, the accounts the user blocks and the followers it
+removed, comments, uploads and likes, sessions without their ids,
 API tokens and scrobbler credentials without their values, authorizations
 without their tokens, linked accounts without their OAuth tokens, imports,
 now playing, when the registration origin was recorded),
@@ -104,7 +108,8 @@ values or hashes (the archive would sign in as the user wherever it ends
 up); linked accounts' OAuth tokens; the registration origin's hashes
 (meaningless without the key, which can't be handed out without exposing
 everyone's); ranking weights, coordination factors and cohort membership
-(anti-abuse scores computed from the scrobbles, which are included); daily
+(anti-abuse scores computed from the scrobbles, which are included); who
+blocks the user or removed them from their followers (their decisions); daily
 totals and counters (computed from the scrobbles); logs, Redis and backups.
 
 ## Deletion
@@ -122,8 +127,8 @@ stay, and still count in catalog numbers and rankings.
 
 **Grace period**: `ACCOUNT_DELETION_GRACE_DAYS` (7 by default, 0 to 30).
 Logging in with the password (the native login, never a scrobbler's)
-restores the account, history included; credentials and links have to be
-made again. The username and email stay taken.
+restores the account, history, follows and blocks included; credentials and
+links have to be made again. The username and email stay taken.
 
 **Then the worker erases it** (within a minute of the date): the scrobbles,
 a chunk at a time, each taking its plays off the track, artist and album
@@ -132,7 +137,8 @@ counters in the same transaction; the user's rows in the daily totals
 coordination factors and flags; then the user row, which every other table
 referencing it follows (`ON DELETE CASCADE`, checked by a test that looks
 for any column holding a user id): sessions and tokens left, origins,
-imports, follows, comments, likes (taken off the candidates' counts),
+imports, follows, blocks and removals either way, comments, likes (taken
+off the candidates' counts),
 uploads, queued work. The global rankings are recomputed on the worker's
 next pass (within minutes). The uploaded files are deleted; one that
 became an artist's or album's image stays as the catalog's, no longer tied

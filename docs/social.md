@@ -27,6 +27,9 @@ and it is public, or it is the viewer's own.
   rankings) include private accounts, unnamed, as every aggregate does.
 - Comments and uploaded images keep their author's name whatever the
   privacy setting: they were posted for others to see.
+- **Blocks** ([below](#blocking-and-removing-followers)): an account that
+  blocks the viewer doesn't exist for it, and neither account appears in
+  the other's lists of people.
 
 ## Follows
 
@@ -54,6 +57,88 @@ and it is public, or it is the viewer's own.
   address (`limits::follow_attempt`, refused ones included, Redis, fails
   open like uploads). Unfollowing is free; following again is no new
   follow but counts as an attempt.
+
+## Blocking and removing followers
+
+| route | access | |
+| --- | --- | --- |
+| `POST /v1/user/{username}/block` | session | 204, also when already blocking; 400 yourself, 404 missing, leaving or blocking you, 409 at the cap, 429 past a rate |
+| `DELETE /v1/user/{username}/block` | session | 204, also when not blocking; 404 as above unless you block it, 429 |
+| `GET /v1/user/me/blocks` | session | a page, newest block first (`BlockPage`); 400 bad cursor |
+| `DELETE /v1/user/me/followers/{username}` | session | 204, also when it doesn't follow you; 400 yourself, 404 as above, 429 |
+
+**A block** (`user_blocks`, migration `0031`) ends the follows between the
+two accounts, either way, and neither can follow the other while it stands
+(the blocked one gets a 404, the blocker a 409 saying it blocks the
+account). Then:
+
+- **The blocked account finds no such account**, signed in: the
+  blocker's profile and every route under it (follow lists, recent plays,
+  top lists, charts, heatmap, live stream) answer 404 with the body a
+  missing account gets, a private profile too (rather than its usual 403),
+  and so do following, unfollowing, blocking, unblocking and removing it,
+  and the Last.fm-compatible `user.getInfo` and `user.getRecentTracks`
+  with its scrobbler key (error 6). The blocker is left out of every list
+  of people the blocked account reads: follow lists, search, the
+  listeners of an artist or a track, comments, image candidates, and its
+  feed and community charts, which cover only followed accounts anyway.
+- **Neither is told**: nothing in any response says who blocks whom, the
+  block list is its owner's, and the export lists the blocks made, never
+  the blocks received. The blocked account can still infer it: the
+  blocker vanished from its follows like a deleted account would, and a
+  public profile is anyone's to see signed out, which is where the two
+  differ. A block hides an account from an account, not from a person.
+- **The blocker** no longer sees the blocked account in lists of people
+  (follow lists, search, listeners, comments, image candidates), but can
+  still open its profile, which says `blocking: true`, to lift the block.
+- **Live streams**: a block closes the streams of the blocker's now playing
+  the blocked account holds open, on every API instance (a close message on
+  the blocker's Redis channel, which no stream forwards).
+- **What stays**: counts (`followers_count`, catalog counts, rankings)
+  were made of follows that ended or of plays nobody is named in; an image
+  the blocked account uploaded that became an artist's or album's image is
+  the catalog's and stays.
+
+**The block list** (`GET /v1/user/me/blocks`): `limit` (50, at most 200)
+and `before`, as follow lists. Entries are `BlockEntry`: `id`, `username`,
+`blocked_at`, and `display_name` and `image_url`, both `null` for a private
+account (the blocker knows its name, nothing more). Accounts waiting to be
+deleted are left out; their blocks stay and can be lifted by username.
+
+```json
+{
+  "entries": [
+    { "id": 812, "username": "spammer", "display_name": null,
+      "image_url": null, "blocked_at": "2026-10-13T18:02:11Z" }
+  ],
+  "next": null
+}
+```
+
+**Removing a follower** (`follower_removals`) ends its follow without
+blocking it: profiles stay visible both ways, and it can't follow again for
+30 days (a 409 saying it was removed); the worker deletes removals past
+their date. Removing an account that doesn't follow records nothing.
+
+**Limits** (`limits::block_attempt`, `limits::pair_attempt`, Redis, fail
+open: a block protects its maker):
+
+- 10,000 blocks per account (`MAX_BLOCKS`, 409 past it).
+- 200 blocks, unblocks and removed followers an hour per account, 600 per
+  address, refused ones included.
+- 3 blocks of one account by another a day, and 3 new follows of one
+  account by another a day (following again after an unfollow counts;
+  following what is followed already doesn't): following, unfollowing and
+  following again put the follower first in the other's list each time,
+  and blocking and unblocking made a profile come and go. Without
+  notifications that is all such a cycle can do, now three times a day.
+- Follows, blocks and removals take the pair's advisory lock: no follow
+  lands beside a block made at the same moment.
+
+**Deleting and restoring**: an account waiting to be deleted keeps its
+blocks and removals, and a restore finds them in place; the erase removes
+every block and removal it made or received (`ON DELETE CASCADE`, the
+generic erasure test covers both tables both ways).
 
 ## Charts of a user
 
@@ -211,10 +296,16 @@ null`.
 | `GET /v1/user/me/community/{artists,tracks,albums}` | `read` |
 | `GET /v1/user/me/feed` | `read` |
 | `POST`, `DELETE /v1/user/{username}/follow` | `write` |
+| `POST`, `DELETE /v1/user/{username}/block` | session |
+| `GET /v1/user/me/blocks` | session |
+| `DELETE /v1/user/me/followers/{username}` | session |
 
 Public routes take an optional session (`optional_auth`); an API token,
-even with `read`, is ignored there, as on every profile route.
-`router/tests.rs` lists each.
+even with `read`, is ignored there, as on every profile route. Search, the
+listeners of an artist or a track and comments take one too, to leave
+blocked and blocking accounts out. Blocks take a session: a leaked token
+mustn't show whom the user protects themselves from, nor lift a block (the
+apps' interfaces use the session anyway). `router/tests.rs` lists each.
 
 ## Abuse
 
@@ -239,9 +330,17 @@ even with `read`, is ignored there, as on every profile route.
   computed per request, as often as the per-address limit allows (60 a
   minute by default).
 
-Open: no blocking and no removing a follower (a farm's follows stay until
-its accounts are deleted); no approval for follows (private accounts can't
-share with chosen people); the rate limit fails open without Redis.
+- **Harassment**: block the account (it no longer finds you signed in,
+  and can't follow you), or remove it from your followers (30 days without
+  following you again). A follow farm can be removed or blocked at 200
+  accounts an hour.
+
+Open: no approval for follows (private accounts can't share with chosen
+people); no muting (hiding an account without ending its follow); a
+blocked person can make a new account, or read a public profile signed
+out; a private account following the user isn't in the user's own
+follower list (lists never name private accounts), so it can be removed or
+blocked only by its username; the rate limits fail open without Redis.
 
 ## Measured
 
@@ -340,4 +439,4 @@ DATABASE_URL="$SCRATCH_URL" worker rank refresh
   views are cached.
 - **Feed reach:** 14 days, and a feed doesn't merge or collapse repeats
   of one account.
-- **No blocking, no follow approval, no notifications.**
+- **No follow approval, no muting, no notifications.**
