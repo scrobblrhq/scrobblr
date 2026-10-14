@@ -1,9 +1,11 @@
 # Social: follows, charts and the feed
 
 What users see of each other: follows, a user's own charts, the charts of
-the accounts a user follows (community charts), and a feed of what those
-accounts play. Global rankings are in [rankings.md](rankings.md); what is
-stored and erased about an account, in [privacy.md](privacy.md).
+the accounts a user follows (community charts), a feed of what those
+accounts play, and what listening says about artists and people (similar
+artists, taste neighbours, recommendations). Global rankings are in
+[rankings.md](rankings.md); what is stored and erased about an account, in
+[privacy.md](privacy.md).
 
 ## Who sees whom
 
@@ -20,7 +22,10 @@ and it is public, or it is the viewer's own.
   owner only.
 - **Lists of people** (followers, following, listeners of an artist or a
   track, search) leave out private accounts, except the viewer's own entry,
-  and accounts waiting to be deleted (404 on their own routes).
+  and accounts waiting to be deleted (404 on their own routes). Taste
+  neighbours name only accounts that chose to be shown, while public
+  ([below](#taste-neighbours)); similar artists and recommendations name
+  nobody.
 - **Community charts and the feed** cover only visible followed accounts:
   following a private account adds nothing to either.
 - **Counts** (`followers_count`, `following_count`, catalog counts, global
@@ -403,6 +408,191 @@ null`.
   `0030` restored it (0.95 s for 4,006 accounts).
 - `Cache-Control: private, no-store`.
 
+## Similar artists, taste neighbours and recommendations
+
+What listening says about artists and people: an artist's similar artists
+(whose listeners also play it), a user's taste neighbours (accounts that
+chose to be shown, whose listening is closest), and artists recommended to
+the signed-in user. The worker computes all three once a day from the
+ranking weights and coordination factors and stores them; the routes read
+what is stored and filter what changed since. How they are computed, and
+what an attack on them costs: [rankings.md](rankings.md#similarity).
+
+| route | access | |
+| --- | --- | --- |
+| `GET /v1/artist/{id}/similar` | public | a page; 404 no such artist |
+| `GET /v1/user/{username}/similar` | public (a session sees its own) | the taste neighbours; 403 private, 404 missing, leaving, blocking the viewer, or not shared |
+| `GET /v1/user/me/recommendations/artists` | `read` | a page |
+| `POST /v1/user/me/recommendations/artists/{id}/skip` | `write` | 204; 404 no such artist |
+| `DELETE /v1/user/me/recommendations/artists/{id}/skip` | `write` | 204, also when not skipped |
+| `GET /v1/user/me/similarity` | `read` | the setting |
+| `PUT /v1/user/me/similarity` | session | `{ "mode": … }`; 400 unknown mode |
+
+None has a limit of its own beyond the global one (60 requests a minute
+per address): a read is a few index lookups on stored rows, a skip one row
+(the newest 1,000 kept), a change of setting at most one indexed delete,
+and no request makes the worker compute anything.
+
+### The setting
+
+`users.similarity`, one of:
+
+| mode | the account's listening | shown as a taste neighbour | its own recommendations and neighbours |
+| --- | --- | --- | --- |
+| `listed` | counts, anonymously, in similar artists and others' recommendations | yes, while the profile is public and the account isn't leaving | yes, and its neighbours are anyone's to see on its profile |
+| `anonymous` (the default) | counts, anonymously | never | yes, its own to see |
+| `off` | not used at all | never | none: nothing is computed from or for it |
+
+Changing it takes effect at once for what names the account: leaving
+`listed` deletes the account from every stored neighbour list, `off`
+deletes its recommendations and neighbours too; a run computing meanwhile
+stores none of them. Its anonymous part in similar artists goes at the
+next daily run (a change doesn't force one: that would let anyone make the
+server recompute everything as often as they liked). The default is the
+private side for being shown and the useful side for counting, which is
+anonymous and needs at least 10 accounts per pair
+([privacy.md](privacy.md#similarity)).
+
+`GET` answers `{ "mode": "anonymous", "shown": false, "changed_at": null }`;
+`shown` is whether others see the account as a neighbour now (`listed` and
+public). `PUT` takes a session, never an API token, even one that may
+write: a leaked token mustn't put the account on display.
+
+### Similar artists
+
+```json
+{
+  "artist_id": 97,
+  "computed_at": "2026-10-14T03:12:40Z",
+  "stale": false,
+  "total": 50, "offset": 0, "limit": 2,
+  "entries": [
+    { "position": 1, "artist_id": 12, "artist_name": "Portishead",
+      "image_url": "https://…/artists/3f/….jpg", "score": 0.412, "common_listeners": 200 },
+    { "position": 2, "artist_id": 31, "artist_name": "Tricky",
+      "image_url": null, "score": 0.377, "common_listeners": 50 }
+  ]
+}
+```
+
+- `limit` 20 (at most 50), `offset` (negative: 400; past the end: an empty
+  page with its `total`); 50 at most per artist.
+- `score` 0 to 1, three decimals. `common_listeners` is a lower bound from
+  1, 2, 5, 10, 20, 50, 100, … of the accounts listening to both, never an
+  exact count: one account arriving or leaving can't be read off it.
+- An artist with too few listeners has none (`total: 0`); before the first
+  run `computed_at` is `null` (cacheable 60 s).
+- `Cache-Control: public, max-age=3600, stale-while-revalidate=3600` and a
+  weak `ETag` of the run; `If-None-Match` gets a 304 after one primary-key
+  lookup. `stale` is true an hour past the next run's due time (the worker
+  stopped or failing), and the last results are still served.
+
+### Taste neighbours
+
+```json
+{
+  "status": "ready",
+  "computed_at": "2026-10-14T03:12:40Z",
+  "stale": false,
+  "entries": [
+    { "user": { "id": 70, "username": "ana", "display_name": "Ana", "image_url": null },
+      "score": 0.731, "shared_artists": 12,
+      "top_shared": [ { "artist_id": 97, "artist_name": "Massive Attack" },
+                      { "artist_id": 12, "artist_name": "Portishead" } ] }
+  ]
+}
+```
+
+- **Who appears**: accounts that chose `listed`, public, not waiting to be
+  deleted, and not blocked by or blocking the user whose list it is, nor
+  the signed-in viewer. Checked at every request, so a block, a private
+  profile or a change of setting hides an account at once (a block also
+  deletes the pair's stored rows).
+- **Whose list**: the user's own, signed in, whatever their setting (`off`:
+  `status: off`, no entries). Someone else's only when that user is
+  `listed`, and then it is anyone's (it says whom they resemble, which
+  they chose to show); otherwise 404 with the body a missing user gets.
+  A private profile's list answers 403, an account blocking the viewer or
+  waiting to be deleted 404, as for its profile.
+- `limit` 10, at most 30; 30 are kept per user. `status`: `ready`, `none`
+  (too little listening, or no listed account close enough), `off`,
+  `pending` (nothing computed yet). `Cache-Control: private, max-age=60`,
+  `Vary: Authorization`.
+- `top_shared` names artists the neighbour listens to: they chose to be
+  shown, and their charts say as much.
+
+### Recommendations
+
+```json
+{
+  "status": "ready",
+  "computed_at": "2026-10-14T03:12:40Z",
+  "stale": false,
+  "total": 87, "offset": 0, "limit": 20,
+  "entries": [
+    { "position": 1, "artist_id": 31, "artist_name": "Tricky", "image_url": null,
+      "score": 1.0,
+      "because": { "artist_id": 97, "artist_name": "Massive Attack" },
+      "because_count": 3 }
+  ]
+}
+```
+
+- Artists the user never played, ranked by how much the listeners of the
+  artists they play also play them. `because` is one of the user's own
+  artists, the one that counted most: "listeners of Massive Attack also
+  play this"; `because_count` how many of the user's artists led to it.
+  Nothing names another account.
+- The user's whole history counts, imports included, recent listening
+  more; what other accounts play counts as for similar artists.
+- **Left out at once**: an artist the user played since the run (plays up
+  to 14 days older than the run arriving late included) or skipped. A skip
+  (`POST …/{id}/skip`) hides an artist for 90 days, any artist,
+  recommended or not; `DELETE` takes it back; the newest 1,000 are kept.
+  Skipped plays (the classifier's, or anything scrobbled) are plays: their
+  artists are left out like any played.
+- `limit` 20, at most 100, `offset`; 100 kept per user. `score` is
+  relative to the first (1.0). `status` as for neighbours.
+- A weak `ETag` of the run, the user's latest play and their skips, and
+  `Cache-Control: private, no-cache`: a client revalidates every time and
+  gets a 304 while nothing changed.
+
+### Cold start
+
+| | needs | otherwise |
+| --- | --- | --- |
+| an artist's list | 10 accounts' credit of listeners, and neighbours with 10 accounts and a tenth of its listeners in common | `total: 0` |
+| recommendations | 5 distinct artists in the history, a play in the last 180 days | `status: none` |
+| taste neighbours | the same, and a listed account sharing 3 rarity-weighted artists | `status: none` |
+| a new account's listening in others' results | the weights: nothing before 7 days, 4 full plays for a full credit | |
+
+All are `SIMILARITY_*` settings ([rankings.md](rankings.md#similarity)).
+An account whose plays are all older than 180 days gets nothing until it
+scrobbles again.
+
+### Measured
+
+On the population of [rankings.md](rankings.md#attacks) (5,521 accounts,
+5.2M scrobbles), the release API on the same 4-core machine as the
+database, one client on a keep-alive connection, 2,000 requests cycling
+through 300 artists or users (p50 / p99):
+
+| request | p50 | p99 |
+| --- | --- | --- |
+| similar artists, a page of 20 | 1.6 ms | 5.4 ms |
+| the same, `If-None-Match` hit (304) | 0.56 ms | 0.94 ms |
+| a listed user's taste neighbours, signed out | 3.1 ms | 5.5 ms |
+| one's own taste neighbours, signed in | 3.5 ms | 6.5 ms |
+| recommendations, a page of 20 | 7.0 ms | 15.5 ms |
+| the same, `If-None-Match` hit (304) | 2.2 ms | 3.4 ms |
+| recommendations, `limit=100` | 7.0 ms | 9.7 ms |
+| recommendations of the three-year heavy listener | 5.7 ms | 10.2 ms |
+
+A recommendations page filters all 100 stored entries against the user's
+skips and their plays since the run, by (user, artist, time) on the
+scrobbles index, which is most of its cost; nothing here needs a cache
+beyond the ETags. The daily run that makes them: [rankings.md](rankings.md#cost-1).
+
 ## Access
 
 | route | access |
@@ -416,13 +606,20 @@ null`.
 | `POST`, `DELETE /v1/user/{username}/block` | session |
 | `GET /v1/user/me/blocks` | session |
 | `DELETE /v1/user/me/followers/{username}` | session |
+| `GET /v1/artist/{id}/similar` | public |
+| `GET /v1/user/{username}/similar` | public (a session sees its own) |
+| `GET /v1/user/me/recommendations/artists` | `read` |
+| `POST`, `DELETE /v1/user/me/recommendations/artists/{id}/skip` | `write` |
+| `GET /v1/user/me/similarity` | `read` |
+| `PUT /v1/user/me/similarity` | session |
 
 Public routes take an optional session (`optional_auth`); an API token,
 even with `read`, is ignored there, as on every profile route. Search, the
 listeners of an artist or a track and comments take one too, to leave
 blocked and blocking accounts out. Blocks take a session: a leaked token
 mustn't show whom the user protects themselves from, nor lift a block (the
-apps' interfaces use the session anyway). `router/tests.rs` lists each.
+apps' interfaces use the session anyway); so does changing the similarity
+setting, which can put the account on display. `router/tests.rs` lists each.
 
 ## Abuse
 
@@ -447,6 +644,13 @@ apps' interfaces use the session anyway). `router/tests.rs` lists each.
   computed per request, as often as the per-address limit allows (60 a
   minute by default).
 
+- **Appearing in someone's taste neighbours**: only by choosing
+  `listed`, and only while public; an account imitating someone's
+  listening to show up beside them needs a week of weighted plays like
+  anyone, and is gone from their list the moment it is blocked.
+- **Steering similar artists or recommendations**: the anti-botting
+  weights and coordination factors apply, and a farm needs a tenth of an
+  artist's listeners to reach its list ([rankings.md](rankings.md#attacks)).
 - **Harassment**: block the account (it no longer finds you signed in,
   and can't follow you), or remove it from your followers (30 days without
   following you again). A follow farm can be removed or blocked at 200
@@ -557,3 +761,12 @@ DATABASE_URL="$SCRATCH_URL" worker rank refresh
 - **Feed reach:** 14 days, and a feed doesn't merge or collapse repeats
   of one account.
 - **No follow approval, no muting, no notifications.**
+- **Similarity is a day old at most**, plays and skips since aside; a new
+  account's listening counts for others after a week (the weights), a
+  user with fewer than 5 artists gets no recommendations, and an artist
+  with fewer than 10 listeners no neighbours. There are no similar
+  tracks ([rankings.md](rankings.md#cost-1) says why), no explanation
+  beyond one artist per recommendation, and no "not interested in this
+  artist's neighbours" beyond skipping each.
+- **Taste neighbours** are found among listed accounts only; with few
+  listed accounts, lists are short or empty (`status: none`).

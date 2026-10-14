@@ -35,6 +35,9 @@ is kept until the track would have ended.
 - Each account's say on which album a track belongs to: the album its
   plays of the track named last ([social.md](social.md#albums)), kept
   with the history.
+- Recommendations and taste neighbours, recomputed daily, and the
+  recommendations skipped, for 90 days ([Similarity](#similarity)); similar
+  artists, which name nobody.
 
 **Where an account registered from** (`registration_origins`), only when the
 operator sets `REGISTRATION_HASH_KEY`: two 64-bit keyed hashes (HMAC-SHA256)
@@ -93,6 +96,58 @@ with the same retention. Readable by root only.
 images, MusicBrainz ids from providers), created by whoever scrobbled them
 first, and their play counters, which add up everyone's plays.
 
+## Similarity
+
+Similar artists, recommendations and taste neighbours
+([social.md](social.md#similar-artists-taste-neighbours-and-recommendations))
+are computed once a day from the ranking weights. What they keep:
+
+- **The setting** (`users.similarity`): `listed`, `anonymous` (the
+  default) or `off`, and when it last changed.
+- **Similar artists** (`artist_neighbours`): per artist, up to 50 artists,
+  a score and how many accounts listen to both. No account is named or
+  can be told apart: a pair needs at least 10 accounts listening to both
+  and a tenth of the artist's listeners, and the route shows the count
+  only as a lower bound (10, 20, 50, 100, …).
+- **A user's recommendations** (`user_recommendations`, one row per user):
+  up to 100 artists, each with one of the user's own artists as its reason.
+- **A user's taste neighbours** (`user_neighbours`): up to 30 accounts that
+  chose `listed`, a score, how many artists they share and the three that
+  count most.
+- **Skips** (`recommendation_skips`): the artists a user hid from their
+  recommendations, for 90 days.
+- **Runs** (`similarity_runs`): counts and timings, no account; kept 30
+  days.
+
+**Private accounts count anonymously** in similar artists, as their plays
+count in every catalog number and the rankings: a private profile hides
+who listens, not that listening happened. What protects the individual is
+the threshold, not the profile: a pair is served only with 10 accounts
+behind it and a tenth of the source's listeners, the scores and counts are
+coarse, and the weights they come from aren't public, so even an observer
+who knew every public listener's charts couldn't subtract them from a
+score to find a private one's. A private account never appears as anyone's
+taste neighbour (it can't be listed), and its own list is its own. Anyone
+who doesn't want their listening used at all chooses `off`: it leaves
+similar artists at the next daily run, and nothing else is computed from
+or for the account from then on. Accounts waiting to be deleted are
+treated as `off` by every run.
+
+**Imports** count in the importer's own recommendations and taste
+neighbours, never in what anyone else sees: they weigh nothing in similar
+artists or in a candidate's vector.
+
+**Export** (`account.json`): the setting, the recommendations and taste
+neighbours as served (artist names, the reason, neighbours' usernames),
+and the skips.
+
+**Deletion**: a deletion request hides the account from every list at
+once (as everywhere); runs leave it out. The erase deletes its setting,
+recommendations, neighbours (its own list and its place in others') and
+skips with the user row (`ON DELETE CASCADE`, checked by the generic
+erasure test both ways for neighbours), and marks the latest run due, so
+its anonymous part in similar artists is recomputed away within minutes.
+
 ## Export
 
 `GET /v1/user/me/export` (a session, not an API token; 3 a day per account,
@@ -101,7 +156,9 @@ settings, follows, the accounts the user blocks and the followers it
 removed, comments, uploads and likes, sessions without their ids,
 API tokens and scrobbler credentials without their values, authorizations
 without their tokens, linked accounts without their OAuth tokens, imports,
-now playing, when the registration origin was recorded),
+now playing, when the registration origin was recorded, the similarity
+setting, the recommendations and taste neighbours as served and the
+skipped recommendations),
 `scrobbles.csv` and `scrobbles.json` (every scrobble with its source,
 client, import and label), and the uploaded images. Nothing is written to
 the server's disk: there is no copy to expire.
@@ -126,7 +183,8 @@ too), API token, scrobbler credential and approved authorization and linked
 account (with its OAuth tokens) is deleted, imports in progress are
 cancelled, now playing is cleared. The account disappears from profiles,
 the Last.fm-compatible API, search, listener lists, follower lists,
-followers' feeds and community charts, comments and image candidates. Its history and the totals made from it
+followers' feeds and community charts, comments, image candidates and
+taste neighbour lists. Its history and the totals made from it
 stay, and still count in catalog numbers and rankings.
 
 **Grace period**: `ACCOUNT_DELETION_GRACE_DAYS` (7 by default, 0 to 30).
@@ -143,9 +201,10 @@ with it, and the tracks they were on are decided again without them),
 which every other table referencing it follows (`ON DELETE CASCADE`,
 checked by a test that looks for any column holding a user id): sessions and tokens left, origins,
 imports, follows, blocks and removals either way, comments, likes (taken
-off the candidates' counts),
-uploads, queued work. The global rankings are recomputed on the worker's
-next pass (within minutes). The uploaded files are deleted; one that
+off the candidates' counts), its recommendations, skips and taste
+neighbours (its list and its place in others'), uploads, queued work. The
+global rankings and similar artists are recomputed on the worker's next
+pass (within minutes). The uploaded files are deleted; one that
 became an artist's or album's image stays as the catalog's, no longer tied
 to anyone. The username and email can be taken again from then on.
 
@@ -169,8 +228,8 @@ erase NAME` erases one now, for a request made outside the app.
   restoring must erase again what was requested since.
 - **Caches outside the server**: images were served as immutable for a
   year, so browsers and CDNs may keep a deleted avatar; public ranking
-  responses are cacheable for 5 minutes. A web app, reverse proxy or
-  analytics in front keep their own logs.
+  responses are cacheable for 5 minutes, similar artists for an hour. A
+  web app, reverse proxy or analytics in front keep their own logs.
 - **Other services** keep their copies: revoke Scrobblr's access in
   Spotify's or Last.fm's settings; Last.fm keeps the history it had.
 - **Shared catalog rows stay**: an artist or track first scrobbled by the
@@ -183,7 +242,13 @@ erase NAME` erases one now, for a request made outside the app.
   one of them from making up most of a count, and two looks at a count
   over time show that someone among them played it.
 - **During the grace period** the account's plays still count in catalog
-  numbers and rankings.
+  numbers and rankings (not in similarity: runs treat it as `off`).
+- **Similar artists** count private accounts anonymously, behind 10
+  accounts per pair and coarse numbers: an observer who knew everyone
+  else's weights exactly, and followed a pair's score over time, could
+  still tell that one more account listens to both; `off` takes an
+  account out at the next daily run. Taste neighbours say whom a listed
+  account's listening resembles, which is what listing it means.
 - **Community charts** are served only for entities `RANKING_MIN_LISTENERS`
   (5) of the viewer's followed accounts played, but the viewer knows who
   those accounts are and can see their profiles; a chart computed before an

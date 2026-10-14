@@ -3,8 +3,9 @@
 Scrobblr labels every scrobble (the classifier: `counted`, `suspect`,
 `duplicate`, `no_data`) and weighs it for global rankings. The worker
 computes the weights, looks for accounts pushing the same entities together
-([Coordination](#coordination)), and keeps each period's ranking
-precomputed; the API serves those at `/v1/rankings/artists` and
+([Coordination](#coordination)), keeps each period's ranking precomputed
+and, from the same weights, similar artists and recommendations
+([Similarity](#similarity)); the API serves those at `/v1/rankings/artists` and
 `/v1/rankings/tracks` ([Public routes](#public-routes)), `worker rank
 report` compares raw and filtered rankings and `worker rank top` prints a
 stored one. Profiles read the labels: they leave duplicates out and say how
@@ -662,6 +663,335 @@ second (p50 12 ms) or 5,274 304s a second. The first version counted the
 served positions once per entry of the page: 14.6 ms for 50, 52 ms for
 200.
 
+## Similarity
+
+Similar artists, recommendations and taste neighbours
+([social.md](social.md#similar-artists-taste-neighbours-and-recommendations)
+for the routes) are made from the same weights and coordination factors as
+the rankings, so what can't move a ranking can't move them either. The
+worker recomputes them once a day (`shared::similarity`, the `similarity`
+loop) and stores the results; the routes compute nothing per request but
+the filters for what changed since.
+
+### What counts
+
+An account's **credit** for an artist is its weight for it over the last
+180 days (`SIMILARITY_WINDOW_DAYS`) against 4 full plays
+(`SIMILARITY_FULL_PLAYS`), at most 1, times its coordination factor for
+those days (weighed by its weight on each, as in rankings). So:
+
+- imports, plays before an account is a week old, suspect plays and
+  duplicates add nothing (they weigh nothing); a loop counts like an
+  ordinary fan's day (the daily caps), and 1,000 plays count as 4: an
+  account is one account, whatever it plays;
+- an untrusted client counts half, a play without listened time a quarter,
+  as everywhere;
+- an account under a coordination factor of 0.95
+  (`SIMILARITY_MIN_FACTOR`) adds nothing at all. Rankings dent an account
+  flagged on one group signal to 0.90 and spare it; similarity has no
+  fairness to keep towards a single account's anonymous contribution, so
+  any flag strong enough to dent it is enough to leave it out. On the
+  synthetic population that leaves out 9 honest accounts
+  of 4,000 (their own recommendations and lists are unaffected);
+- accounts that turned similarity off, or asked to be deleted, add nothing.
+
+### Artist neighbours
+
+For a source artist `a` with audience `L_a` (the sum of its credits) and a
+candidate `b`, `co` is the credit of the accounts listening to both, and
+`E = L_a × L_b / N` what chance would give over the `N` accounts with
+credit. The score is the excess over chance against the geometric mean of
+the audiences, shrunk while the evidence is small:
+
+```text
+score = (co − E) / √(L_a × L_b) × co / (co + 10)
+```
+
+A centred cosine: independent artists score 0, an artist everyone plays
+explains nothing (nothing goes with it beyond chance, and it is in no
+list), and two niche artists of one scene find each other where a plain
+count would list the popular ones. A candidate also needs:
+
+| rule | default | setting |
+| --- | --- | --- |
+| accounts listening to both | 10 | `SIMILARITY_MIN_SUPPORT` |
+| of the accounts listening to the source, the share also playing it | 10 % | `SIMILARITY_MIN_SHARE` |
+| audience, the source's and its own | 10 accounts' credit | `SIMILARITY_MIN_LISTENERS` |
+| its listeners not copies of one another | cohesion ≤ 0.8 | `SIMILARITY_MAX_COHESION` |
+
+The **share floor** is what scales an attack with its victim: lists are
+directional, and putting an artist on `a`'s list takes a tenth of the
+accounts that listen to `a`. It counts accounts, not credit: a farm's
+accounts are devoted fans of whatever they push (full credits), while most
+of a popular artist's listeners play it now and then, so in credit a farm
+looked twice its size (below).
+
+**Cohesion** is how alike an artist's listeners are apart from it: the
+mean cosine between their listening (rarity-weighted credits, the artist's
+own dimension left out) over 40 of them chosen by a hash. Fans of an
+artist share at most a genre; a farm's accounts play the same list. On the
+synthetic population honest audiences measure p50 0.054, p90 0.401, p99
+0.523 and at most 0.586; the copying farms' targets 0.968 to 0.998. An
+artist over the maximum has no neighbours and is nobody's; `worker
+similarity report` prints the distribution and the most cohesive
+audiences.
+
+50 neighbours are kept per artist (`SIMILARITY_ARTIST_NEIGHBOURS`).
+
+### Recommendations
+
+A user's **history** is every artist they ever played, imports included,
+by plays decayed with a half-life of 180 days
+(`SIMILARITY_HALF_LIFE_DAYS`): the 200 strongest (`SIMILARITY_USER_ARTISTS`)
+each vote `ln(1 + plays) × score` for their neighbours; a candidate's score
+is the sum of its votes, its reason the artist that voted most. Artists the
+user ever played are left out, and those they skipped (90 days,
+`shared::similarity::SKIP_DAYS`). 100 are kept (`SIMILARITY_RECOMMENDATIONS`).
+Users with fewer than 5 distinct artists (`SIMILARITY_MIN_USER_ARTISTS`)
+get none.
+
+**Imports count for the owner, never for anyone else.** The history is the
+query, the weights are the model: imported plays steer only the
+importer's own recommendations and taste neighbours, through the artists
+they vote with, and never what others see, since they weigh nothing in the
+artist neighbours or in a candidate's taste vector. A user who brings ten
+years of Last.fm history gets recommendations the day they import it
+(unless every play they have is older than the window), where waiting for
+weights would take weeks; and an account dumping a fabricated history can
+only make its own recommendations worse.
+
+Summing only a candidate's three strongest votes, so that an artist
+attached to everything a user plays casually couldn't outvote what their
+favourites point to, was tried and dropped: it cost hit rate (0.495 to
+0.414 on the evaluation below, before cohesion was added) and stopped no
+farm that cohesion and the share floor don't.
+
+### Taste neighbours
+
+Accounts that chose to be shown (`listed`), with a public profile, are the
+**candidates**; every user not `off` is a **query**. A candidate's vector
+is its credits, each times the artist's rarity `ln(N / L)`, of unit
+length; a query's is its history the same way (imports included: theirs
+to steer). The score is their cosine, times `shared / (shared + 3)` for
+the artists in common (at least 3, `SIMILARITY_MIN_SHARED`), times the
+candidate's coordination factor (cosine ignores scale, so the factor
+applies to the score). 30 are kept per user (`SIMILARITY_TASTE_NEIGHBOURS`),
+with the three artists adding most to the score.
+
+**Without all-pairs:** an inverted index from artist to the candidates
+with credit for it, each list kept to its 1,000 strongest
+(`SIMILARITY_MAX_POSTINGS`); a query adds up its artists' lists, keeps
+twice the neighbours it needs, and scores those exactly from the two
+vectors. The cost is the query artists' postings, at most users × 200 ×
+1,000 and in practice far less (rare artists have short lists), never
+users²; capping a popular artist's postings loses only its small
+contribution to pairs found through others. MinHash/LSH was the other
+option: it estimates Jaccard over sets, which loses the weights and the
+rarity that make a shared niche artist mean more than a shared hit.
+
+### Attacks
+
+`scripts/synthetic/similarity-attack.sql` puts seven farms on the
+genre-structured population ([Synthetic scenario](#synthetic-scenario)).
+Every farm account is older than 7 days, claims a trusted client,
+declares listened time at the scrobble point, and plays 15 to 40 tracks a
+day on 92 % of the last 28 days: 30 % its target, 30 % the popular artist
+it wants to be similar to, 40 % filler.
+
+| farm | accounts | registered | wants to be similar to | its listeners | mean factor | under 0.95 | on that list | lists it leads or joins (first 20) | honest users recommended it |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| a | 400 | within 2 days, 40 days ago | the most listened-to artist | 3,981 | 0.61 | 400 | no | none | 0 |
+| b | 300 | within 2 days, 45 days ago | the smallest genre head | 732 | 0.60 | 300 | no | none | 0 |
+| c, copies | 300 | over 840 days | the most listened-to artist | 3,981 | 1.00 | 0 | no | none | 0 |
+| d, copies | 100 | over 840 days | a genre's 10th artist | 280 | 0.94 | 35 | no | none | 0 |
+| e, copies | 15 | over 840 days | another genre's 10th | 322 | 1.00 | 0 | no | none | 0 |
+| f, varied | 100 | over 840 days | the same 10th artist as d | 280 | 1.00 | 2 | 18th of 30 (98 accounts, 0.414) | 11 | 1 |
+| g, varied | 300 | over 840 days | the most listened-to artist | 3,981 | 1.00 | 0 | no | 88 | 52 |
+
+Listeners are the honest accounts with weight for the artist in the
+window. With the defaults; `scripts/synthetic/similarity-attack-results.sql`
+prints the table, `worker similarity report --artist "Similarity Target C"
+…` the same with the weights alone and with every play.
+
+What the defences do, in order:
+
+- **Registration together** (a, b): the coordination detection flags
+  them (age and behaviour) at a mean factor of 0.61 and 0.60, under the
+  0.95 minimum: they add nothing, whatever their size.
+- **Copies** (c, d, e): unflagged accounts registered over years like the
+  population, playing one list. Before cohesion and the account-counted
+  share floor, c (300 accounts) didn't reach the most listened-to artist
+  (3,981 honest listeners) but put its target in the first three of at
+  least 40 of its filler artists' lists (of the ones it led, the farm was
+  16 to 30 % of the credit but 8 to 17 % of the accounts) and in the first
+  20 recommendations of 3,976 honest accounts. Cohesion leaves all three
+  targets out.
+- **Varied** (f, g): each account plays 20 favourites of its own drawn
+  from the genre, like an honest fan, so the audience is no more cohesive
+  than one. g (300 accounts) is 7 % of the most listened-to artist's
+  listeners, under the share floor, and isn't on its list; but its
+  favourites are its genre's artists, and on 88 smaller ones it is a
+  tenth of the listeners (10 to 99 accounts in common): its target leads
+  their lists and reaches 52 honest users' recommendations. f (100
+  accounts) is 26 % of a 280-listener artist's listeners: its target is
+  18th of that artist's 30 neighbours, leads 10 small artists' lists of
+  the genre, and reaches 1 honest user's recommendations.
+
+**What an attacker needs** to put an artist on artist A's list:
+
+1. accounts more than a week old, scrobbling through a client the weights
+   trust with plausible listened time, for weeks (each account's credit
+   needs 4 full plays over the 180 days);
+2. that the coordination detection doesn't dent below 0.95: no shared
+   registration week beyond chance, no shared address or network, no
+   rare shared client, no lockstep schedule ([what evading
+   costs](#what-it-doesnt-catch-and-what-evading-costs));
+3. at least a ninth as many as A has listeners (10 % of A's listeners plus
+   the farm), and 10 at least;
+4. listening that differs from account to account as much as honest fans'
+   (cohesion under 0.8), which spreads each account over more artists:
+   every artist the farm wants to reach needs a ninth of its listeners
+   among the accounts that play it.
+
+So a farm of F such accounts reaches the artists its accounts play that
+have up to about 9 × F listeners, and the users who listen to them. On the
+synthetic population (4,000 honest accounts) the most listened-to artist
+takes about 440; a genre's tenth artist, 30. A small instance is cheaper
+to attack, as for the rankings: its artists have fewer listeners.
+
+What it doesn't catch: a farm of varied accounts, unflagged, large enough
+for its targets' audiences (f); the share floor sets its price, not a
+detection. Recommendations follow the lists, so the users it reaches are
+the listeners of the artists it attached its target to.
+
+### Offline evaluation
+
+`worker similarity eval` holds out the last 14 days (`--holdout-days`):
+the model is computed from the 180 days before, users' histories end at
+the cut, and each user's **targets** are the artists they first played
+after it, at least twice with some weight (`--min-plays`). Scored at 20
+(`--n`) against the popularity baseline (the most listened-to artists the
+user hasn't played), on the synthetic population with taste communities:
+
+4,200 of the 5,496 users served found a new artist in the hold-out:
+
+| | hit rate | recall | NDCG | coverage | popularity | targets' popularity |
+| --- | --- | --- | --- | --- | --- | --- |
+| weights and coordination factors | 0.528 | 0.346 | 0.288 | 427 | 0.6 | 10.4 |
+| every play, no factors | 0.530 | 0.351 | 0.296 | 431 | 0.6 | 10.4 |
+| popularity baseline | 0.404 | 0.247 | 0.209 | 70 | 0.1 | 10.4 |
+
+The model finds a discovery for 31 % more users than the baseline, 40 %
+more of the discoveries, and ranks them higher (NDCG +38 %); the weights cost
+it nothing measurable on honest data (every play: 0.530).
+
+- **Hit rate**: users with a target among their 20; **recall**: targets
+  found, against at most 20 per user; **NDCG**: the same, earlier
+  positions counting more; **coverage**: distinct artists recommended to
+  anyone; **popularity**: the mean popularity percentile of what is
+  recommended (0 is the most listened-to artist), beside the targets'.
+- The share floor favours larger artists, and the population's
+  discoveries are Zipf-distributed within genres, so recommendations are
+  more popular than the targets (0.6 against 10.4) but far less
+  concentrated than the baseline (427 artists against 70).
+- Against the population's genres: 81.3 % of recommendations are in
+  one of the user's one to three genres (8.5 % by chance), every taste
+  neighbour shares a genre with the user (13.4 % by chance), and
+  44.2 % of the first 10 neighbours of an artist are of its genre
+  (5 % by chance; listeners of two genres join them).
+
+**What it proves**: that the pipeline recovers communities a generator
+put there, ranks discoveries above the popular baseline, and that the
+defences cost honest quality nothing measurable here. **What it doesn't**:
+the generator's tastes are a mixture of genres with Zipf popularity inside
+each, and discovery means a favourite of the user's genres activating;
+real tastes are neither, real discoveries come from outside (radio,
+friends, releases), and nothing here measures whether people like what
+they're shown. Tune on real data.
+
+Choices made on a prototype of the same model (the same kind of
+population, 4,000 users, 14-day hold-out, a credit-counted share floor):
+a full credit at 1 play gave a 0.38 hit rate, 2 plays 0.46, 4 plays 0.48,
+8 plays 0.44; a share floor of 5 % 0.48 (508 artists covered), 7.5 % 0.48
+(390) and 10 % 0.46 (315), the last doubling the price of an attack
+against 5 %. Of the scores, a plain cosine gave 0.39 and a plain excess
+count 0.46 at a 5 % floor, both recommending mostly the most popular;
+lift 0.49, as good, but with no floor it scored 0.44 on rare pairs'
+noise.
+
+### Recalibrating with real users
+
+1. Turn nothing off: the defaults lean to fewer and safer neighbours.
+   Watch `worker similarity report`: the share of accounts the minimum
+   factor leaves out (honest ones lose only their anonymous
+   contribution), the cohesion distribution (raise
+   `SIMILARITY_MAX_COHESION` if honest audiences come near it; on real
+   data they should sit well below the synthetic genre fans'), and which
+   artists' lists every play, without weights, would have changed.
+2. Run `worker similarity eval` on the real history once there are a few
+   hundred accounts: a hit rate under the popularity baseline's means too
+   little data (lower `SIMILARITY_MIN_LISTENERS` and `_MIN_SUPPORT`
+   carefully: they are also what keeps an artist's list from standing for
+   a handful of accounts).
+3. `SIMILARITY_MIN_SHARE` is the price of an attack: lowering it to 5 %
+   gains coverage of niche artists and halves the price.
+4. Try settings with `worker similarity refresh --dry-run` and `eval`
+   with the variables set: nothing is stored.
+
+### Cost
+
+Measured on the population of [Attacks](#attacks) (5,521 accounts,
+5,176,216 scrobbles, the follow graph and the three-year heavy listener
+of [social.md](social.md#measured)), TimescaleDB 2.29.2 / Postgres 18 in a
+container (`shared_buffers=512MB`), on a 4-core cloud machine with 15 GB
+of memory:
+
+| | |
+| --- | --- |
+| input | 5,501 accounts, 558,670 (account, artist) credits over 180 days, 578,524 (account, artist) rows of history |
+| loading | 3.6 to 3.8 s: the window's weights by (account, artist), each account's factor, the daily aggregate whole |
+| computing | 5.2 to 5.6 s on one blocking thread: 1,315 artists with 58,515 neighbours, 5,496 users' recommendations and taste neighbours (1,256 listed candidates) |
+| storing | 13.2 to 14.0 s, one transaction |
+| a run | 22 to 24 s, 177 MB peak memory |
+| stored | `artist_neighbours` 11 MB, `user_recommendations` 18 MB (one row per user), `user_neighbours` 30 MB (164,810 rows) |
+
+Storing first took 54 s: a row per recommendation (502,499) with three
+foreign keys, at ~25 µs each a row, so a user's list is now one row of
+arrays (FK on the user only, for the erase): 20,000 rows took 1,492 ms with
+three FKs, 496 with one, 36 with none. Taste neighbours stay a row per pair
+(the erase and the generic erasure test find them by neighbour), 30 per
+user.
+
+It only reads until its final transaction. With 4 clients each
+scrobbling, reading a profile, a ranking page, an artist's neighbours and
+a user's recommendations (pgbench), latency was 6.06 ms (660 transactions
+a second) idle and 7.41 ms (540/s) with refreshes running back to back,
+on this 4-core machine where the worker, Postgres and the clients share
+the cores; a refresh runs once a day for ~23 s.
+
+The computation scales with the (account, artist) pairs, measured on
+generated input (20 genres, 80 artists per account, a catalog 5 times the
+accounts, 30 % listed), one thread:
+
+| accounts | artist neighbours | recommendations | taste neighbours | peak memory |
+| --- | --- | --- | --- | --- |
+| 4,000 | 1.5 s | 0.7 s | 0.8 s | 110 MB |
+| 10,000 | 3.9 s | 1.8 s | 3.0 s | 271 MB |
+| 20,000 | 7.4 s | 3.9 s | 9.3 s | 531 MB |
+| 50,000 | 18.2 s | 13.4 s | 38.0 s | 1.3 GB |
+
+Every account listed at 20,000: taste neighbours 17.3 s. Artist neighbours
+are Σ (artists per account)², recommendations users × 200 × 50, taste
+neighbours the query artists' postings (capped at 1,000 per artist), all
+linear in accounts for a bounded history; memory, about 26 KB an
+account, is the limit first.
+
+**Similar tracks** were left out: an account plays 216 tracks in the
+window against 102 artists (4.5 times the pairs), only 3,530 of 83,125
+tracks with weight (4.2 %) reach 10 accounts' credit, and a track's
+co-listening is mostly the same artist's other tracks, which its artist
+page already shows.
+
 ## Commands
 
 ```bash
@@ -673,6 +1003,11 @@ worker rank top [--period week|month|year] [--kind artist|track] [--limit N]
 worker rank detect [--dry-run] [--limit N] [--members]
 worker rank cohorts [--dry-run] [--limit N] [--members]
 worker tracks mb-review [--limit N] [--apply]
+worker similarity refresh [--dry-run]
+worker similarity artist NAME [--limit N] [--fresh | --raw]
+worker similarity user NAME [--limit N]
+worker similarity report [--artist NAME]... [--limit N]
+worker similarity eval [--holdout-days N] [--n N] [--min-plays N]
 ```
 
 `report` prints, for the range (the last 7 days by default): plays and how
@@ -693,6 +1028,18 @@ counts the routes leave out, marking where they stop serving
 hours); `cohorts` lists the latest stored run's cohorts. With `--dry-run`
 both detect now and store nothing, which previews other settings;
 `--members` lists each flagged account's evidence.
+
+`similarity refresh` recomputes similar artists, recommendations and
+taste neighbours now with the current `SIMILARITY_*` settings (the worker
+does once a day; `--dry-run` stores nothing); `artist` prints an artist's
+stored neighbours with their scores and exact counts, or computes them now
+from the weights (`--fresh`) or from every play (`--raw`); `user` prints
+what a user is served, recommendations and taste neighbours; `report`
+compares the results with the weights and coordination factors, with the
+weights alone and with every play (how much the lists agree, where given
+artists and the latest coordination cohorts' targets appear, what every
+play would put in more lists), and prints the cohesion of the audiences;
+`eval` is the [offline evaluation](#offline-evaluation).
 
 ## Track lengths
 
@@ -775,6 +1122,7 @@ psql postgres://…/synth -f scripts/synthetic/coordination-results.sql
 
 Each farm's size and the crowds' are variables (`-v aged=400 -v decoy=400
 -v proxied=300 -v spread=300 -v release=2500 -v hype=150 -v fans=60`).
+
 The population's registration days are spread over 60 to 900 days ago by
 user number, without drawing from the random sequence, so its plays (and
 the numbers above) are the same as before they were spread. Loading took
@@ -782,8 +1130,41 @@ the numbers above) are the same as before they were spread. Loading took
 weighing 10 and 12 min in 6 processes split by date (days are
 independent).
 
+The similarity scenarios ([Attacks](#attacks)) take the population with
+taste communities (`-v genres=20`: 20 genres, each user's favourites
+drawn from one to three of them, and discovered over time), the follow
+graph and the heavy listener:
+
+```bash
+psql postgres://…/synth -v users=4000 -v days=60 -v genres=20 -f scripts/synthetic/population.sql
+psql postgres://…/synth -f scripts/synthetic/follows.sql
+psql postgres://…/synth -f scripts/synthetic/heavy.sql
+psql postgres://…/synth -f scripts/synthetic/similarity-attack.sql
+DATABASE_URL=postgres://…/synth worker classify reclassify   # by date range, in parallel
+DATABASE_URL=postgres://…/synth worker rank recompute
+DATABASE_URL=postgres://…/synth worker rank detect
+DATABASE_URL=postgres://…/synth worker similarity refresh
+psql postgres://…/synth -f scripts/synthetic/similarity-attack-results.sql
+DATABASE_URL=postgres://…/synth worker similarity eval
+```
+
+On the 4-core machine of [Cost](#cost-1): 3 min for the population, 4 for
+the follows, 1.5 for the attacks, 6 to classify and 7 to weigh in 4
+processes split by date, 9 s to detect, 23 s for similarity. The farm
+sizes are variables (`-v aged=400 -v aged_mid=300 -v established=300
+-v established_mid=100 -v established_small=15 -v varied_mid=100
+-v varied=300`); every third population account is `listed`.
+
 ## Limits
 
+- **Varied farms in similarity.** An unflagged farm whose accounts play
+  like honest fans attaches its artist to whatever artists it makes a
+  tenth of the listeners of, and reaches their listeners'
+  recommendations ([Attacks](#attacks)); the share floor sets the price,
+  nothing detects it. On a small instance that is a few dozen accounts
+  for a niche artist.
+- **Similarity's memory** grows with the accounts (about 26 KB each at
+  80 artists, 1.3 GB at 50,000), in the worker, once a day.
 - **Aged farms sharing one trait.** Coordination detection zeroes a farm
   that shares two group traits, but only dents one that shares a single
   one (registration week) and evades the rest; one registering slowly
