@@ -14,7 +14,9 @@ use crate::{
     middleware::auth::AuthUser,
     state::AppState,
 };
-use db::queries::{enrichment as enrichment_db, tracks as tracks_db, users as users_db};
+use db::queries::{
+    enrichment as enrichment_db, loves as loves_db, tracks as tracks_db, users as users_db,
+};
 use shared::models::{Album, Artist, TopListener, TopTrack, Track, TrackWithCredits, UserProfile};
 
 fn min_listeners(state: &AppState) -> i32 {
@@ -27,18 +29,31 @@ const COUNTS_RULE: &str = "Catalog-wide counts include every user's plays, priva
 pub async fn get_track(
     State(state): State<AppState>,
     Path(IdPath { id }): Path<IdPath>,
+    auth_user: Option<Extension<AuthUser>>,
 ) -> ApiResult<Json<TrackWithCredits>> {
     let track = tracks_db::public_track(&state.db, id, min_listeners(&state))
         .await?
         .ok_or(AppError::NotFound)?;
     let artists = tracks_db::track_credits(&state.db, track.id).await?;
+    let loved = match auth_user {
+        Some(Extension(viewer)) => Some(
+            loves_db::loved_at(&state.db, viewer.id, track.id)
+                .await?
+                .is_some(),
+        ),
+        None => None,
+    };
 
-    Ok(Json(TrackWithCredits { track, artists }))
+    Ok(Json(TrackWithCredits {
+        track,
+        artists,
+        loved,
+    }))
 }
 
 pub fn _get_track_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Get a track")
-        .description(&format!("Returns catalog metadata for a single track by its internal ID, including title, album, duration and the full artist credit list (primary artist first, then featured collaborators in billing order). `scrobble_count` is `null` for a track fewer than the minimum of listeners played. {COUNTS_RULE}"))
+        .description(&format!("Returns catalog metadata for a single track by its internal ID, including title, album, duration and the full artist credit list (primary artist first, then featured collaborators in billing order), and for a signed-in viewer whether it loves the track (`loved`, `null` signed out). `scrobble_count` is `null` for a track fewer than the minimum of listeners played. {COUNTS_RULE}"))
         .tag("Catalog")
         .response::<200, Json<TrackWithCredits>>()
         .response_with::<404, ErrorJson, _>(|r| r.description("Track not found"))

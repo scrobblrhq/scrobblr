@@ -68,7 +68,7 @@ pub fn _feed_doc(op: TransformOperation) -> TransformOperation {
         .description(&format!(
             "What the accounts the signed-in user follows played in the last {FEED_DAYS} days, \
              newest first: each entry a scrobble, with who played it and when, the track, its \
-             artist and album, and its label. Accounts anyone may see only: private ones and \
+             artist and album, its label, and whether the account that played it loves the track (`loved`). Accounts anyone may see only: private ones and \
              those waiting to be deleted are left out, and so are the classifier's suspect plays \
              and duplicates (the same listen reported again); plays not classified yet are in, \
              with `status: null`.\n\n\

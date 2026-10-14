@@ -124,7 +124,9 @@ async fn window_entries(
                p.artist_id, a.name AS artist_name, a.image_url AS artist_image,
                al.id AS "album_id?", al.title AS "album_title?", al.image_url AS "album_image?",
                CASE WHEN d.user_id IS NULL OR p.id > d.max_scrobble_id THEN NULL
-                    ELSE COALESCE(p.status::text, 'counted') END AS status
+                    ELSE COALESCE(p.status::text, 'counted') END AS status,
+               EXISTS (SELECT 1 FROM loved_tracks l
+                       WHERE l.user_id = p.user_id AND l.track_id = p.track_id) AS "loved!"
         FROM (
             SELECT s.id, s.played_at, s.user_id, s.track_id, s.artist_id, s.album_id, f.status
             FROM scrobbles s
@@ -170,6 +172,7 @@ async fn window_entries(
             album_image: r.album_image,
             artist_image: r.artist_image,
             status: r.status.as_deref().and_then(ScrobbleLabel::from_status),
+            loved: r.loved,
         })
         .collect())
 }

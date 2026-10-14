@@ -4,7 +4,11 @@ import type { TrackCredit } from "./TrackCredit.js";
 /**
  * A track together with its full credit list.
  */
-export type TrackWithCredits = { artists: Array<TrackCredit>, id: number, artist_id: number, album_id: number | null, title: string, title_normalized: string, mbid: string | null, duration_ms: number | null, 
+export type TrackWithCredits = { artists: Array<TrackCredit>, 
+/**
+ * Whether the signed-in viewer loves the track; `null` when signed out.
+ */
+loved: boolean | null, id: number, artist_id: number, album_id: number | null, title: string, title_normalized: string, mbid: string | null, duration_ms: number | null, 
 /**
  * `null` unless at least `RANKING_MIN_LISTENERS` (5) users played it.
  */

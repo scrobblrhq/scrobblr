@@ -219,6 +219,8 @@ pub struct TrackWithCredits {
     #[ts(flatten)]
     pub track: Track,
     pub artists: Vec<TrackCredit>,
+    /// Whether the signed-in viewer loves the track; `null` when signed out.
+    pub loved: Option<bool>,
 }
 
 ///  Scrobble
@@ -253,6 +255,9 @@ pub struct ScrobbleRich {
     pub duration_ms: Option<i32>,
     /// What the classifier made of it; `null` until it is classified.
     pub status: Option<ScrobbleLabel>,
+    /// Whether the user who scrobbled it loves the track (now, not when it
+    /// was played).
+    pub loved: bool,
 }
 
 /// A scrobble's label as profiles show it. The classifier's duplicates (the
@@ -454,6 +459,8 @@ pub struct FeedEntry {
     /// until it is classified; suspect plays and duplicates aren't in the
     /// feed.
     pub status: Option<ScrobbleLabel>,
+    /// Whether the account that played it loves the track.
+    pub loved: bool,
 }
 
 /// A page of the feed, newest first.
@@ -522,6 +529,8 @@ pub struct ActivityDay {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
 #[ts(export)]
 pub struct NowPlayingRich {
+    /// For loving it, or opening its page.
+    pub track_id: i64,
     pub track_title: String,
     pub artist_name: String,
     pub album_title: Option<String>,
@@ -1124,6 +1133,7 @@ mod tests {
                 album_image: image(),
                 duration_ms: None,
                 status: Some(ScrobbleLabel::Counted),
+                loved: false,
             })
             .unwrap(),
             serde_json::to_value(LovedTrack {
@@ -1223,9 +1233,11 @@ mod tests {
                 album_image: image(),
                 artist_image: image(),
                 status: None,
+                loved: false,
             })
             .unwrap(),
             serde_json::to_value(NowPlayingRich {
+                track_id: 1,
                 track_title: "t".into(),
                 artist_name: "a".into(),
                 album_title: None,

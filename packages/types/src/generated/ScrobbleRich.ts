@@ -8,4 +8,9 @@ export type ScrobbleRich = { id: number, played_at: string, source: string, trac
 /**
  * What the classifier made of it; `null` until it is classified.
  */
-status: ScrobbleLabel | null, };
+status: ScrobbleLabel | null, 
+/**
+ * Whether the user who scrobbled it loves the track (now, not when it
+ * was played).
+ */
+loved: boolean, };

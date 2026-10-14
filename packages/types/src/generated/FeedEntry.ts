@@ -25,4 +25,8 @@ artist_image: string | null,
  * until it is classified; suspect plays and duplicates aren't in the
  * feed.
  */
-status: ScrobbleLabel | null, };
+status: ScrobbleLabel | null, 
+/**
+ * Whether the account that played it loves the track.
+ */
+loved: boolean, };

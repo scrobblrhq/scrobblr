@@ -1149,6 +1149,10 @@
             "format": "int64",
             "type": "integer"
           },
+          "loved": {
+            "description": "Whether the account that played it loves the track.",
+            "type": "boolean"
+          },
           "played_at": {
             "format": "date-time",
             "type": "string"
@@ -1182,7 +1186,8 @@
           "track_id",
           "track_title",
           "artist_id",
-          "artist_name"
+          "artist_name",
+          "loved"
         ],
         "type": "object"
       },
@@ -1699,11 +1704,17 @@
             "format": "date-time",
             "type": "string"
           },
+          "track_id": {
+            "description": "For loving it, or opening its page.",
+            "format": "int64",
+            "type": "integer"
+          },
           "track_title": {
             "type": "string"
           }
         },
         "required": [
+          "track_id",
           "track_title",
           "artist_name",
           "started_at",
@@ -2480,6 +2491,10 @@
             "format": "int64",
             "type": "integer"
           },
+          "loved": {
+            "description": "Whether the user who scrobbled it loves the track (now, not when it\n was played).",
+            "type": "boolean"
+          },
           "played_at": {
             "format": "date-time",
             "type": "string"
@@ -2513,7 +2528,8 @@
           "track_id",
           "track_title",
           "artist_id",
-          "artist_name"
+          "artist_name",
+          "loved"
         ],
         "type": "object"
       },
@@ -3362,6 +3378,13 @@
           "id": {
             "format": "int64",
             "type": "integer"
+          },
+          "loved": {
+            "description": "Whether the signed-in viewer loves the track; `null` when signed out.",
+            "type": [
+              "boolean",
+              "null"
+            ]
           },
           "mbid": {
             "format": "uuid",
@@ -8442,7 +8465,7 @@
     },
     "/v1/track/{id}": {
       "get": {
-        "description": "Returns catalog metadata for a single track by its internal ID, including title, album, duration and the full artist credit list (primary artist first, then featured collaborators in billing order). `scrobble_count` is `null` for a track fewer than the minimum of listeners played. Catalog-wide counts include every user's plays, private profiles' too, so they are served only for entities at least `RANKING_MIN_LISTENERS` (5 by default) distinct users have played, counted from the daily aggregates (a new listener counts from their next refresh, within the hour; today's plays from tomorrow): a count is never one or two people's listening.",
+        "description": "Returns catalog metadata for a single track by its internal ID, including title, album, duration and the full artist credit list (primary artist first, then featured collaborators in billing order), and for a signed-in viewer whether it loves the track (`loved`, `null` signed out). `scrobble_count` is `null` for a track fewer than the minimum of listeners played. Catalog-wide counts include every user's plays, private profiles' too, so they are served only for entities at least `RANKING_MIN_LISTENERS` (5 by default) distinct users have played, counted from the daily aggregates (a new listener counts from their next refresh, within the hour; today's plays from tomorrow): a count is never one or two people's listening.",
         "parameters": [
           {
             "in": "path",
@@ -8497,6 +8520,12 @@
             "description": "An error, as `{ \"error\": message }`"
           }
         },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ],
         "summary": "Get a track",
         "tags": [
           "Catalog"
@@ -10147,7 +10176,7 @@
     },
     "/v1/user/me/feed": {
       "get": {
-        "description": "What the accounts the signed-in user follows played in the last 14 days, newest first: each entry a scrobble, with who played it and when, the track, its artist and album, and its label. Accounts anyone may see only: private ones and those waiting to be deleted are left out, and so are the classifier's suspect plays and duplicates (the same listen reported again); plays not classified yet are in, with `status: null`.\n\nPages of `limit` entries (50 by default, 100 at most); pass `next` as `before` for the next, older page, which stays where it was however many plays arrive meanwhile. `next` is `null` once the page reaches the feed's oldest day; a page can hold fewer entries than asked for and still have a next one. To catch up, poll the first page and stop paging at an entry already seen (entries are unique by `id`). Nothing is pushed: there is no stream.",
+        "description": "What the accounts the signed-in user follows played in the last 14 days, newest first: each entry a scrobble, with who played it and when, the track, its artist and album, its label, and whether the account that played it loves the track (`loved`). Accounts anyone may see only: private ones and those waiting to be deleted are left out, and so are the classifier's suspect plays and duplicates (the same listen reported again); plays not classified yet are in, with `status: null`.\n\nPages of `limit` entries (50 by default, 100 at most); pass `next` as `before` for the next, older page, which stays where it was however many plays arrive meanwhile. `next` is `null` once the page reaches the feed's oldest day; a page can hold fewer entries than asked for and still have a next one. To catch up, poll the first page and stop paging at an entry already seen (entries are unique by `id`). Nothing is pushed: there is no stream.",
         "parameters": [
           {
             "description": "The previous page's `next`, for the page after it.",
@@ -12571,7 +12600,7 @@
     },
     "/v1/user/{username}/recent": {
       "get": {
-        "description": "Returns the most recent scrobbles for a user, ordered by `played_at` descending, each with its `status` (`counted`, `suspect`, `no_data`, or `null` until classified). Duplicates (the same listen reported again) are left out. Maximum 200 per request. Supports cursor-based pagination via the `before` timestamp. Returns 403 for private profiles.",
+        "description": "Returns the most recent scrobbles for a user, ordered by `played_at` descending, each with its `status` (`counted`, `suspect`, `no_data`, or `null` until classified) and whether the user loves the track now (`loved`). Duplicates (the same listen reported again) are left out. Maximum 200 per request. Supports cursor-based pagination via the `before` timestamp. Returns 403 for private profiles.",
         "parameters": [
           {
             "in": "path",

@@ -256,7 +256,7 @@ pub async fn recent_scrobbles(
 
 pub fn _recent_scrobbles_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Get recent scrobbles")
-        .description("Returns the most recent scrobbles for a user, ordered by `played_at` descending, each with its `status` (`counted`, `suspect`, `no_data`, or `null` until classified). Duplicates (the same listen reported again) are left out. Maximum 200 per request. Supports cursor-based pagination via the `before` timestamp. Returns 403 for private profiles.")
+        .description("Returns the most recent scrobbles for a user, ordered by `played_at` descending, each with its `status` (`counted`, `suspect`, `no_data`, or `null` until classified) and whether the user loves the track now (`loved`). Duplicates (the same listen reported again) are left out. Maximum 200 per request. Supports cursor-based pagination via the `before` timestamp. Returns 403 for private profiles.")
         .tag("Scrobbles")
         .response_with::<200, Json<Vec<ScrobbleRich>>, _>(|r| r.description("Recent scrobbles, newest first"))
         .response_with::<403, ErrorJson, _>(|r| r.description("Profile is private"))

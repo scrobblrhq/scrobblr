@@ -1,21 +1,21 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            np.user_id   AS \"user_id!\",\n            t.title      AS \"track_title!\",\n            a.name       AS \"artist_name!\",\n            al.title     AS \"album_title?\",\n            al.image_url AS \"album_image?\",\n            a.image_url  AS \"artist_image?\",\n            np.started_at,\n            np.expires_at,\n            np.source\n        FROM now_playing np\n        JOIN tracks  t  ON t.id = np.track_id\n        JOIN artists a  ON a.id = np.artist_id\n        LEFT JOIN albums al ON al.id = np.album_id\n        WHERE np.expires_at > NOW()\n          AND (($1 = 'artist' AND np.artist_id = $2)\n            OR ($1 = 'album'  AND np.album_id  = $2))\n        ",
+  "query": "\n        SELECT\n            np.track_id,\n            t.title      AS track_title,\n            a.name       AS artist_name,\n            al.title     AS \"album_title?\",\n            al.image_url AS album_image,\n            a.image_url  AS artist_image,\n            np.started_at,\n            np.expires_at,\n            np.source\n        FROM now_playing np\n        JOIN tracks  t  ON t.id = np.track_id\n        JOIN artists a  ON a.id = np.artist_id\n        LEFT JOIN albums al ON al.id = np.album_id\n        WHERE np.user_id   = $1\n          AND np.expires_at > NOW()\n        ",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "user_id!",
+        "name": "track_id",
         "type_info": "Int8"
       },
       {
         "ordinal": 1,
-        "name": "track_title!",
+        "name": "track_title",
         "type_info": "Text"
       },
       {
         "ordinal": 2,
-        "name": "artist_name!",
+        "name": "artist_name",
         "type_info": "Text"
       },
       {
@@ -25,12 +25,12 @@
       },
       {
         "ordinal": 4,
-        "name": "album_image?",
+        "name": "album_image",
         "type_info": "Text"
       },
       {
         "ordinal": 5,
-        "name": "artist_image?",
+        "name": "artist_image",
         "type_info": "Text"
       },
       {
@@ -51,7 +51,6 @@
     ],
     "parameters": {
       "Left": [
-        "Text",
         "Int8"
       ]
     },
@@ -67,5 +66,5 @@
       false
     ]
   },
-  "hash": "62132f8453543bc23fb69a6e3fd7ca46dfc86b2ef875cec1027e065ae996c67b"
+  "hash": "ec5fb00b7c9e97647fc00eb29849d43f90b071817efd8362f5a2edb30c20903e"
 }

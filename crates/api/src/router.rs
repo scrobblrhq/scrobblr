@@ -450,10 +450,6 @@ pub fn build(state: AppState) -> Router {
         )
         // Catalog
         .api_route(
-            "/v1/track/{id}",
-            get_with(tracks::get_track, tracks::_get_track_doc),
-        )
-        .api_route(
             "/v1/artist/{id}",
             get_with(tracks::get_artist, tracks::_get_artist_doc),
         )
@@ -483,8 +479,13 @@ pub fn build(state: AppState) -> Router {
         );
 
     // Optional auth: a signed-in viewer gets what concerns it (follows,
-    // votes), and doesn't get accounts blocking it or blocked by it.
+    // votes, loves), and doesn't get accounts blocking it or blocked by it.
     let optional_authed_users = ApiRouter::new()
+        // The track's page, with whether the viewer loves it
+        .api_route(
+            "/v1/track/{id}",
+            get_with(tracks::get_track, tracks::_get_track_doc),
+        )
         // Lists naming people
         .api_route(
             "/v1/artist/{id}/listeners",

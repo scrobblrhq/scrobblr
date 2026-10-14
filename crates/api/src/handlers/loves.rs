@@ -387,4 +387,92 @@ mod tests {
         })
         .await;
     }
+
+    /// The track page says whether the viewer loves the track; recent
+    /// scrobbles and the feed whether the account that played it does; now
+    /// playing names the track, so it can be loved.
+    #[tokio::test]
+    #[ignore = "needs Postgres and Redis: just test-db"]
+    async fn the_loved_flag_shows_where_tracks_are_listed() {
+        with_app(Default::default(), |app| async move {
+            let (_, _, viewer) = app.other_user("viewer").await;
+            let (status, _) = app
+                .api_as(
+                    &viewer,
+                    Method::POST,
+                    &format!("/v1/user/{}/follow", app.username),
+                    None,
+                )
+                .await;
+            assert_eq!(status, StatusCode::NO_CONTENT);
+            for (track, minutes) in [("Loved", 20), ("Not Loved", 10)] {
+                let play = serde_json::json!({
+                    "track": track,
+                    "artist": "Band",
+                    "played_at": Utc::now() - chrono::TimeDelta::minutes(minutes),
+                    "duration_ms": 200_000,
+                });
+                let (status, body) = app.api(Method::POST, "/v1/scrobble", Some(play)).await;
+                assert_eq!(status, StatusCode::CREATED, "{body}");
+            }
+            let (status, _) = app
+                .api(
+                    Method::POST,
+                    "/v1/now-playing",
+                    Some(serde_json::json!({ "track": "Loved", "artist": "Band" })),
+                )
+                .await;
+            assert_eq!(status, StatusCode::NO_CONTENT);
+            let id: i64 = sqlx::query_scalar("SELECT id FROM tracks WHERE title = 'Loved'")
+                .fetch_one(&app.pool)
+                .await
+                .unwrap();
+            let (status, _) = app
+                .api(Method::POST, &format!("/v1/track/{id}/love"), None)
+                .await;
+            assert_eq!(status, StatusCode::NO_CONTENT);
+
+            let page = format!("/v1/track/{id}");
+            assert_eq!(app.api(Method::GET, &page, None).await.1["loved"], true);
+            assert_eq!(
+                app.api_as(&viewer, Method::GET, &page, None).await.1["loved"],
+                false
+            );
+            assert_eq!(signed_out(&app, &page).await.1["loved"], Value::Null);
+
+            let recent = format!("/v1/user/{}/recent", app.username);
+            let (_, plays) = signed_out(&app, &recent).await;
+            let loved: Vec<(&str, bool)> = plays
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|p| {
+                    (
+                        p["track_title"].as_str().unwrap(),
+                        p["loved"].as_bool().unwrap(),
+                    )
+                })
+                .collect();
+            assert_eq!(loved, [("Not Loved", false), ("Loved", true)]);
+
+            let (status, feed) = app
+                .api_as(&viewer, Method::GET, "/v1/user/me/feed", None)
+                .await;
+            assert_eq!(status, StatusCode::OK);
+            let loved: Vec<bool> = feed["entries"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|e| e["loved"].as_bool().unwrap())
+                .collect();
+            assert_eq!(loved, [false, true]);
+
+            let playing = db::queries::scrobbles::get_now_playing(&app.pool, app.user_id)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(playing.track_id, id);
+        })
+        .await;
+    }
 }

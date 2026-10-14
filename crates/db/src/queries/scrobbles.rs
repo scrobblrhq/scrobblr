@@ -224,7 +224,9 @@ pub async fn get_recent_scrobbles(
             al.image_url     AS "album_image?",
             s.duration_ms,
             CASE WHEN d.user_id IS NULL OR s.id > d.max_scrobble_id THEN NULL
-                 ELSE COALESCE(f.status::text, 'counted') END AS status
+                 ELSE COALESCE(f.status::text, 'counted') END AS status,
+            EXISTS (SELECT 1 FROM loved_tracks l
+                    WHERE l.user_id = s.user_id AND l.track_id = s.track_id) AS "loved!"
         FROM scrobbles s
         JOIN tracks  t  ON t.id = s.track_id
         JOIN artists a  ON a.id = s.artist_id
@@ -261,6 +263,7 @@ pub async fn get_recent_scrobbles(
             album_image: r.album_image,
             duration_ms: r.duration_ms,
             status: r.status.as_deref().and_then(ScrobbleLabel::from_status),
+            loved: r.loved,
         })
         .collect();
 
@@ -284,7 +287,9 @@ pub async fn recent_scrobbles_page(
                s.artist_id, a.name AS artist_name, s.album_id,
                al.title AS "album_title?", al.image_url AS "album_image?", s.duration_ms,
                CASE WHEN d.user_id IS NULL OR s.id > d.max_scrobble_id THEN NULL
-                    ELSE COALESCE(f.status::text, 'counted') END AS status
+                    ELSE COALESCE(f.status::text, 'counted') END AS status,
+               EXISTS (SELECT 1 FROM loved_tracks l
+                       WHERE l.user_id = s.user_id AND l.track_id = s.track_id) AS "loved!"
         FROM scrobbles s
         JOIN tracks  t  ON t.id = s.track_id
         JOIN artists a  ON a.id = s.artist_id
@@ -323,6 +328,7 @@ pub async fn recent_scrobbles_page(
             album_image: r.album_image,
             duration_ms: r.duration_ms,
             status: r.status.as_deref().and_then(ScrobbleLabel::from_status),
+            loved: r.loved,
         })
         .collect())
 }
@@ -458,6 +464,7 @@ pub async fn get_now_playing(
         NowPlayingRich,
         r#"
         SELECT
+            np.track_id,
             t.title      AS track_title,
             a.name       AS artist_name,
             al.title     AS "album_title?",
@@ -499,6 +506,7 @@ pub async fn active_now_playing_for_entity(
         r#"
         SELECT
             np.user_id   AS "user_id!",
+            np.track_id  AS "track_id!",
             t.title      AS "track_title!",
             a.name       AS "artist_name!",
             al.title     AS "album_title?",
@@ -526,6 +534,7 @@ pub async fn active_now_playing_for_entity(
         .map(|r| NowPlayingForUser {
             user_id: r.user_id,
             rich: NowPlayingRich {
+                track_id: r.track_id,
                 track_title: r.track_title,
                 artist_name: r.artist_name,
                 album_title: r.album_title,
