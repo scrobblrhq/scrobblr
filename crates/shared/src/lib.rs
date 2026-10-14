@@ -14,6 +14,7 @@ pub mod origin;
 pub mod panic;
 pub mod ranking;
 pub mod scrobble;
+pub mod similarity;
 pub mod spotify;
 pub mod storage;
 pub mod track_lengths;

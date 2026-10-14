@@ -37,6 +37,7 @@ export * from "./ScrobblerAuthorization.js";
 export * from "./ScrobblerAuthorizationRedirect.js";
 export * from "./ScrobblerCredential.js";
 export * from "./ScrobbleRich.js";
+export * from "./SimilarityMode.js";
 export * from "./TopAlbum.js";
 export * from "./TopArtist.js";
 export * from "./TopListener.js";
