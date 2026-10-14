@@ -58,11 +58,25 @@ page is on the Scrobblr website: sign in there and approve the app.
   account can love 50,000 tracks; past either, the app gets Last.fm's
   error 29 or 6. Loves show on your profile, as private as it is, and
   nowhere else: they don't count in rankings or recommendations.
+- `track.getInfo` answers `userloved` and `userplaycount` for a `username`
+  whose profile you may see (pylast-based tools read them); Pano Scrobbler
+  asks last.fm for track info whatever server you set, so its hearts come
+  from the loved tracks it reads here.
+- ListenBrainz apps can love: Pano Scrobbler's ListenBrainz account loves
+  what is playing (the server hands it a `recording_msid`) and lists your
+  loves; feedback by recording MBID works for tracks the catalog knows
+  (matched by MusicBrainz, or named by a client). A hate (-1) only takes a
+  love back; nothing else is kept.
 - Web Scrobbler can't love tracks on Scrobblr. Its Last.fm scrobbler talks
   only to last.fm, and its ListenBrainz scrobbler sends loves to
   listenbrainz.org itself, whatever server you set, with your Scrobblr
   token: listenbrainz.org refuses it, but the token has been sent there.
-  Revoke it if that worries you.
+  Revoke it if that worries you. The ListenBrainz feedback endpoints this
+  server now has don't change that: Web Scrobbler never calls them. If you
+  scrobble from Web Scrobbler through its ListenBrainz scrobbler with a
+  Scrobblr token, turn off "Love/unlove tracks through players" in its
+  options (on by default: liking a song on a website sends the love) and
+  don't press its love button. Love from Scrobblr or another app instead.
 - Your Last.fm loved tracks come over with the Last.fm import.
 
 ## For server operators

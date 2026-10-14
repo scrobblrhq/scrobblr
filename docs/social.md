@@ -493,7 +493,18 @@ answered `<lfm status="ok"></lfm>` or `{}`; errors 6 for a missing artist
 or track and at the cap, 9, 13, 29), `user.getLovedTracks` (numbered
 pages, 50 by default, 1,000 at most) and `user.getRecentTracks` with
 `extended=1` (the artist as an object, and `loved`), as Pano Scrobbler
-asks for them. Audioscrobbler 1.2 plays rated `L` love their track. Each
+asks for them. Audioscrobbler 1.2 plays rated `L` love their track. `track.getInfo`
+(by `artist`/`track` or `mbid`, never creating a track) gives `userloved`
+and `userplaycount` for a `username`, or the session's account, only
+where that profile may be seen (left out otherwise, without saying why),
+no `listeners`, and `playcount` only past `RANKING_MIN_LISTENERS`.
+ListenBrainz feedback (`/1/feedback/recording-feedback`, score 1 loves, 0
+unloves, -1 unloves and isn't stored; `get-feedback`,
+`get-feedback-for-recordings`, as visible as the profile) resolves a
+`recording_mbid` to the matched track, else a client's hint, and a
+`recording_msid` the server handed out (a UUID holding the track id); a
+love of a recording the catalog lacks is a 404. ListenBrainz's
+per-recording lists (who loved it, how many) aren't served. Each
 love records its source (`scrobblr`, `lastfm`, `audioscrobbler`,
 `lastfm_import`) and the client. A scrobbler token may love, as a Last.fm
 session may: it is what Last.fm apps do with it, and a leaked one can add

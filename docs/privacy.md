@@ -60,7 +60,8 @@ errors.
 
 **Social and community**: follows, blocks (who blocks whom, since when),
 followers removed (until when they may follow again), loved tracks (when,
-and the app or import each came from), comments, uploaded artist and album
+and the app or import each came from; ListenBrainz hates are not
+stored), comments, uploaded artist and album
 images (as candidates, with their likes), likes given.
 
 **Who sees it** ([social.md](social.md#who-sees-whom)): a public profile's
