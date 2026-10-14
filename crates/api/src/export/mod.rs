@@ -124,6 +124,7 @@ async fn write(
 
     let written = scrobbles(state, user.id, out, Format::Csv, now).await?;
     scrobbles(state, user.id, out, Format::Json, now).await?;
+    loved_tracks(state, user.id, out, now).await?;
 
     for (path, key) in uploads {
         match state.media.read(&key).await {
@@ -216,6 +217,49 @@ fn csv_row(text: &mut String, s: &export_db::ExportedScrobble) {
         csv_field(text, field);
     }
     text.push('\n');
+}
+
+const LOVES_CSV_HEADER: &str = "loved_at,artist,track,album,track_mbid,source,client_protocol,\
+client_name,client_verified,import_id\n";
+
+async fn loved_tracks(
+    state: &AppState,
+    user_id: i64,
+    out: &mut Out,
+    now: DateTime<Utc>,
+) -> Result<(), Failure> {
+    let loves = export_db::loved_tracks(&state.db, user_id).await?;
+    let mut csv = String::with_capacity(LOVES_CSV_HEADER.len() + loves.len() * 120);
+    csv.push_str(LOVES_CSV_HEADER);
+    let mut json = String::from("[");
+    for (i, l) in loves.iter().enumerate() {
+        let opt = |v: Option<String>| v.unwrap_or_default();
+        let fields = [
+            l.loved_at
+                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            l.artist.clone(),
+            l.track.clone(),
+            opt(l.album.clone()),
+            opt(l.track_mbid.map(|m| m.to_string())),
+            l.source.clone(),
+            opt(l.client_protocol.clone()),
+            opt(l.client_name.clone()),
+            opt(l.client_verified.map(|v| v.to_string())),
+            opt(l.import_id.map(|v| v.to_string())),
+        ];
+        for (j, field) in fields.iter().enumerate() {
+            if j > 0 {
+                csv.push(',');
+            }
+            csv_field(&mut csv, field);
+        }
+        csv.push('\n');
+        json.push_str(if i == 0 { "\n" } else { ",\n" });
+        json.push_str(&serde_json::to_string(l).expect("a love serializes"));
+    }
+    json.push_str("\n]\n");
+    out.file("loved_tracks.csv", now, csv.as_bytes()).await?;
+    out.file("loved_tracks.json", now, json.as_bytes()).await
 }
 
 /// A value a spreadsheet would run as a formula gets a `'` in front.
@@ -412,11 +456,17 @@ scrobbles.csv    every scrobble, oldest first: when, artist, track, album,
                  duplicate, no_data; empty while not classified yet) with
                  its reason
 scrobbles.json   the same scrobbles, as JSON
+loved_tracks.csv the tracks you love, oldest love first: when, artist,
+                 track, the album the catalog files it under, and how the
+                 love came (scrobblr, lastfm, audioscrobbler or
+                 lastfm_import) with the client or import that sent it
+loved_tracks.json
+                 the same loves, as JSON
 uploads/         your avatar and the artist and album images you uploaded
 
-Times are UTC. In scrobbles.csv, a value that starts with = + - @ is written
+Times are UTC. In the CSV files, a value that starts with = + - @ is written
 with a ' in front, so a spreadsheet doesn't run it as a formula;
-scrobbles.json has every value as it is.
+the JSON files have every value as they are.
 
 What is not included, and why, is listed under not_included in account.json.
 ";

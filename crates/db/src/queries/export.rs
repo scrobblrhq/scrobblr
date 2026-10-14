@@ -86,6 +86,45 @@ pub async fn scrobbles_page(
 }
 
 #[derive(Debug, Serialize)]
+pub struct ExportedLove {
+    pub loved_at: DateTime<Utc>,
+    pub artist: String,
+    pub track: String,
+    /// The album the catalog files the track under.
+    pub album: Option<String>,
+    pub track_mbid: Option<Uuid>,
+    /// `scrobblr`, `lastfm`, `audioscrobbler` or `lastfm_import`.
+    pub source: String,
+    pub client_protocol: Option<String>,
+    pub client_name: Option<String>,
+    pub client_verified: Option<bool>,
+    pub import_id: Option<i64>,
+}
+
+/// Every track the user loves, oldest love first (50,000 at most).
+pub async fn loved_tracks(pool: &PgPool, user_id: i64) -> Result<Vec<ExportedLove>, sqlx::Error> {
+    sqlx::query_as!(
+        ExportedLove,
+        r#"
+        SELECT l.loved_at, a.name AS artist, t.title AS track, al.title AS "album?",
+               t.mbid AS track_mbid, l.source,
+               c.protocol AS "client_protocol?", c.name AS "client_name?",
+               c.verified AS "client_verified?", l.import_id
+        FROM loved_tracks l
+        JOIN tracks t  ON t.id = l.track_id
+        JOIN artists a ON a.id = t.artist_id
+        LEFT JOIN albums al ON al.id = t.album_id
+        LEFT JOIN scrobble_clients c ON c.id = l.client_id
+        WHERE l.user_id = $1
+        ORDER BY l.loved_at, l.track_id
+        "#,
+        user_id,
+    )
+    .fetch_all(pool)
+    .await
+}
+
+#[derive(Debug, Serialize)]
 pub struct Follow {
     pub username: String,
     pub since: DateTime<Utc>,

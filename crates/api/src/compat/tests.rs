@@ -59,17 +59,6 @@ fn pairs(owned: &[(String, String)]) -> Vec<(&str, &str)> {
 }
 
 impl TestApp {
-    async fn post_form(&self, path: &str, params: &[(&str, &str)]) -> (StatusCode, String) {
-        let req = Request::builder()
-            .method(Method::POST)
-            .uri(path)
-            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-            .body(Body::from(form(params)))
-            .unwrap();
-        let (status, _, body) = self.send(req).await;
-        (status, body)
-    }
-
     async fn new_token(&self, name: &str) -> String {
         let (status, created) = self
             .api(

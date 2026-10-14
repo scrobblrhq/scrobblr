@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT l.loved_at, a.name AS artist, t.title AS track, al.title AS \"album?\",\n               t.mbid AS track_mbid, l.source,\n               c.protocol AS \"client_protocol?\", c.name AS \"client_name?\",\n               c.verified AS \"client_verified?\", l.import_id\n        FROM loved_tracks l\n        JOIN tracks t  ON t.id = l.track_id\n        JOIN artists a ON a.id = t.artist_id\n        LEFT JOIN albums al ON al.id = t.album_id\n        LEFT JOIN scrobble_clients c ON c.id = l.client_id\n        WHERE l.user_id = $1\n        ORDER BY l.loved_at, l.track_id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "loved_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 1,
+        "name": "artist",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "track",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "album?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "track_mbid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
+        "name": "source",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "client_protocol?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "client_name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "client_verified?",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "import_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "a3eefd5b59e173eee2889534bc11815df8bbe01ee7cc30d58750aebd6131e4da"
+}

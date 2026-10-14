@@ -208,6 +208,21 @@ impl TestApp {
             .await
     }
 
+    /// A form post, as the scrobbler-compatible APIs take them.
+    pub async fn post_form(&self, path: &str, params: &[(&str, &str)]) -> (StatusCode, String) {
+        let body = form_urlencoded::Serializer::new(String::new())
+            .extend_pairs(params)
+            .finish();
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri(path)
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .unwrap();
+        let (status, _, body) = self.send(req).await;
+        (status, body)
+    }
+
     /// Another user, `name` made unique, and a session of theirs.
     pub async fn other_user(&self, name: &str) -> (i64, String, String) {
         let username = format!("{name}{}", &Uuid::new_v4().simple().to_string()[..6]);

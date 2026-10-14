@@ -117,7 +117,7 @@ pub async fn export_account(
 pub fn _export_account_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Export my account")
         .description(&format!(
-            "Downloads everything Scrobblr holds about the authenticated user as a ZIP archive (`{}`), streamed as it is read: `account.json` (profile and settings, follows, the accounts the user blocks and the followers it removed (never who blocks or removed it), comments, image uploads and likes, sessions without their ids, API tokens and scrobbler credentials without their values, linked accounts without their OAuth tokens, imports, now playing, the similarity setting, recommended artists and taste neighbours as last computed and the skipped recommendations, and `not_included`: what is left out and why), `scrobbles.csv` and `scrobbles.json` (every scrobble, oldest first, with its source, client, import and the classifier's label, never ranking weights), and `uploads/` (the avatar and artwork the user uploaded). Nothing is stored on the server: a broken download is asked for again. Takes a session, never an API token. At most {} exports a day per account and {} per address, and {EXPORTS_AT_ONCE} at once on the server.",
+            "Downloads everything Scrobblr holds about the authenticated user as a ZIP archive (`{}`), streamed as it is read: `account.json` (profile and settings, follows, the accounts the user blocks and the followers it removed (never who blocks or removed it), comments, image uploads and likes, sessions without their ids, API tokens and scrobbler credentials without their values, linked accounts without their OAuth tokens, imports, now playing, the similarity setting, recommended artists and taste neighbours as last computed and the skipped recommendations, and `not_included`: what is left out and why), `scrobbles.csv` and `scrobbles.json` (every scrobble, oldest first, with its source, client, import and the classifier's label, never ranking weights), `loved_tracks.csv` and `loved_tracks.json` (every loved track, oldest love first, with how the love came), and `uploads/` (the avatar and artwork the user uploaded). Nothing is stored on the server: a broken download is asked for again. Takes a session, never an API token. At most {} exports a day per account and {} per address, and {EXPORTS_AT_ONCE} at once on the server.",
             export::FORMAT,
             limits::EXPORTS_PER_USER,
             limits::EXPORTS_PER_IP,
@@ -375,6 +375,21 @@ mod tests {
                 StatusCode::NO_CONTENT
             );
 
+            // A love, through the Last.fm-compatible API.
+            let (status, _) = app
+                .post_form(
+                    "/2.0/",
+                    &[
+                        ("method", "track.love"),
+                        ("artist", "Band, \"The\""),
+                        ("track", "=Loved"),
+                        ("api_key", "pano"),
+                        ("sk", &scrobbler),
+                    ],
+                )
+                .await;
+            assert_eq!(status, StatusCode::OK);
+
             // Not with an API token, even one that may read.
             let (status, _) = export(&app, &token).await;
             assert_eq!(status, StatusCode::FORBIDDEN);
@@ -385,16 +400,18 @@ mod tests {
             let files = unzip(bytes);
             let names: Vec<&str> = files.iter().map(|(n, _)| n.as_str()).collect();
             assert_eq!(
-                names[..4],
+                names[..6],
                 [
                     "README.txt",
                     "account.json",
                     "scrobbles.csv",
-                    "scrobbles.json"
+                    "scrobbles.json",
+                    "loved_tracks.csv",
+                    "loved_tracks.json"
                 ]
             );
-            assert!(names[4].starts_with("uploads/avatars/"), "{names:?}");
-            assert_eq!(files[4].1[..2], [0xff, 0xd8], "the avatar, a JPEG");
+            assert!(names[6].starts_with("uploads/avatars/"), "{names:?}");
+            assert_eq!(files[6].1[..2], [0xff, 0xd8], "the avatar, a JPEG");
 
             let file = |name: &str| {
                 let (_, content) = files.iter().find(|(n, _)| n == name).unwrap();
@@ -407,7 +424,7 @@ mod tests {
                 account["profile"]["email"],
                 format!("{}@test", app.username)
             );
-            assert_eq!(account["profile"]["image_file"], names[4]);
+            assert_eq!(account["profile"]["image_file"], names[6]);
             assert_eq!(account["api_tokens"][0]["name"], "player");
             assert_eq!(account["scrobbler_credentials"][0]["name"], "pano");
             assert_eq!(account["sessions"][0]["current"], true);
@@ -478,6 +495,20 @@ mod tests {
             assert_eq!(json[0]["album"], "=cmd|' /C calc'!A0");
             assert_eq!(json[0]["client_protocol"], "scrobblr");
             assert!(json[0].get("weight").is_none());
+
+            let loves = file("loved_tracks.csv");
+            let lines: Vec<&str> = loves.lines().collect();
+            assert_eq!(lines.len(), 2, "{loves}");
+            assert!(lines[0].starts_with("loved_at,artist,track,album,"));
+            assert!(
+                lines[1].contains(",\"Band, \"\"The\"\"\",\"'=Loved\",,,lastfm,lastfm,pano,false,"),
+                "{}",
+                lines[1]
+            );
+            let loves: Vec<Value> = serde_json::from_str(&file("loved_tracks.json")).unwrap();
+            assert_eq!(loves.len(), 1);
+            assert_eq!(loves[0]["track"], "=Loved");
+            assert_eq!(loves[0]["client_name"], "pano");
 
             // Three a day.
             for _ in 1..limits::EXPORTS_PER_USER {
