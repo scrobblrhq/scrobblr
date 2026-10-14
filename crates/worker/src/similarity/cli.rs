@@ -327,6 +327,29 @@ async fn report(db: &PgPool, params: &SimilarityParams, o: Options) -> anyhow::R
          minimum ({:.2}) and left out",
         params.min_factor as f64 / FULL as f64
     );
+    let matrix = Matrix::new(&weighted.contributors, &weighted.credits, params);
+    let mut cohesion = matrix.cohesion_by_artist(params);
+    cohesion.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+    let mut values: Vec<f64> = cohesion.iter().map(|(_, c)| *c).collect();
+    values.sort_by(f64::total_cmp);
+    let at = |q: f64| {
+        values
+            .get(((values.len() as f64 - 1.0) * q).round() as usize)
+            .copied()
+    };
+    if let (Some(p50), Some(p90), Some(p99)) = (at(0.5), at(0.9), at(0.99)) {
+        println!(
+            "cohesion of {} artists' listeners (how alike their other listening is): p50 {p50:.3}, \
+             p90 {p90:.3}, p99 {p99:.3}, max {:.3}; over the maximum ({:.2}): {}",
+            values.len(),
+            values.last().copied().unwrap_or(0.0),
+            params.max_cohesion as f64 / FULL as f64,
+            values
+                .iter()
+                .filter(|c| **c > params.max_cohesion as f64 / FULL as f64)
+                .count()
+        );
+    }
     let variants = [
         variant("weights and factors", &weighted, params, true),
         variant("weights, no factors", &weighted, params, false),
@@ -409,8 +432,17 @@ async fn report(db: &PgPool, params: &SimilarityParams, o: Options) -> anyhow::R
         promoted.truncate(o.limit.unwrap_or(10));
         ids.extend(promoted.iter().map(|(a, _)| *a));
     }
+    ids.extend(cohesion.iter().take(10).map(|(a, _)| *a));
     let names = sdb::artist_names(db, &ids).await?;
     let name = |a: &i64| names.get(a).cloned().unwrap_or_else(|| format!("#{a}"));
+    println!("\nthe most cohesive audiences:");
+    for (a, c) in cohesion.iter().take(10) {
+        println!(
+            "  {:<40} {c:.3}  ({:.0} accounts)",
+            truncate(&name(a), 40),
+            matrix.audience(*a)
+        );
+    }
 
     for a in &followed {
         println!("\n{}:", name(a));

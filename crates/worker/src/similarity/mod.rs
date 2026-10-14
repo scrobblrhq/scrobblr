@@ -31,6 +31,7 @@ pub fn params_from_env() -> anyhow::Result<SimilarityParams> {
         min_support: env_or("SIMILARITY_MIN_SUPPORT", d.min_support)?,
         min_share: env_or("SIMILARITY_MIN_SHARE", d.min_share)?,
         shrink: env_or("SIMILARITY_SHRINK", d.shrink)?,
+        max_cohesion: env_or("SIMILARITY_MAX_COHESION", d.max_cohesion)?,
         artist_neighbours: env_or("SIMILARITY_ARTIST_NEIGHBOURS", d.artist_neighbours)?,
         user_artists: env_or("SIMILARITY_USER_ARTISTS", d.user_artists)?,
         min_user_artists: env_or("SIMILARITY_MIN_USER_ARTISTS", d.min_user_artists)?,

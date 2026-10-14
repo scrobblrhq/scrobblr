@@ -12,9 +12,10 @@
 //! **Artist neighbours.** For an artist `a` with audience `L_a` (the sum of
 //! its credits) and a candidate `b`, `co` is the credit mass of the accounts
 //! listening to both. A candidate needs [`SimilarityParams::min_support`]
-//! such accounts, `co` at least [`SimilarityParams::min_share`] of `L_a`,
-//! and more than chance: `E = L_a × L_b / N` over the `N` contributing
-//! accounts. Its score is the excess over chance against the geometric mean
+//! such accounts, and at least [`SimilarityParams::min_share`] of the
+//! accounts listening to `a`, counted as accounts so that devotion (full
+//! credits) can't stand in for numbers; and more than chance:
+//! `E = L_a × L_b / N` over the `N` contributing accounts. Its score is the excess over chance against the geometric mean
 //! of the audiences, shrunk while the evidence is small:
 //!
 //! ```text
@@ -23,6 +24,13 @@
 //!
 //! Lists are directional: the share floor is the source's, so putting an
 //! artist on a popular artist's list takes that share of its audience.
+//!
+//! **Copies.** An artist whose listeners' other listening is nearly the same
+//! account after account ([`Matrix::cohesion`] over
+//! [`SimilarityParams::max_cohesion`]) has no neighbours and is nobody's: a
+//! farm's accounts copy one listening, honest audiences share a genre at
+//! most. A farm that varies its accounts to pass dilutes what each of them
+//! does for any one pair, and the share floor asks it for more accounts.
 //!
 //! **Recommendations** (item-based): a user's artists, by plays decayed
 //! with a half-life, each weighed `ln(1 + plays)`, vote for their
@@ -58,6 +66,9 @@ pub const SKIP_DAYS: i64 = 90;
 
 /// Top shared artists kept to explain a taste neighbour.
 pub const TOP_SHARED: usize = 3;
+
+/// Listeners of an artist sampled to measure how alike they are.
+pub const COHESION_SAMPLE: usize = 40;
 
 /// Whether an account's listening is used for similarity, and whether it
 /// may be shown as someone's taste neighbour.
@@ -127,10 +138,14 @@ pub struct SimilarityParams {
     pub min_listeners: i64,
     /// Accounts listening to both that a pair needs.
     pub min_support: i64,
-    /// Share (thousandths) of the source's audience a pair needs.
+    /// Share (thousandths) of the accounts listening to the source a pair
+    /// needs.
     pub min_share: i64,
     /// Accounts of evidence at which a score keeps half its value.
     pub shrink: i64,
+    /// Cohesion (thousandths) above which an artist's listeners are taken
+    /// for copies of one another: it has no neighbours and is nobody's.
+    pub max_cohesion: i64,
     /// Neighbours kept per artist.
     pub artist_neighbours: i64,
     /// Artists of an account read, its strongest.
@@ -165,6 +180,7 @@ pub struct SimilaritySettings {
     pub min_support: i64,
     pub min_share: f64,
     pub shrink: i64,
+    pub max_cohesion: f64,
     pub artist_neighbours: i64,
     pub user_artists: i64,
     pub min_user_artists: i64,
@@ -186,6 +202,7 @@ impl Default for SimilarityParams {
             min_support: 10,
             min_share: 100,
             shrink: 10,
+            max_cohesion: 800,
             artist_neighbours: 50,
             user_artists: 200,
             min_user_artists: 5,
@@ -211,6 +228,7 @@ impl Default for SimilaritySettings {
             min_support: p.min_support,
             min_share: f(p.min_share),
             shrink: p.shrink,
+            max_cohesion: f(p.max_cohesion),
             artist_neighbours: p.artist_neighbours,
             user_artists: p.user_artists,
             min_user_artists: p.min_user_artists,
@@ -250,6 +268,7 @@ impl SimilarityParams {
             min_support: range(s.min_support, 2, 1_000_000, "minimum support")?,
             min_share: fraction(s.min_share, "minimum share")?,
             shrink: range(s.shrink, 0, 1_000_000, "shrink")?,
+            max_cohesion: fraction(s.max_cohesion, "maximum cohesion")?,
             artist_neighbours: range(s.artist_neighbours, 1, 200, "artist neighbours")?,
             user_artists: range(s.user_artists, 10, 2000, "user artists")?,
             min_user_artists: range(s.min_user_artists, 1, 1000, "minimum user artists")?,
@@ -267,7 +286,8 @@ impl SimilarityParams {
     pub fn fingerprint(&self) -> String {
         format!(
             "similarity/v{SIMILARITY_VERSION} window_days={} full_plays={} min_factor={} \
-             min_listeners={} min_support={} min_share={} shrink={} artist_neighbours={} \
+             min_listeners={} min_support={} min_share={} shrink={} max_cohesion={} \
+             artist_neighbours={} \
              user_artists={} min_user_artists={} recommendations={} taste_neighbours={} \
              min_shared={} half_life_days={} max_postings={} refresh_hours={}",
             self.window_days,
@@ -277,6 +297,7 @@ impl SimilarityParams {
             self.min_support,
             self.min_share,
             self.shrink,
+            self.max_cohesion,
             self.artist_neighbours,
             self.user_artists,
             self.min_user_artists,
@@ -491,6 +512,63 @@ impl Matrix {
         (0..self.users.len()).filter(|&u| self.listed[u])
     }
 
+    /// Each account's credits weighed by the artists' rarity, of unit
+    /// length, by artist index.
+    fn vectors(&self, idf: &[f64]) -> Vec<Vec<(u32, f64)>> {
+        self.by_user
+            .iter()
+            .map(|row| unit(row.iter().map(|&(a, c)| (a, c * idf[a as usize])).collect()))
+            .collect()
+    }
+
+    /// How alike an artist's listeners are apart from it, for each artist
+    /// with `min_listeners`: the mean cosine of the rest of their listening,
+    /// pairwise over [`COHESION_SAMPLE`] of them chosen by a hash. Honest
+    /// audiences share a genre at most; a farm's accounts copy each other.
+    pub fn cohesion(&self, p: &SimilarityParams) -> Vec<Option<f64>> {
+        let idf = self.idf();
+        let vectors = self.vectors(&idf);
+        let weight_of = |u: u32, a: u32| {
+            let v = &vectors[u as usize];
+            v.binary_search_by_key(&a, |(b, _)| *b)
+                .map_or(0.0, |i| v[i].1)
+        };
+        (0..self.artists.len())
+            .map(|a| {
+                if self.audience[a] < p.min_listeners as f64 {
+                    return None;
+                }
+                let mut sample: Vec<u32> = self.by_artist[a].iter().map(|(u, _)| *u).collect();
+                sample.sort_by_key(|&u| mix(u64::from(u) ^ ((a as u64) << 32)));
+                sample.truncate(COHESION_SAMPLE);
+                let (mut sum, mut pairs) = (0.0, 0usize);
+                for (i, &u) in sample.iter().enumerate() {
+                    let wu = weight_of(u, a as u32);
+                    for &v in &sample[i + 1..] {
+                        let wv = weight_of(v, a as u32);
+                        let rest = ((1.0 - wu * wu) * (1.0 - wv * wv)).sqrt();
+                        if rest <= f64::EPSILON {
+                            continue;
+                        }
+                        let (dot, _) = overlap(&vectors[u as usize], &vectors[v as usize]);
+                        sum += (dot - wu * wv) / rest;
+                        pairs += 1;
+                    }
+                }
+                Some(if pairs > 0 { sum / pairs as f64 } else { 0.0 })
+            })
+            .collect()
+    }
+
+    /// [`Self::cohesion`] by artist id.
+    pub fn cohesion_by_artist(&self, p: &SimilarityParams) -> Vec<(i64, f64)> {
+        self.cohesion(p)
+            .into_iter()
+            .enumerate()
+            .filter_map(|(a, c)| Some((self.artists[a], c?)))
+            .collect()
+    }
+
     fn idf(&self) -> Vec<f64> {
         let n = self.users.len() as f64;
         self.audience
@@ -500,20 +578,39 @@ impl Matrix {
     }
 }
 
+/// A fixed bit mixer (splitmix64), for choices that must not depend on
+/// input order.
+fn mix(mut x: u64) -> u64 {
+    x = x.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    x = (x ^ (x >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    x = (x ^ (x >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    x ^ (x >> 31)
+}
+
 pub fn artist_neighbours(m: &Matrix, p: &SimilarityParams) -> BTreeMap<i64, Vec<ArtistNeighbour>> {
     let n = m.users.len() as f64;
     let min_listeners = p.min_listeners as f64;
     let share = p.min_share as f64 / FULL as f64;
     let shrink = p.shrink as f64;
+    let max_cohesion = p.max_cohesion as f64 / FULL as f64;
+    let copied: Vec<bool> = if p.max_cohesion < FULL {
+        m.cohesion(p)
+            .into_iter()
+            .map(|c| c.is_some_and(|c| c > max_cohesion))
+            .collect()
+    } else {
+        vec![false; m.artists.len()]
+    };
     let mut co = vec![0.0f64; m.artists.len()];
     let mut count = vec![0u32; m.artists.len()];
     let mut touched: Vec<u32> = Vec::new();
     let mut lists = BTreeMap::new();
     for a in 0..m.artists.len() {
         let la = m.audience[a];
-        if la < min_listeners {
+        if la < min_listeners || copied[a] {
             continue;
         }
+        let floor = share * m.by_artist[a].len() as f64;
         for &(u, ca) in &m.by_artist[a] {
             for &(b, cb) in &m.by_user[u as usize] {
                 if b as usize == a {
@@ -534,7 +631,8 @@ pub fn artist_neighbours(m: &Matrix, p: &SimilarityParams) -> BTreeMap<i64, Vec<
             let lb = m.audience[b];
             let expected = la * lb / n;
             if i64::from(accounts) < p.min_support
-                || both < share * la
+                || copied[b]
+                || f64::from(accounts) < floor
                 || lb < min_listeners
                 || both <= expected
             {
@@ -602,8 +700,7 @@ pub fn recommend(
         }
         let listened: HashSet<i64> = h.artists.iter().map(|(a, _)| *a).collect();
         let skipped = skipped.get(&h.user_id).unwrap_or(&none);
-        // artist -> (score, best vote, its artist, votes)
-        let mut votes: HashMap<i64, (f64, f64, i64, i64)> = HashMap::new();
+        let mut votes: HashMap<i64, Vec<(f64, i64)>> = HashMap::new();
         for (a, strength) in strongest(h, p) {
             let Some(list) = lists.get(&a) else { continue };
             for nb in list {
@@ -611,22 +708,20 @@ pub fn recommend(
                     continue;
                 }
                 let vote = strength * nb.score as f64 / FULL as f64;
-                let v = votes.entry(nb.artist_id).or_insert((0.0, -1.0, a, 0));
-                v.0 += vote;
-                v.3 += 1;
-                if vote > v.1 || (vote == v.1 && a < v.2) {
-                    v.1 = vote;
-                    v.2 = a;
-                }
+                votes.entry(nb.artist_id).or_default().push((vote, a));
             }
         }
         let mut recs: Vec<Recommendation> = votes
             .into_iter()
-            .map(|(artist_id, (score, _, because, count))| Recommendation {
-                artist_id,
-                score: (score * FULL as f64).round() as i64,
-                because,
-                because_count: count,
+            .map(|(artist_id, mut votes)| {
+                votes.sort_by(|x, y| y.0.total_cmp(&x.0).then(x.1.cmp(&y.1)));
+                let score: f64 = votes.iter().map(|v| v.0).sum();
+                Recommendation {
+                    artist_id,
+                    score: (score * FULL as f64).round() as i64,
+                    because: votes[0].1,
+                    because_count: votes.len() as i64,
+                }
             })
             .filter(|r| r.score > 0)
             .collect();
@@ -892,12 +987,15 @@ pub mod eval {
 mod tests {
     use super::*;
 
+    /// The fixtures' fans play exactly the same artists: copies of one
+    /// another, which only the test of cohesion keeps.
     fn params() -> SimilarityParams {
         SimilarityParams {
             min_listeners: 3,
             min_support: 3,
             min_share: 100,
             shrink: 2,
+            max_cohesion: FULL,
             min_user_artists: 2,
             min_shared: 2,
             ..Default::default()
@@ -1079,6 +1177,39 @@ mod tests {
         // that is 4.4 for 4 accounts: under it.
         assert_eq!(farm_reaches(4), (false, true));
         assert_eq!(farm_reaches(5), (true, true));
+    }
+
+    /// Fans who each play their own favourites besides an artist are an
+    /// audience; accounts playing the same list are a farm's copies, and
+    /// the artist they share is left out both ways.
+    #[test]
+    fn an_audience_of_copies_has_no_neighbours_and_is_nobodys() {
+        let mut credits = Vec::new();
+        for u in 1..=100 {
+            let mut artists: Vec<i64> = (0..6).map(|k| 100 + (u * 7 + k * 13) % 50).collect();
+            if u <= 60 {
+                artists.push(1);
+            }
+            if u <= 40 {
+                artists.push(2);
+            }
+            credits.extend(fans(u, 1, &artists, 5));
+        }
+        credits.extend(fans(201, 30, &[1, 999, 50, 51, 52, 53, 54, 55], 5));
+        let p = SimilarityParams {
+            max_cohesion: 800,
+            ..params()
+        };
+        let m = Matrix::new(&contributors(&credits, false), &credits, &p);
+        let cohesion: HashMap<i64, f64> = m.cohesion_by_artist(&p).into_iter().collect();
+        assert!(cohesion[&2] < 0.3, "{}", cohesion[&2]);
+        assert!(cohesion[&999] > 0.95, "{}", cohesion[&999]);
+        let lists = artist_neighbours(&m, &p);
+        assert!(!list(&lists, 1).contains(&999));
+        assert!(list(&lists, 1).contains(&2));
+        assert!(!lists.contains_key(&999));
+        let without = artist_neighbours(&m, &params());
+        assert!(list(&without, 1).contains(&999));
     }
 
     #[test]

@@ -9,10 +9,12 @@ use shared::ranking::RankingParams;
 use shared::similarity::{self as similarity, SimilarityMode, SimilarityParams};
 use sqlx::PgPool;
 
+/// The fixture's fans play the same bands: copies of one another.
 fn params() -> SimilarityParams {
     SimilarityParams {
         min_listeners: 5,
         min_support: 5,
+        max_cohesion: shared::similarity::FULL,
         min_user_artists: 2,
         min_shared: 2,
         ..Default::default()
