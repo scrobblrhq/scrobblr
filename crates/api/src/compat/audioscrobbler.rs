@@ -23,6 +23,7 @@ use uuid::Uuid;
 use super::{Ignored, Params, Play, Playing};
 use crate::errors::ApiResult;
 use crate::state::AppState;
+use db::queries::loves::SOURCE_AUDIOSCROBBLER;
 use db::queries::scrobble_clients::{ClientIdentity, PROTOCOL_AUDIOSCROBBLER};
 use db::queries::scrobblers::{self as scrobblers_db, Credential};
 use shared::lastfm::md5_hex;
@@ -238,8 +239,9 @@ pub async fn now_playing(State(state): State<AppState>, req: Request) -> Respons
 }
 
 /// The submission's tracks, in index order, minus those rated as skipped
-/// or banned (Last.fm radio's ratings, which mean it wasn't listened to).
-fn plays(params: &Params) -> Result<Vec<Play>, &'static str> {
+/// or banned (Last.fm radio's ratings, which mean it wasn't listened to),
+/// each with whether it was rated loved (`L`).
+fn plays(params: &Params) -> Result<Vec<(Play, bool)>, &'static str> {
     let mut indices: Vec<usize> = params
         .pairs()
         .filter_map(|(name, _)| {
@@ -258,20 +260,22 @@ fn plays(params: &Params) -> Result<Vec<Play>, &'static str> {
         .into_iter()
         .filter_map(|i| {
             let field = |name: &str| params.get(&format!("{name}[{i}]"));
-            if matches!(field("r").map(str::trim), Some("B" | "S")) {
+            let rating = field("r").map(str::trim);
+            if matches!(rating, Some("B" | "S")) {
                 return None;
             }
             let played_at = field("i")
                 .and_then(|t| t.trim().parse::<i64>().ok())
                 .and_then(|t| DateTime::from_timestamp(t, 0))?;
-            Some(Play {
+            let play = Play {
                 artist: field("a").unwrap_or_default().to_string(),
                 track: field("t").unwrap_or_default().to_string(),
                 album: field("b").map(str::to_string),
                 played_at,
                 duration_ms: seconds(field("l")),
                 recording_mbid: super::mbid(field("m")),
-            })
+            };
+            Some((play, rating == Some("L")))
         })
         .collect())
 }
@@ -280,19 +284,37 @@ fn plays(params: &Params) -> Result<Vec<Play>, &'static str> {
 /// n[i], m[i] for up to 50 tracks.
 pub async fn submissions(State(state): State<AppState>, req: Request) -> Response {
     let reply = async {
-        let params = form(req).await?;
+        let (parts, body) = super::read_request(req).await?;
+        let ip = super::request_ip(&state, &parts);
+        let params = Params::parse(parts.uri.query(), &body);
         let Some((credential, client)) = session(&state, &params).await? else {
             return Ok("BADSESSION");
         };
         if !super::within_request_limit(&state, credential.user_id).await {
             return Ok("FAILED Too many requests, slow down");
         }
-        let plays = match plays(&params) {
-            Ok(plays) => plays,
+        let (plays, loved): (Vec<Play>, Vec<bool>) = match plays(&params) {
+            Ok(plays) => plays.into_iter().unzip(),
             Err(reply) => return Ok(reply),
         };
         let client = ClientIdentity::new(PROTOCOL_AUDIOSCROBBLER, &client, false);
         let outcomes = super::submit(&state, &credential, &client, &plays).await?;
+        // A play rated loved loves its track; past the love limits or the
+        // cap, it is only scrobbled.
+        for ((play, outcome), _) in plays.iter().zip(&outcomes).zip(&loved).filter(|(_, l)| **l) {
+            if outcome.is_ok() && crate::limits::love_attempt(&state, credential.user_id, &ip).await
+            {
+                let _ = super::love_by_name(
+                    &state,
+                    &credential,
+                    &client,
+                    SOURCE_AUDIOSCROBBLER,
+                    (&play.artist, &play.track),
+                    true,
+                )
+                .await?;
+            }
+        }
         // Only the daily limit is worth a retry (tomorrow); the protocol lets
         // a server drop plays it won't record, such as malformed ones.
         if outcomes.contains(&Err(Ignored::DailyLimit)) {
@@ -325,6 +347,7 @@ mod tests {
             ("t[1]", "Two"),
             ("i[1]", "1700000300"),
             ("o[1]", "P"),
+            ("r[1]", "L"),
             ("l[1]", "200"),
             ("m[1]", "8f2bc1b0-9c33-4f25-8e65-d2dbd1c9a5b1"),
             ("a[0]", "A"),
@@ -341,9 +364,13 @@ mod tests {
         ]);
         let plays = plays(&p).unwrap();
         assert_eq!(
-            plays.iter().map(|p| p.track.as_str()).collect::<Vec<_>>(),
-            ["One", "Two"]
+            plays
+                .iter()
+                .map(|(p, loved)| (p.track.as_str(), *loved))
+                .collect::<Vec<_>>(),
+            [("One", false), ("Two", true)]
         );
+        let plays: Vec<Play> = plays.into_iter().map(|(p, _)| p).collect();
         assert_eq!(plays[1].duration_ms, Some(200_000));
         assert_eq!(plays[0].duration_ms, None);
         assert!(plays[1].recording_mbid.is_some());

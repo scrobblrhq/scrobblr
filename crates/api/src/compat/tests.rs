@@ -670,6 +670,16 @@ async fn audioscrobbler_handshake_now_playing_and_submissions() {
                 && client.as_deref() == Some("mpd 0.24")
                 && *verified == Some(false)
         }));
+        // The play rated loved (`L`) loves its track.
+        assert_eq!(
+            loved(&app).await,
+            [(
+                "Lullaby".to_string(),
+                "audioscrobbler".to_string(),
+                Some("mpd 0.24".to_string()),
+                Some(false)
+            )]
+        );
 
         let (_, body) = app.post_form("/1.2/submissions", &[("s", "nope")]).await;
         assert_eq!(body, "BADSESSION\n");
