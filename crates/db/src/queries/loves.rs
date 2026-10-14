@@ -134,10 +134,14 @@ pub struct Love {
     pub track_id: i64,
     pub track_title: String,
     pub track_mbid: Option<Uuid>,
+    /// The longest length known.
+    pub duration_ms: Option<i32>,
     pub artist_id: i64,
     pub artist_name: String,
+    pub artist_mbid: Option<Uuid>,
     pub album_id: Option<i64>,
     pub album_title: Option<String>,
+    pub album_mbid: Option<Uuid>,
     pub album_image: Option<String>,
     pub artist_image: Option<String>,
     pub loved_at: DateTime<Utc>,
@@ -154,8 +158,9 @@ pub async fn page(
         Love,
         r#"
         SELECT l.track_id, t.title AS track_title, t.mbid AS track_mbid,
-               t.artist_id, a.name AS artist_name, t.album_id,
-               al.title AS "album_title?", al.image_url AS "album_image?",
+               COALESCE(t.duration_ms, t.mb_duration_ms, t.deezer_duration_ms) AS duration_ms,
+               t.artist_id, a.name AS artist_name, a.mbid AS artist_mbid, t.album_id,
+               al.title AS "album_title?", al.mbid AS "album_mbid?", al.image_url AS "album_image?",
                a.image_url AS artist_image, l.loved_at
         FROM loved_tracks l
         JOIN tracks t  ON t.id = l.track_id
@@ -187,8 +192,9 @@ pub async fn page_at(
         Love,
         r#"
         SELECT l.track_id, t.title AS track_title, t.mbid AS track_mbid,
-               t.artist_id, a.name AS artist_name, t.album_id,
-               al.title AS "album_title?", al.image_url AS "album_image?",
+               COALESCE(t.duration_ms, t.mb_duration_ms, t.deezer_duration_ms) AS duration_ms,
+               t.artist_id, a.name AS artist_name, a.mbid AS artist_mbid, t.album_id,
+               al.title AS "album_title?", al.mbid AS "album_mbid?", al.image_url AS "album_image?",
                a.image_url AS artist_image, l.loved_at
         FROM (
             SELECT track_id, loved_at FROM loved_tracks
@@ -207,4 +213,20 @@ pub async fn page_at(
     )
     .fetch_all(pool)
     .await
+}
+
+/// When the user loved each of `track_ids` they love.
+pub async fn loved_among(
+    pool: &PgPool,
+    user_id: i64,
+    track_ids: &[i64],
+) -> Result<Vec<(i64, DateTime<Utc>)>, sqlx::Error> {
+    let rows = sqlx::query!(
+        "SELECT track_id, loved_at FROM loved_tracks WHERE user_id = $1 AND track_id = ANY($2)",
+        user_id,
+        track_ids,
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().map(|r| (r.track_id, r.loved_at)).collect())
 }

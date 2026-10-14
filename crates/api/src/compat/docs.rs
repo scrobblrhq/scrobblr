@@ -244,6 +244,117 @@ fn recording_feedback() -> Value {
     })
 }
 
+fn feedback_entry() -> Value {
+    json!({ "type": "object", "properties": {
+        "created": { "type": ["integer", "null"], "description": "Unix seconds the love was made" },
+        "recording_mbid": { "type": ["string", "null"], "format": "uuid" },
+        "recording_msid": { "type": ["string", "null"], "format": "uuid" },
+        "score": { "type": "integer", "enum": [0, 1] },
+        "track_metadata": { "type": ["object", "null"], "additionalProperties": true },
+        "user_id": { "type": "string", "description": "The username" }
+    } })
+}
+
+fn feedback_reads_common() -> (Value, Value) {
+    let params = json!([
+        { "name": "user_name", "in": "path", "required": true, "schema": { "type": "string" } },
+        { "name": "Authorization", "in": "header",
+          "description": "`Token {scrobbler token}`: optional, names the viewer (its own private profile)",
+          "schema": { "type": "string" } }
+    ]);
+    let errors = json!({
+        "403": listenbrainz_error("The profile is private"),
+        "404": listenbrainz_error("No such user, one waiting to be deleted, or one blocking the token's account"),
+        "429": listenbrainz_error("Too many requests")
+    });
+    (params, errors)
+}
+
+fn get_feedback() -> Value {
+    let (mut params, errors) = feedback_reads_common();
+    let params = params.as_array_mut().expect("an array");
+    params.extend([
+        text(
+            "score",
+            "`1` for loves (the default lists them too); `-1` lists nothing: hates aren't kept",
+        ),
+        text("count", "Entries, 25 by default, 1000 at most"),
+        text("offset", "Entries to skip"),
+        text("metadata", "`true` for each track's `track_metadata`"),
+    ]);
+    let mut responses = json!({
+        "200": { "description": "The user's loves, newest first", "content": { "application/json": { "schema": {
+            "type": "object", "properties": {
+                "feedback": { "type": "array", "items": feedback_entry() },
+                "count": { "type": "integer" },
+                "total_count": { "type": "integer" },
+                "offset": { "type": "integer" }
+            } } } } },
+        "400": listenbrainz_error("A score other than 1 or -1, or a bad count or offset")
+    });
+    responses
+        .as_object_mut()
+        .expect("an object")
+        .extend(errors.as_object().cloned().unwrap_or_default());
+    json!({
+        "get": {
+            "tags": [TAG],
+            "summary": "ListenBrainz: a user's loved recordings",
+            "description": "A user's loved tracks as ListenBrainz feedback (score 1), newest first, as \
+                visible as the profile. Each carries `recording_msid` (this server's, for \
+                unloving), and `recording_mbid` when MusicBrainz enrichment matched the track.",
+            "parameters": params,
+            "responses": responses
+        }
+    })
+}
+
+fn get_feedback_for_recordings() -> Value {
+    let (params, errors) = feedback_reads_common();
+    let mut get_params = params.clone();
+    get_params.as_array_mut().expect("an array").extend([
+        text(
+            "recording_msids",
+            "Comma-separated MSIDs (`recordings`, deprecated, also)",
+        ),
+        text("recording_mbids", "Comma-separated MBIDs"),
+    ]);
+    let mut responses = json!({
+        "200": { "description": "One entry per recording asked about, in order: score 1 if loved, else 0",
+                 "content": { "application/json": { "schema": {
+            "type": "object", "properties": { "feedback": { "type": "array", "items": feedback_entry() } } } } } },
+        "400": listenbrainz_error("No recording, an invalid UUID, or more than 1000")
+    });
+    responses
+        .as_object_mut()
+        .expect("an object")
+        .extend(errors.as_object().cloned().unwrap_or_default());
+    let description = "The user's score for each recording asked about: 1 for a loved track, \
+        0 otherwise (unknown recordings included), as visible as the profile.";
+    json!({
+        "get": {
+            "tags": [TAG],
+            "summary": "ListenBrainz: a user's scores for recordings",
+            "description": description,
+            "parameters": get_params,
+            "responses": responses
+        },
+        "post": {
+            "tags": [TAG],
+            "summary": "ListenBrainz: a user's scores for recordings",
+            "description": description,
+            "parameters": params,
+            "requestBody": { "content": { "application/json": { "schema": {
+                "type": "object", "properties": {
+                    "recording_msids": { "type": "array", "items": { "type": "string", "format": "uuid" } },
+                    "recording_mbids": { "type": "array", "items": { "type": "string", "format": "uuid" } }
+                }
+            } } } },
+            "responses": responses
+        }
+    })
+}
+
 fn validate_token() -> Value {
     json!({
         "get": {
@@ -301,6 +412,11 @@ pub fn document(api: &mut OpenApi) {
         ("/1/submit-listens", submit_listens()),
         ("/1/validate-token", validate_token()),
         ("/1/feedback/recording-feedback", recording_feedback()),
+        ("/1/feedback/user/{user_name}/get-feedback", get_feedback()),
+        (
+            "/1/feedback/user/{user_name}/get-feedback-for-recordings",
+            get_feedback_for_recordings(),
+        ),
     ];
     let documented = api.paths.get_or_insert_with(Default::default);
     for (path, item) in paths {

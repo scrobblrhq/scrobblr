@@ -204,6 +204,15 @@ const PROTOCOL: &[(&str, &str)] = &[
     ("POST", "/1/submit-listens"),
     ("GET", "/1/validate-token"),
     ("POST", "/1/feedback/recording-feedback"),
+    ("GET", "/1/feedback/user/{user_name}/get-feedback"),
+    (
+        "GET",
+        "/1/feedback/user/{user_name}/get-feedback-for-recordings",
+    ),
+    (
+        "POST",
+        "/1/feedback/user/{user_name}/get-feedback-for-recordings",
+    ),
 ];
 
 /// Calls `path`, its `{params}` filled with `1`, without a body, from a

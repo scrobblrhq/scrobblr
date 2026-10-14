@@ -134,6 +134,15 @@ pub fn router() -> Router<AppState> {
             "/1/feedback/recording-feedback",
             post(listenbrainz::recording_feedback),
         )
+        .route(
+            "/1/feedback/user/{user_name}/get-feedback",
+            get(listenbrainz::get_feedback),
+        )
+        .route(
+            "/1/feedback/user/{user_name}/get-feedback-for-recordings",
+            get(listenbrainz::get_feedback_for_recordings)
+                .post(listenbrainz::get_feedback_for_recordings),
+        )
 }
 
 /// Form or query parameters, in the order sent.

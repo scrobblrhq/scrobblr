@@ -9,7 +9,7 @@
 
 use axum::{
     Json,
-    extract::{Request, State},
+    extract::{Path, Request, State},
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
 };
@@ -25,7 +25,10 @@ use db::queries::loves::{
 };
 use db::queries::scrobble_clients::{ClientIdentity, PROTOCOL_LISTENBRAINZ};
 use db::queries::scrobblers::Credential;
-use db::queries::{scrobbles as scrobbles_db, tracks as tracks_db};
+use db::queries::{
+    blocks as blocks_db, scrobbles as scrobbles_db, tracks as tracks_db, users as users_db,
+};
+use shared::models::User;
 
 const MAX_IMPORT: usize = 1000;
 /// ListenBrainz rejects earlier listens.
@@ -430,6 +433,276 @@ pub async fn recording_feedback(State(state): State<AppState>, req: Request) -> 
         ),
         Err(e) => unavailable(e),
     }
+}
+
+/// Most recordings or feedback entries one request may ask for, as on
+/// ListenBrainz.
+const MAX_ITEMS: i64 = 1000;
+const DEFAULT_ITEMS: i64 = 25;
+
+/// The user named, if the request may see their feedback: what their
+/// profile shows. ListenBrainz's reads take no token; one given names the
+/// viewer (an invalid one is ignored, as there).
+async fn visible(
+    state: &AppState,
+    name: &str,
+    headers: &HeaderMap,
+    params: &Params,
+) -> Result<User, Box<Response>> {
+    let viewer = match token(headers, params) {
+        Some(token) => match super::authenticate(state, &token).await {
+            Ok(credential) => credential,
+            Err(e) => return Err(Box::new(unavailable(e))),
+        },
+        None => None,
+    };
+    if let Some(viewer) = &viewer
+        && !super::within_request_limit(state, viewer.user_id).await
+    {
+        return Err(Box::new(error(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many requests.",
+        )));
+    }
+    let missing = || {
+        Box::new(error(
+            StatusCode::NOT_FOUND,
+            &format!("Cannot find user: {name}"),
+        ))
+    };
+    let user = match users_db::find_by_username(&state.db, name).await {
+        Ok(Some(user)) if user.delete_after.is_none() => user,
+        Ok(_) => return Err(missing()),
+        Err(e) => return Err(Box::new(unavailable(e))),
+    };
+    let viewer = viewer.map(|v| v.user_id);
+    if viewer == Some(user.id) {
+        return Ok(user);
+    }
+    if let Some(viewer) = viewer {
+        match blocks_db::blocks(&state.db, user.id, viewer).await {
+            Ok(true) => return Err(missing()),
+            Ok(false) => {}
+            Err(e) => return Err(Box::new(unavailable(e))),
+        }
+    }
+    if user.is_private {
+        return Err(Box::new(error(
+            StatusCode::FORBIDDEN,
+            "This user's listening is private.",
+        )));
+    }
+    Ok(user)
+}
+
+fn non_negative(params: &Params, name: &str, default: i64) -> Result<i64, Box<Response>> {
+    match params.text(name) {
+        None => Ok(default),
+        Some(v) => v.parse::<i64>().ok().filter(|n| *n >= 0).ok_or_else(|| {
+            Box::new(error(
+                StatusCode::BAD_REQUEST,
+                &format!("'{name}' should be a non-negative integer"),
+            ))
+        }),
+    }
+}
+
+/// A love as ListenBrainz's feedback shows it, with `metadata` the track's.
+fn love_entry(username: &str, love: &loves_db::Love, metadata: bool) -> Value {
+    let mbid = love.track_mbid.map(|m| m.to_string());
+    let track_metadata = metadata.then(|| {
+        let mut meta = json!({
+            "artist_name": love.artist_name,
+            "track_name": love.track_title,
+            "release_name": love.album_title,
+            "additional_info": {
+                "duration_ms": love.duration_ms,
+                "recording_msid": msid(love.track_id),
+                "recording_mbid": mbid,
+            },
+        });
+        if mbid.is_some() {
+            meta["mbid_mapping"] = json!({
+                "recording_mbid": mbid,
+                "release_mbid": love.album_mbid,
+                "artist_mbids": love.artist_mbid.into_iter().collect::<Vec<_>>(),
+            });
+        }
+        meta
+    });
+    json!({
+        "created": love.loved_at.timestamp(),
+        "recording_mbid": mbid,
+        "recording_msid": msid(love.track_id),
+        "score": 1,
+        "track_metadata": track_metadata,
+        "user_id": username,
+    })
+}
+
+/// GET /1/feedback/user/:user_name/get-feedback: the user's loves, newest
+/// first (`score` 1, or none); hates aren't kept, so `score=-1` has none.
+pub async fn get_feedback(
+    State(state): State<AppState>,
+    Path(user_name): Path<String>,
+    req: Request,
+) -> Response {
+    let params = Params::parse(req.uri().query(), &[]);
+    let user = match visible(&state, &user_name, req.headers(), &params).await {
+        Ok(user) => user,
+        Err(response) => return *response,
+    };
+    let score = match params.text("score").map(str::parse::<i64>) {
+        None => None,
+        Some(Ok(score @ (-1 | 1))) => Some(score),
+        Some(_) => {
+            return error(
+                StatusCode::BAD_REQUEST,
+                "Score can have a value of 1 or -1.",
+            );
+        }
+    };
+    let (offset, count) = match (
+        non_negative(&params, "offset", 0),
+        non_negative(&params, "count", DEFAULT_ITEMS),
+    ) {
+        (Ok(offset), Ok(count)) => (offset, count.min(MAX_ITEMS)),
+        (Err(response), _) | (_, Err(response)) => return *response,
+    };
+    let metadata = matches!(params.text("metadata"), Some(v) if v.eq_ignore_ascii_case("true"));
+    let (loves, total) = if score == Some(-1) {
+        (Vec::new(), 0)
+    } else {
+        match tokio::try_join!(
+            loves_db::page_at(&state.db, user.id, count, offset),
+            loves_db::count(&state.db, user.id),
+        ) {
+            Ok(found) => found,
+            Err(e) => return unavailable(e),
+        }
+    };
+    let feedback: Vec<Value> = loves
+        .iter()
+        .map(|love| love_entry(&user.username, love, metadata))
+        .collect();
+    Json(json!({
+        "feedback": feedback,
+        "count": feedback.len(),
+        "total_count": total,
+        "offset": offset,
+    }))
+    .into_response()
+}
+
+/// The recordings a get-feedback-for-recordings request asks about.
+#[derive(Deserialize, Default)]
+struct Recordings {
+    #[serde(default)]
+    recording_msids: Vec<String>,
+    #[serde(default)]
+    recording_mbids: Vec<String>,
+}
+
+fn comma_list(params: &Params, name: &str) -> Vec<String> {
+    params
+        .get(name)
+        .map(|v| {
+            v.split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// GET and POST /1/feedback/user/:user_name/get-feedback-for-recordings:
+/// the user's score for each recording asked about, 1 for a love, else 0.
+pub async fn get_feedback_for_recordings(
+    State(state): State<AppState>,
+    Path(user_name): Path<String>,
+    req: Request,
+) -> Response {
+    let is_post = req.method() == axum::http::Method::POST;
+    let (parts, body) = match super::read_request(req).await {
+        Ok(read) => read,
+        Err(_) => return error(StatusCode::BAD_REQUEST, "Payload too large."),
+    };
+    let params = Params::parse(parts.uri.query(), &[]);
+    let user = match visible(&state, &user_name, &parts.headers, &params).await {
+        Ok(user) => user,
+        Err(response) => return *response,
+    };
+    let bad = |message: &str| error(StatusCode::BAD_REQUEST, message);
+    let asked = if is_post {
+        match serde_json::from_slice::<Recordings>(&body) {
+            Ok(asked) => asked,
+            Err(e) => return bad(&format!("Invalid JSON: {e}")),
+        }
+    } else {
+        let mut msids = comma_list(&params, "recording_msids");
+        if params.get("recording_msids").is_none() {
+            msids = comma_list(&params, "recordings");
+        }
+        Recordings {
+            recording_msids: msids,
+            recording_mbids: comma_list(&params, "recording_mbids"),
+        }
+    };
+    if asked.recording_msids.is_empty() && asked.recording_mbids.is_empty() {
+        return bad("No valid recording msid or recording mbid found.");
+    }
+    if (asked.recording_msids.len() + asked.recording_mbids.len()) as i64 > MAX_ITEMS {
+        return bad("Too many recordings in one request.");
+    }
+    let parse = |ids: &[String], name: &str| -> Result<Vec<Uuid>, String> {
+        ids.iter()
+            .map(|id| uuid(Some(id), name).map(Option::unwrap_or_default))
+            .collect()
+    };
+    let (msids, mbids) = match (
+        parse(&asked.recording_msids, "recording_msid"),
+        parse(&asked.recording_mbids, "recording_mbid"),
+    ) {
+        (Ok(msids), Ok(mbids)) => (msids, mbids),
+        (Err(message), _) | (_, Err(message)) => return bad(&message),
+    };
+
+    let by_mbid = match tracks_db::find_by_recording_mbids(&state.db, &mbids).await {
+        Ok(found) => found,
+        Err(e) => return unavailable(e),
+    };
+    let track_of_mbid = |mbid: &Uuid| by_mbid.iter().find(|(m, _)| m == mbid).map(|(_, t)| *t);
+    let tracks: Vec<i64> = msids
+        .iter()
+        .filter_map(|m| msid_track(*m))
+        .chain(by_mbid.iter().map(|(_, t)| *t))
+        .collect();
+    let loved = match loves_db::loved_among(&state.db, user.id, &tracks).await {
+        Ok(loved) => loved,
+        Err(e) => return unavailable(e),
+    };
+    let entry = |track: Option<i64>, msid: Option<Uuid>, mbid: Option<Uuid>| {
+        let at = track.and_then(|t| loved.iter().find(|(id, _)| *id == t).map(|(_, at)| *at));
+        json!({
+            "created": at.map(|at| at.timestamp()),
+            "recording_mbid": mbid,
+            "recording_msid": msid,
+            "score": i32::from(at.is_some()),
+            "track_metadata": null,
+            "user_id": user.username,
+        })
+    };
+    let feedback: Vec<Value> = msids
+        .iter()
+        .map(|m| entry(msid_track(*m), Some(*m), None))
+        .chain(
+            mbids
+                .iter()
+                .map(|m| entry(track_of_mbid(m), None, Some(*m))),
+        )
+        .collect();
+    Json(json!({ "feedback": feedback })).into_response()
 }
 
 #[cfg(test)]

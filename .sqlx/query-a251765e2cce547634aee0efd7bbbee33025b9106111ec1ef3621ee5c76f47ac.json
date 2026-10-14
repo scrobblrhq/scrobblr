@@ -1,0 +1,96 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT l.track_id, t.title AS track_title, t.mbid AS track_mbid,\n               COALESCE(t.duration_ms, t.mb_duration_ms, t.deezer_duration_ms) AS duration_ms,\n               t.artist_id, a.name AS artist_name, a.mbid AS artist_mbid, t.album_id,\n               al.title AS \"album_title?\", al.mbid AS \"album_mbid?\", al.image_url AS \"album_image?\",\n               a.image_url AS artist_image, l.loved_at\n        FROM (\n            SELECT track_id, loved_at FROM loved_tracks\n            WHERE user_id = $1\n            ORDER BY loved_at DESC, track_id DESC\n            LIMIT $2 OFFSET $3\n        ) l\n        JOIN tracks t  ON t.id = l.track_id\n        JOIN artists a ON a.id = t.artist_id\n        LEFT JOIN albums al ON al.id = t.album_id\n        ORDER BY l.loved_at DESC, l.track_id DESC\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "track_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "track_title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "track_mbid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "duration_ms",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "artist_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "artist_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "artist_mbid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 7,
+        "name": "album_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "album_title?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "album_mbid?",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 10,
+        "name": "album_image?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "artist_image",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "loved_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      null,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "a251765e2cce547634aee0efd7bbbee33025b9106111ec1ef3621ee5c76f47ac"
+}

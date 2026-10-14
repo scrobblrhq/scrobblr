@@ -1814,3 +1814,238 @@ async fn listenbrainz_feedback_loves_unloves_and_refuses() {
     })
     .await;
 }
+
+/// Loves read back as ListenBrainz feedback: Pano Scrobbler's loved list
+/// (`get-feedback` with `metadata`), unloving from it by the MSID it
+/// gives, and the score of given recordings (GET and POST).
+#[tokio::test]
+#[ignore = "needs Postgres and Redis: just test-db"]
+async fn listenbrainz_feedback_reads_back_what_was_loved() {
+    with_app(CompatConfig::default(), |app| async move {
+        let token = app.new_token("Pano Scrobbler").await;
+        let auth = format!("Token {token}");
+        let roads = scrobble_and_love(&app, ("Portishead", "Roads", "Dummy"), TimeDelta::minutes(30)).await;
+        let words = scrobble_and_love(&app, ("Low", "Words", "I Could Live in Hope"), TimeDelta::minutes(20)).await;
+        let mbid = uuid::Uuid::new_v4();
+        sqlx::query("UPDATE tracks SET mbid = $2 WHERE id = $1")
+            .bind(words)
+            .bind(mbid)
+            .execute(&app.pool)
+            .await
+            .unwrap();
+
+        let list = format!(
+            "/1/feedback/user/{}/get-feedback?offset=0&metadata=true&count=25",
+            app.username
+        );
+        let (status, page) = app.lb_json(Method::GET, &list, Some(&auth), None).await;
+        assert_eq!(status, StatusCode::OK, "{page}");
+        assert_eq!((page["count"].as_i64(), page["total_count"].as_i64()), (Some(2), Some(2)));
+        let newest = &page["feedback"][0];
+        assert_eq!(newest["score"], 1);
+        assert_eq!(newest["user_id"], app.username.as_str());
+        assert_eq!(newest["recording_mbid"], mbid.to_string());
+        assert_eq!(newest["track_metadata"]["track_name"], "Words");
+        assert_eq!(newest["track_metadata"]["artist_name"], "Low");
+        assert_eq!(newest["track_metadata"]["release_name"], "I Could Live in Hope");
+        assert_eq!(newest["track_metadata"]["additional_info"]["duration_ms"], 200_000);
+        assert_eq!(newest["track_metadata"]["mbid_mapping"]["recording_mbid"], mbid.to_string());
+        assert!(newest["created"].as_i64().is_some());
+        let older = &page["feedback"][1];
+        assert_eq!(older["recording_mbid"], Value::Null);
+        assert!(older["track_metadata"].get("mbid_mapping").is_none());
+        let roads_msid = older["recording_msid"].as_str().unwrap().to_string();
+        assert_eq!(roads_msid, crate::compat::listenbrainz::msid(roads).to_string());
+
+        // Without metadata, a page, hates (never kept), bad parameters.
+        let (_, plain) = app
+            .lb_json(Method::GET, &format!("/1/feedback/user/{}/get-feedback?count=1&offset=1", app.username), None, None)
+            .await;
+        assert_eq!(plain["feedback"].as_array().unwrap().len(), 1);
+        assert_eq!(plain["feedback"][0]["track_metadata"], Value::Null);
+        assert_eq!(plain["offset"], 1);
+        let (_, hated) = app
+            .lb_json(Method::GET, &format!("/1/feedback/user/{}/get-feedback?score=-1", app.username), None, None)
+            .await;
+        assert_eq!((hated["count"].as_i64(), hated["total_count"].as_i64()), (Some(0), Some(0)));
+        for bad in ["score=0", "score=2", "count=-1", "offset=x"] {
+            let (status, _) = app
+                .lb_json(Method::GET, &format!("/1/feedback/user/{}/get-feedback?{bad}", app.username), None, None)
+                .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}");
+        }
+
+        // Scores of given recordings: ours, by MBID, and unknown ones.
+        let unknown = uuid::Uuid::new_v4();
+        let path = format!(
+            "/1/feedback/user/{}/get-feedback-for-recordings?recording_msids={roads_msid},{unknown}&recording_mbids={mbid}",
+            app.username
+        );
+        let (status, body) = app.lb_json(Method::GET, &path, None, None).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let scores: Vec<(Value, Value, i64)> = body["feedback"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| (f["recording_msid"].clone(), f["recording_mbid"].clone(), f["score"].as_i64().unwrap()))
+            .collect();
+        assert_eq!(
+            scores,
+            [
+                (json!(roads_msid), Value::Null, 1),
+                (json!(unknown.to_string()), Value::Null, 0),
+                (Value::Null, json!(mbid.to_string()), 1),
+            ]
+        );
+        let (status, body) = app
+            .lb_json(
+                Method::POST,
+                &format!("/1/feedback/user/{}/get-feedback-for-recordings", app.username),
+                None,
+                Some(json!({ "recording_mbids": [mbid, unknown] })),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["feedback"][0]["score"], 1);
+        assert_eq!(body["feedback"][1]["score"], 0);
+        assert_eq!(body["feedback"][1]["created"], Value::Null);
+        for bad in ["", "?recording_msids=nope", "?recording_mbids=,"] {
+            let (status, _) = app
+                .lb_json(Method::GET, &format!("/1/feedback/user/{}/get-feedback-for-recordings{bad}", app.username), None, None)
+                .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}");
+        }
+        let many: Vec<String> = (0..1001).map(|_| uuid::Uuid::new_v4().to_string()).collect();
+        let (status, _) = app
+            .lb_json(
+                Method::POST,
+                &format!("/1/feedback/user/{}/get-feedback-for-recordings", app.username),
+                None,
+                Some(json!({ "recording_msids": many })),
+            )
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        // Unloving from the list, by the MSID it gave.
+        let (status, _) = app
+            .lb_json(
+                Method::POST,
+                "/1/feedback/recording-feedback",
+                Some(&auth),
+                Some(json!({ "recording_msid": roads_msid, "score": 0 })),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        let (_, page) = app.lb_json(Method::GET, &list, Some(&auth), None).await;
+        assert_eq!(page["total_count"], 1);
+    })
+    .await;
+}
+
+/// Feedback is read as the profile allows: by anyone while public, by the
+/// owner's token alone while private, by no one while the account waits to
+/// be erased, and not with a token of an account it blocks.
+#[tokio::test]
+#[ignore = "needs Postgres and Redis: just test-db"]
+async fn listenbrainz_feedback_follows_the_profile_rules() {
+    with_app(CompatConfig::default(), |app| async move {
+        let owner = format!("Token {}", app.new_token("owner").await);
+        scrobble_and_love(
+            &app,
+            ("Low", "Words", "I Could Live in Hope"),
+            TimeDelta::minutes(5),
+        )
+        .await;
+        let msid = sqlx::query_scalar::<_, i64>("SELECT track_id FROM loved_tracks")
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+        let msid = crate::compat::listenbrainz::msid(msid);
+        let (viewer, _, viewer_session) = app.other_user("viewer").await;
+        let (_, created) = app
+            .api_as(
+                &viewer_session,
+                Method::POST,
+                "/v1/scrobbler/tokens",
+                Some(json!({ "name": "v" })),
+            )
+            .await;
+        let viewer_auth = format!("Token {}", created["token"].as_str().unwrap());
+        let paths = [
+            format!("/1/feedback/user/{}/get-feedback", app.username),
+            format!(
+                "/1/feedback/user/{}/get-feedback-for-recordings?recording_msids={msid}",
+                app.username
+            ),
+        ];
+        let status = |auth: Option<String>| {
+            let paths = paths.clone();
+            let app = &app;
+            async move {
+                let mut statuses = Vec::new();
+                for path in &paths {
+                    statuses.push(
+                        app.lb_json(Method::GET, path, auth.as_deref(), None)
+                            .await
+                            .0,
+                    );
+                }
+                statuses
+            }
+        };
+        let all = |s: StatusCode| vec![s, s];
+        let pool = app.pool.clone();
+        let exec = |sql: &'static str| {
+            let pool = pool.clone();
+            async move {
+                sqlx::query(sql).execute(&pool).await.unwrap();
+            }
+        };
+
+        assert_eq!(status(None).await, all(StatusCode::OK));
+        assert_eq!(status(Some(viewer_auth.clone())).await, all(StatusCode::OK));
+        assert_eq!(status(Some("Token nope".into())).await, all(StatusCode::OK));
+
+        exec("UPDATE users SET is_private = TRUE").await;
+        assert_eq!(status(None).await, all(StatusCode::FORBIDDEN));
+        assert_eq!(
+            status(Some(viewer_auth.clone())).await,
+            all(StatusCode::FORBIDDEN)
+        );
+        assert_eq!(status(Some(owner.clone())).await, all(StatusCode::OK));
+        exec("UPDATE users SET is_private = FALSE").await;
+
+        sqlx::query("INSERT INTO user_blocks (blocker_id, blocked_id) VALUES ($1, $2)")
+            .bind(app.user_id)
+            .bind(viewer)
+            .execute(&app.pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            status(Some(viewer_auth.clone())).await,
+            all(StatusCode::NOT_FOUND)
+        );
+        assert_eq!(status(None).await, all(StatusCode::OK));
+        exec("DELETE FROM user_blocks").await;
+
+        sqlx::query("UPDATE users SET delete_after = NOW() + INTERVAL '7 days' WHERE id = $1")
+            .bind(app.user_id)
+            .execute(&app.pool)
+            .await
+            .unwrap();
+        assert_eq!(status(None).await, all(StatusCode::NOT_FOUND));
+        exec("UPDATE users SET delete_after = NULL").await;
+
+        let (status, body) = app
+            .lb_json(
+                Method::GET,
+                "/1/feedback/user/nobody_here/get-feedback",
+                None,
+                None,
+            )
+            .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(body["error"], "Cannot find user: nobody_here");
+    })
+    .await;
+}

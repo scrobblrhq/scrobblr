@@ -4234,6 +4234,578 @@
         ]
       }
     },
+    "/1/feedback/user/{user_name}/get-feedback": {
+      "get": {
+        "description": "A user's loved tracks as ListenBrainz feedback (score 1), newest first, as visible as the profile. Each carries `recording_msid` (this server's, for unloving), and `recording_mbid` when MusicBrainz enrichment matched the track.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "`Token {scrobbler token}`: optional, names the viewer (its own private profile)",
+            "in": "header",
+            "name": "Authorization",
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "`1` for loves (the default lists them too); `-1` lists nothing: hates aren't kept",
+            "in": "query",
+            "name": "score",
+            "schema": {
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Entries, 25 by default, 1000 at most",
+            "in": "query",
+            "name": "count",
+            "schema": {
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Entries to skip",
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "`true` for each track's `track_metadata`",
+            "in": "query",
+            "name": "metadata",
+            "schema": {
+              "type": "string"
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "count": {
+                      "type": "integer"
+                    },
+                    "feedback": {
+                      "items": {
+                        "properties": {
+                          "created": {
+                            "description": "Unix seconds the love was made",
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "recording_mbid": {
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "recording_msid": {
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "score": {
+                            "enum": [
+                              0,
+                              1
+                            ],
+                            "type": "integer"
+                          },
+                          "track_metadata": {
+                            "additionalProperties": true,
+                            "type": [
+                              "object",
+                              "null"
+                            ]
+                          },
+                          "user_id": {
+                            "description": "The username",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "offset": {
+                      "type": "integer"
+                    },
+                    "total_count": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The user's loves, newest first"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "type": "integer"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A score other than 1 or -1, or a bad count or offset"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "type": "integer"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The profile is private"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "type": "integer"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No such user, one waiting to be deleted, or one blocking the token's account"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "type": "integer"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too many requests"
+          }
+        },
+        "summary": "ListenBrainz: a user's loved recordings",
+        "tags": [
+          "Scrobbler protocols"
+        ]
+      }
+    },
+    "/1/feedback/user/{user_name}/get-feedback-for-recordings": {
+      "get": {
+        "description": "The user's score for each recording asked about: 1 for a loved track, 0 otherwise (unknown recordings included), as visible as the profile.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "`Token {scrobbler token}`: optional, names the viewer (its own private profile)",
+            "in": "header",
+            "name": "Authorization",
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "Comma-separated MSIDs (`recordings`, deprecated, also)",
+            "in": "query",
+            "name": "recording_msids",
+            "schema": {
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Comma-separated MBIDs",
+            "in": "query",
+            "name": "recording_mbids",
+            "schema": {
+              "type": "string"
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "feedback": {
+                      "items": {
+                        "properties": {
+                          "created": {
+                            "description": "Unix seconds the love was made",
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "recording_mbid": {
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "recording_msid": {
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "score": {
+                            "enum": [
+                              0,
+                              1
+                            ],
+                            "type": "integer"
+                          },
+                          "track_metadata": {
+                            "additionalProperties": true,
+                            "type": [
+                              "object",
+                              "null"
+                            ]
+                          },
+                          "user_id": {
+                            "description": "The username",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "One entry per recording asked about, in order: score 1 if loved, else 0"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "type": "integer"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No recording, an invalid UUID, or more than 1000"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "type": "integer"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The profile is private"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "type": "integer"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No such user, one waiting to be deleted, or one blocking the token's account"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "type": "integer"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too many requests"
+          }
+        },
+        "summary": "ListenBrainz: a user's scores for recordings",
+        "tags": [
+          "Scrobbler protocols"
+        ]
+      },
+      "post": {
+        "description": "The user's score for each recording asked about: 1 for a loved track, 0 otherwise (unknown recordings included), as visible as the profile.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "`Token {scrobbler token}`: optional, names the viewer (its own private profile)",
+            "in": "header",
+            "name": "Authorization",
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "recording_mbids": {
+                    "items": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "recording_msids": {
+                    "items": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "feedback": {
+                      "items": {
+                        "properties": {
+                          "created": {
+                            "description": "Unix seconds the love was made",
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "recording_mbid": {
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "recording_msid": {
+                            "format": "uuid",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "score": {
+                            "enum": [
+                              0,
+                              1
+                            ],
+                            "type": "integer"
+                          },
+                          "track_metadata": {
+                            "additionalProperties": true,
+                            "type": [
+                              "object",
+                              "null"
+                            ]
+                          },
+                          "user_id": {
+                            "description": "The username",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "One entry per recording asked about, in order: score 1 if loved, else 0"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "type": "integer"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No recording, an invalid UUID, or more than 1000"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "type": "integer"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The profile is private"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "type": "integer"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "No such user, one waiting to be deleted, or one blocking the token's account"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "type": "integer"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too many requests"
+          }
+        },
+        "summary": "ListenBrainz: a user's scores for recordings",
+        "tags": [
+          "Scrobbler protocols"
+        ]
+      }
+    },
     "/1/submit-listens": {
       "post": {
         "description": "ListenBrainz's submission API with a scrobbler token as the user token (`Authorization: Token …`). `listen_type` is `single`, `playing_now` or `import` (up to 1000 listens). `track_metadata.additional_info` may carry `duration_ms` or `duration`, `recording_mbid` (an enrichment hint) and the submitting client. With `return_msid`, a `playing_now` answer carries the track's `recording_msid`, for loving it through the feedback API.",

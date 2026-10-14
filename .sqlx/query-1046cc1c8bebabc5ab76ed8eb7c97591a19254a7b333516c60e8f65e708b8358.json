@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT track_id, loved_at FROM loved_tracks WHERE user_id = $1 AND track_id = ANY($2)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "track_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "loved_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "1046cc1c8bebabc5ab76ed8eb7c97591a19254a7b333516c60e8f65e708b8358"
+}
