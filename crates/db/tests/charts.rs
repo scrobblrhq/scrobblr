@@ -275,11 +275,14 @@ async fn recount_weights(
 async fn community_charts_equal_a_recount_of_the_weights() {
     with_db(true, |pool| async move {
         let users = history(&pool).await;
-        // All but the last are established; that one's plays weigh nothing.
+        // All but the last are established; that one's plays weigh nothing,
+        // and it was never seen (its plays, today at 10:00, gave it a
+        // last_seen_at in the future before then).
         sqlx::query(
-            "UPDATE users SET created_at = NOW() - INTERVAL '100 days',
-                              last_seen_at = NOW() - make_interval(mins => id::int % 7)
-             WHERE id <> $1",
+            "UPDATE users SET created_at = CASE WHEN id = $1 THEN created_at
+                                                ELSE NOW() - INTERVAL '100 days' END,
+                              last_seen_at = CASE WHEN id <> $1
+                                                  THEN NOW() - make_interval(mins => id::int % 7) END",
         )
         .bind(users[5])
         .execute(&pool)
