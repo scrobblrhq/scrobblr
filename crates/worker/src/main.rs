@@ -8,6 +8,7 @@ mod fake_lastfm;
 mod heartbeat;
 mod lastfm_import;
 mod rankings;
+mod similarity;
 mod status;
 #[cfg(test)]
 mod test_support;
@@ -33,10 +34,11 @@ async fn main() -> anyhow::Result<()> {
         Some("help" | "--help" | "-h")
     ) {
         println!(
-            "{USAGE}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+            "{USAGE}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
             status::USAGE,
             classification::cli::USAGE,
             rankings::cli::USAGE,
+            similarity::cli::USAGE,
             lastfm_import::cli::USAGE,
             tracks::USAGE,
             albums::USAGE,
@@ -78,6 +80,10 @@ async fn main() -> anyhow::Result<()> {
         Some("rank") => {
             db::migrate::ensure_current(&db).await?;
             return rankings::cli::run(&db, &args[1..]).await;
+        }
+        Some("similarity") => {
+            db::migrate::ensure_current(&db).await?;
+            return similarity::cli::run(&db, &args[1..]).await;
         }
         Some("import") => {
             db::migrate::ensure_current(&db).await?;
@@ -253,6 +259,10 @@ async fn main() -> anyhow::Result<()> {
     let coordination_handle =
         supervise(&db, "coordination", move |beat| detector.clone().run(beat));
 
+    // Recomputes similar artists, recommendations and taste neighbours.
+    let refresher = Arc::new(similarity::Refresher::from_env(db.clone())?);
+    let similarity_handle = supervise(&db, "similarity", move |beat| refresher.clone().run(beat));
+
     // Decides the albums of tracks whose accounts' say changed.
     let attributor = Arc::new(albums::Attributor::from_env(db.clone())?);
     let albums_handle = supervise(&db, "album attribution", move |beat| {
@@ -279,6 +289,7 @@ async fn main() -> anyhow::Result<()> {
         _ = rankings_sweep_handle => "rankings sweep",
         _ = snapshots_handle => "ranking snapshots",
         _ = coordination_handle => "coordination",
+        _ = similarity_handle => "similarity",
         _ = albums_handle => "album attribution",
         _ = accounts_handle => "account erasure",
         _ = tokio::signal::ctrl_c() => {

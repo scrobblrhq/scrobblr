@@ -27,6 +27,7 @@ pub const LOOPS: &[(&str, Duration)] = &[
     ("rankings sweep", Duration::from_secs(600)),
     ("ranking snapshots", Duration::from_secs(900)),
     ("coordination", Duration::from_secs(6 * 3600 + 1800)),
+    ("similarity", Duration::from_secs(3600)),
     ("album attribution", Duration::from_secs(300)),
     ("account erasure", Duration::from_secs(600)),
 ];
