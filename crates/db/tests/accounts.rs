@@ -134,7 +134,8 @@ async fn populate(pool: &PgPool, name: &str, artwork_artist: i64) -> i64 {
         "INSERT INTO recommendation_skips (user_id, artist_id, until)
          SELECT $1, id, NOW() + INTERVAL '90 days' FROM artists ORDER BY id LIMIT 1",
         "INSERT INTO loved_tracks (user_id, track_id, source)
-         SELECT $1, id, 'scrobblr' FROM tracks ORDER BY id LIMIT 2",
+         SELECT $1, id, (ARRAY['scrobblr', 'listenbrainz'])[row_number() OVER (ORDER BY id)]
+         FROM tracks ORDER BY id LIMIT 2",
     ] {
         exec(pool, sql, user_id).await;
     }

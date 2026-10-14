@@ -389,6 +389,22 @@ mod tests {
                 )
                 .await;
             assert_eq!(status, StatusCode::OK);
+            // And one through ListenBrainz feedback, by the track's MSID.
+            let song: i64 = sqlx::query_scalar("SELECT id FROM tracks WHERE title = 'Song 1'")
+                .fetch_one(&app.pool)
+                .await
+                .unwrap();
+            let feedback = json!({
+                "recording_msid": crate::compat::listenbrainz::msid(song),
+                "score": 1,
+            });
+            let req = Request::builder()
+                .method(Method::POST)
+                .uri("/1/feedback/recording-feedback")
+                .header("authorization", format!("Token {scrobbler}"))
+                .body(Body::from(feedback.to_string()))
+                .unwrap();
+            assert_eq!(app.send(req).await.0, StatusCode::OK);
 
             // Not with an API token, even one that may read.
             let (status, _) = export(&app, &token).await;
@@ -498,15 +514,21 @@ mod tests {
 
             let loves = file("loved_tracks.csv");
             let lines: Vec<&str> = loves.lines().collect();
-            assert_eq!(lines.len(), 2, "{loves}");
+            assert_eq!(lines.len(), 3, "{loves}");
             assert!(lines[0].starts_with("loved_at,artist,track,album,"));
             assert!(
                 lines[1].contains(",\"Band, \"\"The\"\"\",\"'=Loved\",,,lastfm,lastfm,pano,false,"),
                 "{}",
                 lines[1]
             );
+            assert!(
+                lines[2].contains(",Song 1,") && lines[2].ends_with(",listenbrainz,,,,"),
+                "{}",
+                lines[2]
+            );
             let loves: Vec<Value> = serde_json::from_str(&file("loved_tracks.json")).unwrap();
-            assert_eq!(loves.len(), 1);
+            assert_eq!(loves.len(), 2);
+            assert_eq!(loves[1]["source"], "listenbrainz");
             assert_eq!(loves[0]["track"], "=Loved");
             assert_eq!(loves[0]["client_name"], "pano");
 
