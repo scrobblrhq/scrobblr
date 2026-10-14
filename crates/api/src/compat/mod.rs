@@ -130,6 +130,10 @@ pub fn router() -> Router<AppState> {
         .route("/1.2/submissions", post(audioscrobbler::submissions))
         .route("/1/validate-token", get(listenbrainz::validate_token))
         .route("/1/submit-listens", post(listenbrainz::submit_listens))
+        .route(
+            "/1/feedback/recording-feedback",
+            post(listenbrainz::recording_feedback),
+        )
 }
 
 /// Form or query parameters, in the order sent.

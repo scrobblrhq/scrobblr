@@ -186,6 +186,26 @@ const PUBLIC: &[(&str, &str)] = &[
     ("GET", "/v1/user/{username}/heatmap"),
 ];
 
+/// The scrobbler-compatible routes: they take scrobbler credentials (or
+/// none, to read), never native sessions or API tokens. A documented one
+/// not listed here fails the test, as above.
+const PROTOCOL: &[(&str, &str)] = &[
+    ("GET", "/2.0/"),
+    ("POST", "/2.0/"),
+    ("GET", "/2.0"),
+    ("POST", "/2.0"),
+    ("GET", "/api/auth/"),
+    ("GET", "/api/auth"),
+    ("GET", "/"),
+    ("GET", "/1.2/"),
+    ("GET", "/1.2"),
+    ("POST", "/1.2/nowplaying"),
+    ("POST", "/1.2/submissions"),
+    ("POST", "/1/submit-listens"),
+    ("GET", "/1/validate-token"),
+    ("POST", "/1/feedback/recording-feedback"),
+];
+
 /// Calls `path`, its `{params}` filled with `1`, without a body, from a
 /// client address of its own (hundreds of calls would hit the rate limit).
 async fn call(
@@ -252,19 +272,21 @@ async fn every_authenticated_route_takes_the_access_listed() {
         // the others are exactly the public ones.
         let mut authenticated = Vec::new();
         let mut public = Vec::new();
+        let mut protocol = Vec::new();
         for (path, item) in spec["paths"].as_object().unwrap() {
             for (method, operation) in item.as_object().unwrap() {
                 if !["get", "put", "post", "delete", "patch"].contains(&method.as_str()) {
                     continue;
                 }
                 // The protocol routes take scrobbler credentials instead.
-                let protocol = operation["tags"]
+                let is_protocol = operation["tags"]
                     .as_array()
                     .is_some_and(|tags| tags.iter().any(|t| t == "Scrobbler protocols"));
-                if protocol {
+                let method = method.to_uppercase();
+                if is_protocol {
+                    protocol.push((method, path.clone()));
                     continue;
                 }
-                let method = method.to_uppercase();
                 let (status, _) = call(&app, None, &method, path).await;
                 if status == StatusCode::UNAUTHORIZED {
                     authenticated.push((method.clone(), path.clone()));
@@ -295,6 +317,13 @@ async fn every_authenticated_route_takes_the_access_listed() {
             .collect();
         listed.sort();
         assert_eq!(authenticated, listed);
+        protocol.sort();
+        let mut listed: Vec<(String, String)> = PROTOCOL
+            .iter()
+            .map(|(method, path)| (method.to_string(), path.to_string()))
+            .collect();
+        listed.sort();
+        assert_eq!(protocol, listed);
         public.sort();
         let mut listed: Vec<(String, String)> = PUBLIC
             .iter()

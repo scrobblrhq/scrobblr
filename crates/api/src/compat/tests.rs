@@ -1599,3 +1599,218 @@ async fn track_get_info_shows_a_user_only_as_their_profile_allows() {
     })
     .await;
 }
+
+impl TestApp {
+    async fn lb_json(
+        &self,
+        method: Method,
+        path: &str,
+        auth: Option<&str>,
+        body: Option<Value>,
+    ) -> (StatusCode, Value) {
+        let mut req = Request::builder().method(method).uri(path);
+        if let Some(auth) = auth {
+            req = req.header(header::AUTHORIZATION, auth);
+        }
+        if body.is_some() {
+            req = req.header(header::CONTENT_TYPE, "application/json; charset=UTF-8");
+        }
+        let req = req
+            .body(body.map_or_else(Body::empty, |b| Body::from(b.to_string())))
+            .unwrap();
+        let (status, _, body) = self.send(req).await;
+        (status, serde_json::from_str(&body).unwrap_or(Value::Null))
+    }
+}
+
+/// Pano Scrobbler's ListenBrainz love: now playing with `return_msid`,
+/// then feedback by that MSID (its notification's love button), or by a
+/// recording MBID it knows; unloves and hates; what it gets for
+/// recordings the catalog doesn't have and for malformed feedback.
+#[tokio::test]
+#[ignore = "needs Postgres and Redis: just test-db"]
+async fn listenbrainz_feedback_loves_unloves_and_refuses() {
+    with_app(CompatConfig::default(), |app| async move {
+        let token = app.new_token("Pano Scrobbler").await;
+        let auth = format!("Token {token}");
+        let playing = json!({
+            "listen_type": "playing_now",
+            "payload": [{ "track_metadata": {
+                "artist_name": "Cocteau Twins",
+                "release_name": "Heaven or Las Vegas",
+                "track_name": "Cherry-Coloured Funk",
+                "additional_info": {
+                    "duration_ms": 192000,
+                    "submission_client": "Pano Scrobbler",
+                    "submission_client_version": "3.12",
+                },
+            } }],
+        });
+        let (status, body) = app
+            .lb_json(
+                Method::POST,
+                "/1/submit-listens?return_msid=true",
+                Some(&auth),
+                Some(playing.clone()),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let msid = body["recording_msid"].as_str().unwrap().to_string();
+        let (_, without) = app
+            .lb_json(
+                Method::POST,
+                "/1/submit-listens",
+                Some(&auth),
+                Some(playing),
+            )
+            .await;
+        assert_eq!(without, json!({ "status": "ok" }));
+
+        let feedback = |body: Value| {
+            let auth = auth.clone();
+            let app = &app;
+            async move {
+                app.lb_json(
+                    Method::POST,
+                    "/1/feedback/recording-feedback",
+                    Some(&auth),
+                    Some(body),
+                )
+                .await
+            }
+        };
+        // Pano leaves out the null id (explicitNulls = false).
+        let (status, body) = feedback(json!({ "recording_msid": msid, "score": 1 })).await;
+        assert_eq!(
+            (status, &body),
+            (StatusCode::OK, &json!({ "status": "ok" }))
+        );
+        let loved: (String, String) = sqlx::query_as(
+            "SELECT t.title, l.source FROM loved_tracks l JOIN tracks t ON t.id = l.track_id",
+        )
+        .fetch_one(&app.pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            loved,
+            ("Cherry-Coloured Funk".into(), "listenbrainz".into())
+        );
+        let count = || async {
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM loved_tracks")
+                .fetch_one(&app.pool)
+                .await
+                .unwrap()
+        };
+
+        for score in [0, 0] {
+            let (status, _) = feedback(json!({ "recording_msid": msid, "score": score })).await;
+            assert_eq!(status, StatusCode::OK);
+        }
+        assert_eq!(count().await, 0);
+
+        // By MBID: the matched recording, or a hint the client sent.
+        let mbid = uuid::Uuid::new_v4();
+        sqlx::query("UPDATE tracks SET mbid_hint = $1")
+            .bind(mbid)
+            .execute(&app.pool)
+            .await
+            .unwrap();
+        let (status, _) =
+            feedback(json!({ "recording_mbid": mbid, "recording_msid": null, "score": 1 })).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(count().await, 1);
+        // A hate takes the love back and isn't kept.
+        let (status, _) = feedback(json!({ "recording_mbid": mbid, "score": -1 })).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(count().await, 0);
+
+        // Recordings the catalog doesn't have: a love is refused, nothing
+        // is created, an unlove or a hate is nothing to do.
+        let tracks: i64 = sqlx::query_scalar("SELECT count(*) FROM tracks")
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+        for recording in [
+            json!({ "recording_mbid": uuid::Uuid::new_v4() }),
+            json!({ "recording_msid": uuid::Uuid::new_v4() }),
+            json!({ "recording_msid": crate::compat::listenbrainz::msid(987_654_321) }),
+        ] {
+            let mut love = recording.clone();
+            love["score"] = json!(1);
+            let (status, body) = feedback(love).await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+            assert_eq!(body["code"], 404);
+            for score in [0, -1] {
+                let mut other = recording.clone();
+                other["score"] = json!(score);
+                assert_eq!(feedback(other).await.0, StatusCode::OK);
+            }
+        }
+        let after: i64 = sqlx::query_scalar("SELECT count(*) FROM tracks")
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+        assert_eq!(after, tracks);
+
+        for bad in [
+            json!({ "recording_msid": msid, "score": 2 }),
+            json!({ "recording_msid": msid, "score": "1" }),
+            json!({ "recording_msid": msid, "score": 1.5 }),
+            json!({ "recording_msid": msid }),
+            json!({ "score": 1 }),
+            json!({ "recording_msid": "not-a-uuid", "score": 1 }),
+            json!({ "recording_msid": msid, "score": 1, "user_id": "someone" }),
+        ] {
+            let (status, body) = feedback(bad.clone()).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}: {body}");
+        }
+        let love = json!({ "recording_msid": msid, "score": 1 });
+        for auth in [
+            None,
+            Some("Token nope".to_string()),
+            Some(format!("Token {}", app.session)),
+        ] {
+            let (status, _) = app
+                .lb_json(
+                    Method::POST,
+                    "/1/feedback/recording-feedback",
+                    auth.as_deref(),
+                    Some(love.clone()),
+                )
+                .await;
+            assert_eq!(status, StatusCode::UNAUTHORIZED, "{auth:?}");
+        }
+
+        // The cap and the love limits, shared with the other APIs.
+        sqlx::query(
+            "WITH artist AS (INSERT INTO artists (name, name_normalized)
+                             VALUES ('Many', 'many') RETURNING id),
+                  made AS (INSERT INTO tracks (artist_id, title, title_normalized)
+                           SELECT artist.id, 'T' || g, 't' || g
+                           FROM artist, generate_series(1, $2) g RETURNING id)
+             INSERT INTO loved_tracks (user_id, track_id, source)
+             SELECT $1, id, 'scrobblr' FROM made",
+        )
+        .bind(app.user_id)
+        .bind(db::queries::loves::MAX_LOVED_TRACKS)
+        .execute(&app.pool)
+        .await
+        .unwrap();
+        let (status, body) = feedback(love.clone()).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{body}");
+        let window = Utc::now().timestamp() / 3600;
+        let _: () = fred::interfaces::KeysInterface::set(
+            &app.redis,
+            format!("love:user:{}:{window}", app.user_id),
+            crate::limits::LOVES_PER_USER,
+            None,
+            None,
+            false,
+        )
+        .await
+        .unwrap();
+        let (status, _) = feedback(json!({ "recording_msid": msid, "score": 0 })).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    })
+    .await;
+}

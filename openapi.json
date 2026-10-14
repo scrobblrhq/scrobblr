@@ -3995,7 +3995,7 @@
     },
     "/1.2/submissions": {
       "post": {
-        "description": "Form fields `s`, then `a[i]`, `t[i]`, `i[i]` (Unix seconds), `o[i]`, `r[i]` (`S` or `B` drop the play), `l[i]`, `b[i]`, `n[i]`, `m[i]` for up to 50 plays.",
+        "description": "Form fields `s`, then `a[i]`, `t[i]`, `i[i]` (Unix seconds), `o[i]`, `r[i]` (`S` or `B` drop the play, `L` loves its track), `l[i]`, `b[i]`, `n[i]`, `m[i]` for up to 50 plays.",
         "requestBody": {
           "content": {
             "application/x-www-form-urlencoded": {
@@ -4054,9 +4054,9 @@
         ]
       }
     },
-    "/1/submit-listens": {
+    "/1/feedback/recording-feedback": {
       "post": {
-        "description": "ListenBrainz's submission API with a scrobbler token as the user token (`Authorization: Token …`). `listen_type` is `single`, `playing_now` or `import` (up to 1000 listens). `track_metadata.additional_info` may carry `duration_ms` or `duration`, `recording_mbid` (an enrichment hint) and the submitting client.",
+        "description": "ListenBrainz's feedback with a scrobbler token. `score` 1 loves the recording's track, 0 takes the love back; -1 (hate) takes it back too and is not stored. The recording is a `recording_mbid` (the track MusicBrainz enrichment matched, else one a client sent it for) or a `recording_msid` this server handed out (`submit-listens` with `return_msid`, or the read side). A love of a recording the catalog doesn't have is refused (404), never created. Counted against the love limits shared with every API (300 an hour per account, 1,000 per address), whatever the score; 50,000 loved tracks at most. Loves feed nothing: no ranking, recommendation or similarity reads them.",
         "parameters": [
           {
             "description": "`Token {scrobbler token}`",
@@ -4067,6 +4067,195 @@
               "type": "string"
             },
             "style": "simple"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "recording_mbid": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "recording_msid": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "score": {
+                    "enum": [
+                      -1,
+                      0,
+                      1
+                    ],
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "score"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "status": {
+                      "enum": [
+                        "ok"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Done, or nothing to do"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "type": "integer"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Malformed feedback: a bad score, no recording, an invalid UUID or another key"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "type": "integer"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Missing or invalid token"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "type": "integer"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A love of a recording the catalog doesn't have"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "type": "integer"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The account loves 50,000 tracks already"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "type": "integer"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too many requests, or loves and unloves"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "type": "integer"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Temporarily unavailable"
+          }
+        },
+        "summary": "ListenBrainz: love or unlove a recording",
+        "tags": [
+          "Scrobbler protocols"
+        ]
+      }
+    },
+    "/1/submit-listens": {
+      "post": {
+        "description": "ListenBrainz's submission API with a scrobbler token as the user token (`Authorization: Token …`). `listen_type` is `single`, `playing_now` or `import` (up to 1000 listens). `track_metadata.additional_info` may carry `duration_ms` or `duration`, `recording_mbid` (an enrichment hint) and the submitting client. With `return_msid`, a `playing_now` answer carries the track's `recording_msid`, for loving it through the feedback API.",
+        "parameters": [
+          {
+            "description": "`Token {scrobbler token}`",
+            "in": "header",
+            "name": "Authorization",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "Any value but an empty one: a `playing_now` answer carries `recording_msid`",
+            "in": "query",
+            "name": "return_msid",
+            "schema": {
+              "type": "string"
+            },
+            "style": "form"
           }
         ],
         "requestBody": {
@@ -4132,6 +4321,11 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "recording_msid": {
+                      "description": "With `return_msid`, for `playing_now`",
+                      "format": "uuid",
+                      "type": "string"
+                    },
                     "status": {
                       "enum": [
                         "ok"

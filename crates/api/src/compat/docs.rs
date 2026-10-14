@@ -162,9 +162,14 @@ fn submit_listens() -> Value {
             "description": "ListenBrainz's submission API with a scrobbler token as the user token \
                 (`Authorization: Token …`). `listen_type` is `single`, `playing_now` or `import` \
                 (up to 1000 listens). `track_metadata.additional_info` may carry `duration_ms` or \
-                `duration`, `recording_mbid` (an enrichment hint) and the submitting client.",
-            "parameters": [{ "name": "Authorization", "in": "header", "required": true,
-                             "description": "`Token {scrobbler token}`", "schema": { "type": "string" } }],
+                `duration`, `recording_mbid` (an enrichment hint) and the submitting client. \
+                With `return_msid`, a `playing_now` answer carries the track's `recording_msid`, \
+                for loving it through the feedback API.",
+            "parameters": [
+                { "name": "Authorization", "in": "header", "required": true,
+                  "description": "`Token {scrobbler token}`", "schema": { "type": "string" } },
+                text("return_msid", "Any value but an empty one: a `playing_now` answer carries `recording_msid`")
+            ],
             "requestBody": { "content": { "application/json": { "schema": {
                 "type": "object",
                 "required": ["listen_type", "payload"],
@@ -186,10 +191,53 @@ fn submit_listens() -> Value {
             } } } },
             "responses": {
                 "200": { "description": "Accepted", "content": { "application/json": { "schema": {
-                    "type": "object", "properties": { "status": { "type": "string", "enum": ["ok"] } } } } } },
+                    "type": "object", "properties": {
+                        "status": { "type": "string", "enum": ["ok"] },
+                        "recording_msid": { "type": "string", "format": "uuid", "description": "With `return_msid`, for `playing_now`" }
+                    } } } } },
                 "400": listenbrainz_error("Malformed submission"),
                 "401": listenbrainz_error("Missing or invalid token"),
                 "429": listenbrainz_error("Too many requests, or the daily scrobble limit"),
+                "503": listenbrainz_error("Temporarily unavailable")
+            }
+        }
+    })
+}
+
+fn recording_feedback() -> Value {
+    json!({
+        "post": {
+            "tags": [TAG],
+            "summary": "ListenBrainz: love or unlove a recording",
+            "description": "ListenBrainz's feedback with a scrobbler token. `score` 1 loves the \
+                recording's track, 0 takes the love back; -1 (hate) takes it back too and is not \
+                stored. The recording is a `recording_mbid` (the track MusicBrainz enrichment \
+                matched, else one a client sent it for) or a `recording_msid` this server handed \
+                out (`submit-listens` with `return_msid`, or the read side). A love of a recording \
+                the catalog doesn't have is refused (404), never created. Counted against the love \
+                limits shared with every API (300 an hour per account, 1,000 per address), whatever \
+                the score; 50,000 loved tracks at most. Loves feed nothing: no ranking, \
+                recommendation or similarity reads them.",
+            "parameters": [{ "name": "Authorization", "in": "header", "required": true,
+                             "description": "`Token {scrobbler token}`", "schema": { "type": "string" } }],
+            "requestBody": { "content": { "application/json": { "schema": {
+                "type": "object",
+                "required": ["score"],
+                "additionalProperties": false,
+                "properties": {
+                    "recording_mbid": { "type": "string", "format": "uuid" },
+                    "recording_msid": { "type": "string", "format": "uuid" },
+                    "score": { "type": "integer", "enum": [-1, 0, 1] }
+                }
+            } } } },
+            "responses": {
+                "200": { "description": "Done, or nothing to do", "content": { "application/json": { "schema": {
+                    "type": "object", "properties": { "status": { "type": "string", "enum": ["ok"] } } } } } },
+                "400": listenbrainz_error("Malformed feedback: a bad score, no recording, an invalid UUID or another key"),
+                "401": listenbrainz_error("Missing or invalid token"),
+                "404": listenbrainz_error("A love of a recording the catalog doesn't have"),
+                "409": listenbrainz_error("The account loves 50,000 tracks already"),
+                "429": listenbrainz_error("Too many requests, or loves and unloves"),
                 "503": listenbrainz_error("Temporarily unavailable")
             }
         }
@@ -233,7 +281,7 @@ pub fn document(api: &mut OpenApi) {
     let as12_submissions = as12_post(
         "Audioscrobbler 1.2: submissions",
         "Form fields `s`, then `a[i]`, `t[i]`, `i[i]` (Unix seconds), `o[i]`, `r[i]` (`S` or `B` \
-         drop the play), `l[i]`, `b[i]`, `n[i]`, `m[i]` for up to 50 plays.",
+         drop the play, `L` loves its track), `l[i]`, `b[i]`, `n[i]`, `m[i]` for up to 50 plays.",
         json!({
             "s": string("Session id from the handshake"), "a[0]": string("Artist"), "t[0]": string("Track"),
             "i[0]": string("Unix seconds the play started"), "b[0]": string("Album"),
@@ -252,6 +300,7 @@ pub fn document(api: &mut OpenApi) {
         ("/1.2/submissions", as12_submissions),
         ("/1/submit-listens", submit_listens()),
         ("/1/validate-token", validate_token()),
+        ("/1/feedback/recording-feedback", recording_feedback()),
     ];
     let documented = api.paths.get_or_insert_with(Default::default);
     for (path, item) in paths {
