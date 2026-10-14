@@ -97,6 +97,23 @@ impl SimilarityMode {
     }
 }
 
+/// A lower bound of `accounts` from 1, 2, 5, 10, 20, 50 and so on, as
+/// the routes show how many accounts listen to two artists: never an exact
+/// count an account's arrival or departure would change.
+pub fn common_listeners(accounts: i64) -> i64 {
+    let mut bound = 0;
+    let mut step = 1;
+    while step <= accounts {
+        for k in [1, 2, 5] {
+            if k * step <= accounts {
+                bound = k * step;
+            }
+        }
+        step *= 10;
+    }
+    bound
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SimilarityParams {
     /// Days of weights read, ending today.
@@ -928,6 +945,22 @@ mod tests {
         credits.extend(fans(101, 40, &[11, 12, 13, 100], 5));
         credits.extend(fans(201, 100, &[100, 50], 5));
         credits
+    }
+
+    #[test]
+    fn common_listeners_are_a_coarse_lower_bound() {
+        let shown: Vec<i64> = [
+            0, 1, 4, 10, 19, 20, 49, 50, 99, 100, 437, 1999, 2000, 72_000,
+        ]
+        .into_iter()
+        .map(common_listeners)
+        .collect();
+        assert_eq!(
+            shown,
+            [
+                0, 1, 2, 10, 10, 20, 20, 50, 50, 100, 200, 1000, 2000, 50_000
+            ]
+        );
     }
 
     #[test]

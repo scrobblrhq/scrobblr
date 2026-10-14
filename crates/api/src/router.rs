@@ -1,4 +1,4 @@
-use aide::axum::routing::patch_with;
+use aide::axum::routing::{patch_with, put_with};
 use aide::transform::{TransformOpenApi, TransformOperation};
 use aide::util::iter_operations_mut;
 use aide::{
@@ -36,7 +36,7 @@ use crate::{
     errors::ErrorJson,
     handlers::{
         account, auth, blocks, charts, community, connected_accounts, feed, imports, rankings,
-        scrobbles, tracks, uploads, users,
+        scrobbles, similarity, tracks, uploads, users,
     },
     limits,
     middleware::{
@@ -150,6 +150,17 @@ pub fn build(state: AppState) -> Router {
         .api_route(
             "/v1/user/me/community/albums",
             get_with(charts::community_albums, charts::_community_albums_doc),
+        )
+        .api_route(
+            "/v1/user/me/recommendations/artists",
+            get_with(
+                similarity::recommended_artists,
+                similarity::_recommended_artists_doc,
+            ),
+        )
+        .api_route(
+            "/v1/user/me/similarity",
+            get_with(similarity::get_settings, similarity::_get_settings_doc),
         );
 
     // Changing the account and posting as it.
@@ -187,6 +198,21 @@ pub fn build(state: AppState) -> Router {
         .api_route(
             "/v1/user/{username}/follow",
             delete_with(users::unfollow, users::_unfollow_doc),
+        )
+        // Recommendations
+        .api_route(
+            "/v1/user/me/recommendations/artists/{id}/skip",
+            post_with(
+                similarity::skip_recommendation,
+                similarity::_skip_recommendation_doc,
+            ),
+        )
+        .api_route(
+            "/v1/user/me/recommendations/artists/{id}/skip",
+            delete_with(
+                similarity::unskip_recommendation,
+                similarity::_unskip_recommendation_doc,
+            ),
         )
         // Catalog metadata refresh
         .api_route(
@@ -271,8 +297,13 @@ pub fn build(state: AppState) -> Router {
     // Credentials and account links: sessions only, so that a leaked API
     // token can't mint a credential (or link an account that scrobbles)
     // that outlives its revocation, nor revoke the user's others, nor
-    // export or delete the account, nor read or lift its blocks.
+    // export or delete the account, nor read or lift its blocks, nor show
+    // it as a taste neighbour.
     let session_routes = ApiRouter::new()
+        .api_route(
+            "/v1/user/me/similarity",
+            put_with(similarity::put_settings, similarity::_put_settings_doc),
+        )
         // Blocks and removed followers
         .api_route(
             "/v1/user/me/blocks",
@@ -421,6 +452,13 @@ pub fn build(state: AppState) -> Router {
             "/v1/artist/{id}/top-tracks",
             get_with(tracks::artist_top_tracks, tracks::_artist_top_tracks_doc),
         )
+        .api_route(
+            "/v1/artist/{id}/similar",
+            get_with(
+                similarity::similar_artists,
+                similarity::_similar_artists_doc,
+            ),
+        )
         // Global rankings: the same for everyone, cacheable by any proxy.
         .api_route(
             "/v1/rankings/artists",
@@ -474,6 +512,10 @@ pub fn build(state: AppState) -> Router {
         .api_route(
             "/v1/user/{username}/following",
             get_with(users::following, users::_following_doc),
+        )
+        .api_route(
+            "/v1/user/{username}/similar",
+            get_with(similarity::similar_users, similarity::_similar_users_doc),
         )
         // Community: image candidates (optional auth flags the viewer's votes)
         .api_route(

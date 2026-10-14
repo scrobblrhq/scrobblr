@@ -46,6 +46,12 @@ const ROUTES: &[(&str, &str, Access)] = &[
         Access::Scope(Scope::Read),
     ),
     (
+        "GET",
+        "/v1/user/me/recommendations/artists",
+        Access::Scope(Scope::Read),
+    ),
+    ("GET", "/v1/user/me/similarity", Access::Scope(Scope::Read)),
+    (
         "DELETE",
         "/v1/connect/{provider}",
         Access::Scope(Scope::Write),
@@ -61,6 +67,16 @@ const ROUTES: &[(&str, &str, Access)] = &[
     (
         "DELETE",
         "/v1/user/{username}/follow",
+        Access::Scope(Scope::Write),
+    ),
+    (
+        "POST",
+        "/v1/user/me/recommendations/artists/{id}/skip",
+        Access::Scope(Scope::Write),
+    ),
+    (
+        "DELETE",
+        "/v1/user/me/recommendations/artists/{id}/skip",
         Access::Scope(Scope::Write),
     ),
     (
@@ -94,6 +110,8 @@ const ROUTES: &[(&str, &str, Access)] = &[
     ("POST", "/v1/user/me/avatar", Access::Scope(Scope::Write)),
     ("POST", "/v1/artist/{id}/image", Access::Scope(Scope::Write)),
     ("POST", "/v1/album/{id}/image", Access::Scope(Scope::Write)),
+    // A leaked token must not show the account as a taste neighbour.
+    ("PUT", "/v1/user/me/similarity", Access::Session),
     // A leaked token must not carry the account away or delete it.
     // A leaked token must not see whom the user protects themselves from,
     // nor lift a block.
@@ -139,6 +157,7 @@ const PUBLIC: &[(&str, &str)] = &[
     ("GET", "/v1/artist/{id}"),
     ("GET", "/v1/album/{id}"),
     ("GET", "/v1/artist/{id}/top-tracks"),
+    ("GET", "/v1/artist/{id}/similar"),
     ("GET", "/v1/artist/{id}/listeners"),
     ("GET", "/v1/track/{id}/listeners"),
     ("GET", "/v1/artist/{id}/comments"),
@@ -150,6 +169,7 @@ const PUBLIC: &[(&str, &str)] = &[
     ("GET", "/v1/user/{username}/friends"),
     ("GET", "/v1/user/{username}/followers"),
     ("GET", "/v1/user/{username}/following"),
+    ("GET", "/v1/user/{username}/similar"),
     ("GET", "/v1/artist/{id}/images"),
     ("GET", "/v1/album/{id}/images"),
     ("GET", "/v1/user/{username}/recent"),

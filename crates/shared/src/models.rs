@@ -660,6 +660,142 @@ pub struct CommunityAlbumChart {
     pub entries: Vec<RankedAlbum>,
 }
 
+/*
+    Similarity and recommendations
+*/
+
+/// An artist, as an explanation names it.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct ArtistRef {
+    pub artist_id: i64,
+    pub artist_name: String,
+}
+
+/// An artist whose listeners also play the one asked about.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct SimilarArtist {
+    /// 1 for the most similar.
+    pub position: i32,
+    pub artist_id: i64,
+    pub artist_name: String,
+    #[serde(serialize_with = "crate::media::serialize_opt_url")]
+    pub image_url: Option<String>,
+    /// 0 to 1, three decimals: how much more the two audiences overlap than
+    /// chance would have them, against their sizes.
+    pub score: f64,
+    /// A lower bound of the accounts listening to both, from 10, 20, 50,
+    /// 100, 200, 500, 1,000 and so on, never the exact count.
+    pub common_listeners: i64,
+}
+
+/// A page of an artist's similar artists.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct SimilarArtists {
+    pub artist_id: i64,
+    /// When the server computed them; `null` before it first did.
+    pub computed_at: Option<DateTime<Utc>>,
+    /// Their daily recomputation is overdue: these are the last the server
+    /// managed to compute.
+    pub stale: bool,
+    /// Similar artists this artist has; none when too few accounts listen
+    /// to it, or to anything with it.
+    pub total: i64,
+    pub offset: i64,
+    pub limit: i64,
+    pub entries: Vec<SimilarArtist>,
+}
+
+/// Why a personal list holds what it holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum SimilarityStatus {
+    /// Computed, entries as they are (maybe none left after skips and new
+    /// plays).
+    Ready,
+    /// Nothing for this user yet: too little listening, or none of it
+    /// shared with enough others. Computed again daily.
+    None,
+    /// The user turned similarity off.
+    Off,
+    /// The server hasn't computed anything yet.
+    Pending,
+}
+
+/// An artist recommended to the signed-in user.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct RecommendedArtist {
+    /// 1 for the best.
+    pub position: i32,
+    pub artist_id: i64,
+    pub artist_name: String,
+    #[serde(serialize_with = "crate::media::serialize_opt_url")]
+    pub image_url: Option<String>,
+    /// 0 to 1 against the first recommendation, three decimals.
+    pub score: f64,
+    /// One of the user's own artists whose listeners also play this one,
+    /// the one that counted most: "listeners of {because} also play this".
+    pub because: ArtistRef,
+    /// How many of the user's artists led to it, `because` included.
+    pub because_count: i64,
+}
+
+/// A page of the artists recommended to the signed-in user.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct ArtistRecommendations {
+    pub status: SimilarityStatus,
+    /// When the server computed them; `null` before it first did.
+    pub computed_at: Option<DateTime<Utc>>,
+    /// The daily recomputation is overdue.
+    pub stale: bool,
+    /// Recommendations left after skips and plays since they were computed.
+    pub total: i64,
+    pub offset: i64,
+    pub limit: i64,
+    pub entries: Vec<RecommendedArtist>,
+}
+
+/// An account whose listening is close to a user's, among those that chose
+/// to be shown.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct SimilarUser {
+    pub user: UserSummary,
+    /// 0 to 1, three decimals.
+    pub score: f64,
+    /// Artists both listen to.
+    pub shared_artists: i64,
+    /// The rarest of them, at most three.
+    pub top_shared: Vec<ArtistRef>,
+}
+
+/// A user's taste neighbours.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct SimilarUsers {
+    pub status: SimilarityStatus,
+    pub computed_at: Option<DateTime<Utc>>,
+    pub stale: bool,
+    pub entries: Vec<SimilarUser>,
+}
+
+/// Whether the account's listening is used for similarity, and shown.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct SimilaritySettings {
+    pub mode: crate::similarity::SimilarityMode,
+    /// Others see the account as a taste neighbour now: `listed`, and the
+    /// profile public.
+    pub shown: bool,
+    /// When the mode last changed; `null` if never.
+    pub changed_at: Option<DateTime<Utc>>,
+}
+
 /// A community-uploaded image candidate for an artist or album. Uploads add
 /// candidates rather than replacing the image; the most-liked candidate
 /// (once it clears the vote threshold) becomes the entity's displayed image.
@@ -1075,6 +1211,40 @@ mod tests {
                 image_url: image(),
                 body: "b".into(),
                 created_at: now,
+            })
+            .unwrap(),
+            serde_json::to_value(SimilarArtist {
+                position: 1,
+                artist_id: 1,
+                artist_name: "a".into(),
+                image_url: image(),
+                score: 0.5,
+                common_listeners: 10,
+            })
+            .unwrap(),
+            serde_json::to_value(RecommendedArtist {
+                position: 1,
+                artist_id: 1,
+                artist_name: "a".into(),
+                image_url: image(),
+                score: 1.0,
+                because: ArtistRef {
+                    artist_id: 2,
+                    artist_name: "b".into(),
+                },
+                because_count: 1,
+            })
+            .unwrap(),
+            serde_json::to_value(SimilarUser {
+                user: UserSummary {
+                    id: 1,
+                    username: "u".into(),
+                    display_name: None,
+                    image_url: image(),
+                },
+                score: 0.5,
+                shared_artists: 3,
+                top_shared: vec![],
             })
             .unwrap(),
         ];

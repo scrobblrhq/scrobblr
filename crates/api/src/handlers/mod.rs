@@ -9,6 +9,7 @@ pub mod feed;
 pub mod imports;
 pub mod rankings;
 pub mod scrobbles;
+pub mod similarity;
 pub mod tracks;
 pub mod uploads;
 pub mod users;

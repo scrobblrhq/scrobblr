@@ -117,7 +117,7 @@ pub async fn export_account(
 pub fn _export_account_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Export my account")
         .description(&format!(
-            "Downloads everything Scrobblr holds about the authenticated user as a ZIP archive (`{}`), streamed as it is read: `account.json` (profile and settings, follows, the accounts the user blocks and the followers it removed (never who blocks or removed it), comments, image uploads and likes, sessions without their ids, API tokens and scrobbler credentials without their values, linked accounts without their OAuth tokens, imports, now playing, and `not_included`: what is left out and why), `scrobbles.csv` and `scrobbles.json` (every scrobble, oldest first, with its source, client, import and the classifier's label, never ranking weights), and `uploads/` (the avatar and artwork the user uploaded). Nothing is stored on the server: a broken download is asked for again. Takes a session, never an API token. At most {} exports a day per account and {} per address, and {EXPORTS_AT_ONCE} at once on the server.",
+            "Downloads everything Scrobblr holds about the authenticated user as a ZIP archive (`{}`), streamed as it is read: `account.json` (profile and settings, follows, the accounts the user blocks and the followers it removed (never who blocks or removed it), comments, image uploads and likes, sessions without their ids, API tokens and scrobbler credentials without their values, linked accounts without their OAuth tokens, imports, now playing, the similarity setting, recommended artists and taste neighbours as last computed and the skipped recommendations, and `not_included`: what is left out and why), `scrobbles.csv` and `scrobbles.json` (every scrobble, oldest first, with its source, client, import and the classifier's label, never ranking weights), and `uploads/` (the avatar and artwork the user uploaded). Nothing is stored on the server: a broken download is asked for again. Takes a session, never an API token. At most {} exports a day per account and {} per address, and {EXPORTS_AT_ONCE} at once on the server.",
             export::FORMAT,
             limits::EXPORTS_PER_USER,
             limits::EXPORTS_PER_IP,
@@ -356,6 +356,25 @@ mod tests {
             )
             .await;
 
+            // The similarity setting and a skipped recommendation.
+            let (status, _) = app
+                .api(
+                    Method::PUT,
+                    "/v1/user/me/similarity",
+                    Some(json!({ "mode": "listed" })),
+                )
+                .await;
+            assert_eq!(status, StatusCode::OK);
+            let band: i64 = sqlx::query_scalar("SELECT id FROM artists LIMIT 1")
+                .fetch_one(&app.pool)
+                .await
+                .unwrap();
+            let skip = format!("/v1/user/me/recommendations/artists/{band}/skip");
+            assert_eq!(
+                app.api(Method::POST, &skip, None).await.0,
+                StatusCode::NO_CONTENT
+            );
+
             // Not with an API token, even one that may read.
             let (status, _) = export(&app, &token).await;
             assert_eq!(status, StatusCode::FORBIDDEN);
@@ -402,6 +421,13 @@ mod tests {
             );
             assert!(account["removed_followers"][0]["until"].is_string());
             assert_eq!(account["following"], json!([]));
+            assert_eq!(account["similarity"]["mode"], "listed");
+            assert!(account["similarity"]["changed_at"].is_string());
+            assert_eq!(
+                account["skipped_recommendations"][0]["artist_name"],
+                "Band, \"The\""
+            );
+            assert_eq!(account["recommended_artists"], json!([]));
             // No secret, hashed or not, anywhere in the archive (stored
             // entries are searched as they are, deflated ones decompressed).
             let everything: String = files

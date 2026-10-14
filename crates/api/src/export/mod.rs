@@ -12,7 +12,7 @@ use crate::state::AppState;
 use db::queries::{
     auth as auth_db, connected_accounts as connected_db, export as export_db,
     imports as imports_db, scrobblers as scrobblers_db, scrobbles as scrobbles_db,
-    users as users_db,
+    similarity as similarity_db, users as users_db,
 };
 use shared::media::UploadKey;
 use shared::models::User;
@@ -275,6 +275,35 @@ async fn account(
         })
         .collect();
 
+    let similarity = similarity_db::setting(db, user.id).await?;
+    let (recommendations, neighbours) = match similarity_db::version(db).await? {
+        Some(version) => (
+            similarity_db::recommendations(db, user.id, version.started_at)
+                .await?
+                .into_iter()
+                .map(|r| {
+                    json!({
+                        "artist": r.name,
+                        "because_of": r.because_name,
+                        "computed_at": version.finished_at,
+                    })
+                })
+                .collect(),
+            similarity_db::taste_neighbours(db, user.id, None)
+                .await?
+                .into_iter()
+                .map(|n| {
+                    json!({
+                        "username": n.username,
+                        "shared_artists": n.shared_artists,
+                        "computed_at": version.finished_at,
+                    })
+                })
+                .collect(),
+        ),
+        None => (Vec::new(), Vec::new()),
+    };
+
     let account = json!({
         "format": FORMAT,
         "generated_at": now,
@@ -313,6 +342,13 @@ async fn account(
         "now_playing": scrobbles_db::get_now_playing(db, user.id).await?,
         "registration_origin": export_db::origin_recorded_at(db, user.id).await?
             .map(|at| json!({ "recorded_at": at })),
+        "similarity": similarity.map(|s| json!({
+            "mode": s.mode,
+            "changed_at": s.changed_at,
+        })),
+        "recommended_artists": recommendations,
+        "taste_neighbours": neighbours,
+        "skipped_recommendations": similarity_db::skips(db, user.id).await?,
         "not_included": NOT_INCLUDED
             .iter()
             .map(|(what, why)| json!({ "what": what, "why": why }))
@@ -365,7 +401,10 @@ account.json     your profile and settings, follows, the accounts you block
                  and likes, sessions (without their ids), API tokens and
                  scrobbler credentials (names, scopes and dates, never their
                  values), linked accounts (never their OAuth tokens), imports,
-                 now playing, and what is not included and why
+                 now playing, your similarity setting, the artists
+                 recommended to you and your taste neighbours as last
+                 computed, the recommendations you skipped, and what is not
+                 included and why
 scrobbles.csv    every scrobble, oldest first: when, artist, track, album,
                  the lengths the client reported, the client (as it called
                  itself, and as the server identified it), the import that

@@ -365,6 +365,71 @@
         ],
         "type": "object"
       },
+      "ArtistRecommendations": {
+        "description": "A page of the artists recommended to the signed-in user.",
+        "properties": {
+          "computed_at": {
+            "description": "When the server computed them; `null` before it first did.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/RecommendedArtist"
+            },
+            "type": "array"
+          },
+          "limit": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "offset": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "stale": {
+            "description": "The daily recomputation is overdue.",
+            "type": "boolean"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SimilarityStatus"
+          },
+          "total": {
+            "description": "Recommendations left after skips and plays since they were computed.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status",
+          "stale",
+          "total",
+          "offset",
+          "limit",
+          "entries"
+        ],
+        "type": "object"
+      },
+      "ArtistRef": {
+        "description": "An artist, as an explanation names it.",
+        "properties": {
+          "artist_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "artist_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "artist_id",
+          "artist_name"
+        ],
+        "type": "object"
+      },
       "AuthResponse": {
         "properties": {
           "account_restored": {
@@ -1898,6 +1963,77 @@
         },
         "type": "object"
       },
+      "RecommendationsQuery": {
+        "properties": {
+          "limit": {
+            "description": "Entries per page: 20 by default, 100 at most.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "offset": {
+            "description": "Entries to skip, 0 by default.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "RecommendedArtist": {
+        "description": "An artist recommended to the signed-in user.",
+        "properties": {
+          "artist_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "artist_name": {
+            "type": "string"
+          },
+          "because": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ArtistRef"
+              }
+            ],
+            "description": "One of the user's own artists whose listeners also play this one,\n the one that counted most: \"listeners of {because} also play this\"."
+          },
+          "because_count": {
+            "description": "How many of the user's artists led to it, `because` included.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "image_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "position": {
+            "description": "1 for the best.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "score": {
+            "description": "0 to 1 against the first recommendation, three decimals.",
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "position",
+          "artist_id",
+          "artist_name",
+          "score",
+          "because",
+          "because_count"
+        ],
+        "type": "object"
+      },
       "RefreshResponse": {
         "properties": {
           "status": {
@@ -2423,6 +2559,278 @@
           }
         },
         "type": "object"
+      },
+      "SimilarArtist": {
+        "description": "An artist whose listeners also play the one asked about.",
+        "properties": {
+          "artist_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "artist_name": {
+            "type": "string"
+          },
+          "common_listeners": {
+            "description": "A lower bound of the accounts listening to both, from 10, 20, 50,\n 100, 200, 500, 1,000 and so on, never the exact count.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "image_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "position": {
+            "description": "1 for the most similar.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "score": {
+            "description": "0 to 1, three decimals: how much more the two audiences overlap than\n chance would have them, against their sizes.",
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "position",
+          "artist_id",
+          "artist_name",
+          "score",
+          "common_listeners"
+        ],
+        "type": "object"
+      },
+      "SimilarArtists": {
+        "description": "A page of an artist's similar artists.",
+        "properties": {
+          "artist_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "computed_at": {
+            "description": "When the server computed them; `null` before it first did.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/SimilarArtist"
+            },
+            "type": "array"
+          },
+          "limit": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "offset": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "stale": {
+            "description": "Their daily recomputation is overdue: these are the last the server\n managed to compute.",
+            "type": "boolean"
+          },
+          "total": {
+            "description": "Similar artists this artist has; none when too few accounts listen\n to it, or to anything with it.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "artist_id",
+          "stale",
+          "total",
+          "offset",
+          "limit",
+          "entries"
+        ],
+        "type": "object"
+      },
+      "SimilarArtistsQuery": {
+        "properties": {
+          "limit": {
+            "description": "Entries per page: 20 by default, 50 at most.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "offset": {
+            "description": "Positions to skip, 0 by default.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "SimilarUser": {
+        "description": "An account whose listening is close to a user's, among those that chose\n to be shown.",
+        "properties": {
+          "score": {
+            "description": "0 to 1, three decimals.",
+            "format": "double",
+            "type": "number"
+          },
+          "shared_artists": {
+            "description": "Artists both listen to.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "top_shared": {
+            "description": "The rarest of them, at most three.",
+            "items": {
+              "$ref": "#/components/schemas/ArtistRef"
+            },
+            "type": "array"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserSummary"
+          }
+        },
+        "required": [
+          "user",
+          "score",
+          "shared_artists",
+          "top_shared"
+        ],
+        "type": "object"
+      },
+      "SimilarUsers": {
+        "description": "A user's taste neighbours.",
+        "properties": {
+          "computed_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/SimilarUser"
+            },
+            "type": "array"
+          },
+          "stale": {
+            "type": "boolean"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SimilarityStatus"
+          }
+        },
+        "required": [
+          "status",
+          "stale",
+          "entries"
+        ],
+        "type": "object"
+      },
+      "SimilarUsersQuery": {
+        "properties": {
+          "limit": {
+            "description": "Entries: 10 by default, 50 at most.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "SimilarityMode": {
+        "description": "Whether an account's listening is used for similarity, and whether it\n may be shown as someone's taste neighbour.",
+        "oneOf": [
+          {
+            "const": "listed",
+            "description": "Counted anonymously, and shown as a taste neighbour of others (while\n the profile is public).",
+            "type": "string"
+          },
+          {
+            "const": "anonymous",
+            "description": "Counted anonymously; never shown as anyone's taste neighbour.",
+            "type": "string"
+          },
+          {
+            "const": "off",
+            "description": "Not used at all: nothing is computed from or for the account.",
+            "type": "string"
+          }
+        ]
+      },
+      "SimilaritySettings": {
+        "description": "Whether the account's listening is used for similarity, and shown.",
+        "properties": {
+          "changed_at": {
+            "description": "When the mode last changed; `null` if never.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mode": {
+            "$ref": "#/components/schemas/SimilarityMode"
+          },
+          "shown": {
+            "description": "Others see the account as a taste neighbour now: `listed`, and the\n profile public.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "mode",
+          "shown"
+        ],
+        "type": "object"
+      },
+      "SimilaritySettingsRequest": {
+        "properties": {
+          "mode": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SimilarityMode"
+              }
+            ],
+            "description": "`listed`, `anonymous` or `off`."
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "type": "object"
+      },
+      "SimilarityStatus": {
+        "description": "Why a personal list holds what it holds.",
+        "oneOf": [
+          {
+            "const": "ready",
+            "description": "Computed, entries as they are (maybe none left after skips and new\n plays).",
+            "type": "string"
+          },
+          {
+            "const": "none",
+            "description": "Nothing for this user yet: too little listening, or none of it\n shared with enough others. Computed again daily.",
+            "type": "string"
+          },
+          {
+            "const": "off",
+            "description": "The user turned similarity off.",
+            "type": "string"
+          },
+          {
+            "const": "pending",
+            "description": "The server hasn't computed anything yet.",
+            "type": "string"
+          }
+        ]
       },
       "StartImportRequest": {
         "properties": {
@@ -5149,6 +5557,155 @@
         "summary": "Refresh artist metadata",
         "tags": [
           "Catalog"
+        ]
+      }
+    },
+    "/v1/artist/{id}/similar": {
+      "get": {
+        "description": "Artists whose listeners also play this one, the most similar first: their audiences overlap more than chance would have them, against their sizes. Each account counts once at most, whatever it plays, and less when its plays don't look like real listening; an artist is only listed when at least 10 accounts listen to both, and a tenth of this artist's listeners also play it, so a few accounts can't attach one artist to another. `common_listeners` is a lower bound (10, 20, 50, 100, …), never an exact count, and nothing names an account.\n\nThe server recomputes them once a day: `computed_at` says when, and when a recomputation is overdue the last ones are still served, with `stale: true`. An artist with too few listeners has none (`total: 0`); before the first computation `computed_at` is `null`.\n\nPages carry an `ETag` and may be cached for an hour; send the tag back in `If-None-Match` for a 304 while they haven't changed.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "Entries per page: 20 by default, 50 at most.",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Entries per page: 20 by default, 50 at most.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "Positions to skip, 0 by default.",
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "description": "Positions to skip, 0 by default.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "The `ETag` of a page fetched before: 304 if they haven't changed since",
+            "in": "header",
+            "name": "If-None-Match",
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimilarArtists"
+                }
+              }
+            },
+            "description": "A page of the similar artists",
+            "headers": {
+              "Cache-Control": {
+                "description": "`public, max-age=3600, stale-while-revalidate=3600`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              },
+              "ETag": {
+                "description": "The version of the similar artists, for `If-None-Match`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified since the `ETag` in `If-None-Match`",
+            "headers": {
+              "Cache-Control": {
+                "description": "`public, max-age=3600, stale-while-revalidate=3600`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              },
+              "ETag": {
+                "description": "The version of the similar artists, for `If-None-Match`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Negative offset"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such artist"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "summary": "Similar artists",
+        "tags": [
+          "Recommendations"
         ]
       }
     },
@@ -9237,7 +9794,7 @@
     },
     "/v1/user/me/export": {
       "get": {
-        "description": "Downloads everything Scrobblr holds about the authenticated user as a ZIP archive (`scrobblr-export/1`), streamed as it is read: `account.json` (profile and settings, follows, the accounts the user blocks and the followers it removed (never who blocks or removed it), comments, image uploads and likes, sessions without their ids, API tokens and scrobbler credentials without their values, linked accounts without their OAuth tokens, imports, now playing, and `not_included`: what is left out and why), `scrobbles.csv` and `scrobbles.json` (every scrobble, oldest first, with its source, client, import and the classifier's label, never ranking weights), and `uploads/` (the avatar and artwork the user uploaded). Nothing is stored on the server: a broken download is asked for again. Takes a session, never an API token. At most 3 exports a day per account and 10 per address, and 2 at once on the server.",
+        "description": "Downloads everything Scrobblr holds about the authenticated user as a ZIP archive (`scrobblr-export/1`), streamed as it is read: `account.json` (profile and settings, follows, the accounts the user blocks and the followers it removed (never who blocks or removed it), comments, image uploads and likes, sessions without their ids, API tokens and scrobbler credentials without their values, linked accounts without their OAuth tokens, imports, now playing, the similarity setting, recommended artists and taste neighbours as last computed and the skipped recommendations, and `not_included`: what is left out and why), `scrobbles.csv` and `scrobbles.json` (every scrobble, oldest first, with its source, client, import and the classifier's label, never ranking weights), and `uploads/` (the avatar and artwork the user uploaded). Nothing is stored on the server: a broken download is asked for again. Takes a session, never an API token. At most 3 exports a day per account and 10 per address, and 2 at once on the server.",
         "responses": {
           "200": {
             "content": {
@@ -9514,6 +10071,460 @@
         "summary": "Remove a follower",
         "tags": [
           "Users"
+        ]
+      }
+    },
+    "/v1/user/me/recommendations/artists": {
+      "get": {
+        "description": "Artists the signed-in user hasn't listened to, ranked by how much the listeners of the artists they listen to also play them. Each says why, with one of the user's own artists: \"listeners of `because` also play this\", and how many of the user's artists led to it (`because_count`); nothing names another account. The user's whole history counts, imports included, recent listening more (a half-life of 180 days by default); what other accounts play counts as for similar artists.\n\nRecomputed once a day; artists the user played or skipped since are left out at once. `status`: `ready`, `none` (too little listening yet, or nothing similar enough: at least 5 artists are needed by default), `off` (the user turned similarity off) or `pending` (nothing computed yet). Up to 100 recommendations, paged by `limit` (20 by default, 100 at most) and `offset`; `score` is relative to the first.\n\nResponses carry a weak `ETag` and `Cache-Control: private, no-cache`: send the tag back in `If-None-Match` for a 304 while nothing changed (a new run, a play, a skip).",
+        "parameters": [
+          {
+            "description": "Entries per page: 20 by default, 100 at most.",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Entries per page: 20 by default, 100 at most.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "Entries to skip, 0 by default.",
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "description": "Entries to skip, 0 by default.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "The `ETag` of a page fetched before: 304 if nothing changed since",
+            "in": "header",
+            "name": "If-None-Match",
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtistRecommendations"
+                }
+              }
+            },
+            "description": "A page of the recommendations",
+            "headers": {
+              "Cache-Control": {
+                "description": "`private, no-cache`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              },
+              "ETag": {
+                "description": "The version of the recommendations, for `If-None-Match`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified since the `ETag` in `If-None-Match`",
+            "headers": {
+              "Cache-Control": {
+                "description": "`private, no-cache`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              },
+              "ETag": {
+                "description": "The version of the recommendations, for `If-None-Match`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Negative offset"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No credential, or an invalid or expired one"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Needs a session or an API token with the `read` scope"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Artists recommended to me",
+        "tags": [
+          "Recommendations"
+        ]
+      }
+    },
+    "/v1/user/me/recommendations/artists/{id}/skip": {
+      "delete": {
+        "description": "The artist may be recommended again, from the next request if it still is. 204 also when it wasn't skipped.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No longer skipped"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No credential, or an invalid or expired one"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Needs a session or an API token with the `write` scope"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Take back a skip",
+        "tags": [
+          "Recommendations"
+        ]
+      },
+      "post": {
+        "description": "Hides the artist from the signed-in user's recommendations for 90 days, at once; skipping it again starts the 90 days over. The newest 1000 skips are kept. Any artist can be skipped, recommended or not.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Skipped"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No credential, or an invalid or expired one"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Needs a session or an API token with the `write` scope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such artist"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Skip a recommended artist",
+        "tags": [
+          "Recommendations"
+        ]
+      }
+    },
+    "/v1/user/me/similarity": {
+      "get": {
+        "description": "How the signed-in user's listening is used for similarity, and whether others see them as a taste neighbour now (`shown`). `listed`: the account's listening counts, anonymously, towards similar artists and others' recommendations, and it may be shown as a taste neighbour of others while its profile is public. `anonymous` (the default): it counts, anonymously, and is never shown as anyone's taste neighbour. `off`: nothing is computed from or for the account: no recommendations and no taste neighbours, and its listening leaves similar artists at the next daily computation.",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimilaritySettings"
+                }
+              }
+            },
+            "description": "Whether the account's listening is used for similarity, and shown."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No credential, or an invalid or expired one"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Needs a session or an API token with the `read` scope"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "My similarity setting",
+        "tags": [
+          "Recommendations"
+        ]
+      },
+      "put": {
+        "description": "`listed`: the account's listening counts, anonymously, towards similar artists and others' recommendations, and it may be shown as a taste neighbour of others while its profile is public. `anonymous` (the default): it counts, anonymously, and is never shown as anyone's taste neighbour. `off`: nothing is computed from or for the account: no recommendations and no taste neighbours, and its listening leaves similar artists at the next daily computation.\n\nTakes effect at once for what names the account: leaving `listed` removes it from every taste neighbour list, `off` deletes the account's recommendations and taste neighbours. Its anonymous part in similar artists changes at the next daily computation. Takes a session: an API token can't change it.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimilaritySettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimilaritySettings"
+                }
+              }
+            },
+            "description": "Whether the account's listening is used for similarity, and shown."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown mode"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No credential, or an invalid or expired one"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Needs a session: API tokens can't do this"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Change my similarity setting",
+        "tags": [
+          "Recommendations"
         ]
       }
     },
@@ -11164,6 +12175,108 @@
         "summary": "Get recent scrobbles",
         "tags": [
           "Scrobbles"
+        ]
+      }
+    },
+    "/v1/user/{username}/similar": {
+      "get": {
+        "description": "Accounts whose listening is closest to this user's, the closest first, with the artists both listen to (`shared_artists`) and the rarest three of them. Only accounts that chose to be shown appear (`PUT /v1/user/me/similarity` with `listed`), while their profile is public and they aren't waiting to be deleted, and never one blocking or blocked by the user or the signed-in viewer.\n\nThe user's own list is theirs to see whatever their setting (`status: off` and no entries if they turned similarity off); someone else's is shown only when that user is listed, and is otherwise not found (404), as a user who doesn't exist. A private profile's list is its owner's alone (403), and an account blocking the viewer or waiting to be deleted is not found, as for its profile.\n\nRecomputed once a day (`computed_at`, `stale` as for similar artists); `status` says whether there is nothing yet (`none`: too little listening, or no listed account close enough) or nothing computed at all (`pending`).",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "username",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "Entries: 10 by default, 50 at most.",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Entries: 10 by default, 50 at most.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimilarUsers"
+                }
+              }
+            },
+            "description": "The neighbours",
+            "headers": {
+              "Cache-Control": {
+                "description": "`private, max-age=60`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Profile is private"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "User not found, waiting to be deleted, blocking the viewer, or not sharing their taste neighbours"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "A user's taste neighbours",
+        "tags": [
+          "Recommendations"
         ]
       }
     },
