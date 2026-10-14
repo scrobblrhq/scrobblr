@@ -35,7 +35,10 @@ and `user_label_totals` in step with every classification (migration
 
 ## Weights
 
-Each scrobble weighs 0 to 1 (`shared::ranking`), the product of:
+Only scrobbles weigh. Loved tracks ([social.md](social.md#loved-tracks))
+feed nothing here, nor in similarity, recommendations or album
+attribution: a love takes no listening to cast, so nothing would stop a
+farm's. Each scrobble weighs 0 to 1 (`shared::ranking`), the product of:
 
 | factor | weight | setting |
 | --- | --- | --- |
@@ -686,6 +689,7 @@ those days (weighed by its weight on each, as in rankings). So:
   account is one account, whatever it plays;
 - an untrusted client counts half, a play without listened time a quarter,
   as everywhere;
+- loved tracks count for nothing (see [Weights](#weights));
 - an account under a coordination factor of 0.95
   (`SIMILARITY_MIN_FACTOR`) adds nothing at all. Rankings dent an account
   flagged on one group signal to 0.90 and spare it; similarity has no

@@ -8,8 +8,8 @@ use uuid::Uuid;
 
 use shared::cursor::Cursor;
 
-/// The most tracks an account may love: more than any Last.fm history we
-/// know of brings, and a bound on what one account's list costs.
+/// The most tracks an account may love: a bound on what one account's
+/// list, its export and the cap's own count cost.
 pub const MAX_LOVED_TRACKS: i64 = 50_000;
 
 pub const SOURCE_SCROBBLR: &str = "scrobblr";

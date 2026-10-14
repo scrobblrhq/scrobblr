@@ -2,8 +2,8 @@
 
 What users see of each other: follows, a user's own charts, the charts of
 the accounts a user follows (community charts), a feed of what those
-accounts play, and what listening says about artists and people (similar
-artists, taste neighbours, recommendations). Global rankings are in
+accounts play, loved tracks, and what listening says about artists and
+people (similar artists, taste neighbours, recommendations). Global rankings are in
 [rankings.md](rankings.md); what is stored and erased about an account, in
 [privacy.md](privacy.md).
 
@@ -14,7 +14,7 @@ account is **visible** to a viewer when it isn't waiting to be deleted
 and it is public, or it is the viewer's own.
 
 - **A private profile is its owner's alone.** Its profile, follow lists,
-  recent scrobbles, top lists, charts, heatmap and live stream answer 403 to
+  recent scrobbles, top lists, charts, heatmap, loved tracks and live stream answer 403 to
   everyone else, followers included (`middleware/visibility.rs`). Following
   takes no approval, so a follower is anyone who clicked follow; until
   2026-10-12 followers could see a private profile, which let anyone see
@@ -408,6 +408,161 @@ null`.
   `0030` restored it (0.95 s for 4,006 accounts).
 - `Cache-Control: private, no-store`.
 
+## Loved tracks
+
+A user can love a track, as on Last.fm: a list on the profile, a heart on
+the track's page, in recent scrobbles and in the feed. Loves are what a
+user says about a track, not listening, so they are shown and kept but
+**feed nothing**: the rankings, their weights and coordination factors,
+similar artists, recommendations, taste neighbours, album attribution and
+the classifier don't read them, and no "loved by N" number is published
+for a track. A count of loves would be the cheapest number on the server
+to inflate (a love takes no listening, nothing to classify or weigh);
+behind `RANKING_MIN_LISTENERS` it would be `null` for almost every track
+of a small server anyway, and five accounts could still put any number on
+any track. Giving loves a say anywhere would first need anti-botting of
+their own (account age, coordination), and is not done.
+
+| route | access | |
+| --- | --- | --- |
+| `POST /v1/track/{id}/love` | `write` | 204, also when loved already (the first `loved_at` stands); 404 not in the catalog, 409 at the cap, 429 past the rate |
+| `DELETE /v1/track/{id}/love` | `write` | 204, also when not loved; 404 not in the catalog, 429 past the rate |
+| `GET /v1/user/{username}/loved` | public (a session sees its own private profile) | a page, newest love first |
+| `GET /v1/user/me/loved` | `read` | the same, whatever the profile's privacy |
+
+```json
+{
+  "entries": [
+    { "track_id": 1841, "track_title": "Teardrop", "artist_id": 97,
+      "artist_name": "Massive Attack", "album_id": 31, "album_title": "Mezzanine",
+      "album_image": "https://…/albums/3f/….jpg", "artist_image": null,
+      "loved_at": "2026-10-13T10:41:07.123456Z" }
+  ],
+  "total": 132,
+  "next": "1760352067123456.1841"
+}
+```
+
+- **Pages** (`LovedTrackPage`): `limit` (50, at most 200) and `before` (the
+  previous page's `next`, a keyset cursor of (`loved_at`, `track_id`);
+  invalid: 400); `next` is `null` on the last page. `total` counts every
+  track the user loves: what paging to the end would show anyway. Each
+  entry is the track with its artist and the album the catalog files it
+  under (`album_image`, else `artist_image`, for artwork; both nullable,
+  and `album_id`/`album_title` without an album).
+- **Flags:** `GET /v1/track/{id}` takes an optional session and says
+  whether the viewer loves the track (`loved`: `true`/`false`, `null`
+  signed out; an API token, even with `read`, counts as signed out there,
+  as on every optional-auth route). Recent scrobbles (`ScrobbleRich`) and
+  feed entries (`FeedEntry`) say whether the account that played the track
+  loves it now (`loved`), whoever looks: it is that profile's, as visible
+  as the rest of it. Now playing (`NowPlayingRich`, also on the live
+  stream) carries `track_id`, so an app can love what is playing.
+- **Visibility:** the profile's ([above](#who-sees-whom)): a private
+  account's loves are its owner's alone (403), an account waiting to be
+  deleted or blocking the signed-in viewer has none to show (404, as for a
+  missing one), and the Last.fm-compatible API answers the same (17, 6).
+- **Limits:** 50,000 loved tracks per account (`MAX_LOVED_TRACKS`, 409),
+  counted under a per-account lock so concurrent loves can't pass it; 300
+  loves and unloves an hour per account and 1,000 per address
+  (`limits::love_attempt`, every API together, refused attempts included,
+  Redis, fails open like follows).
+- **The catalog:** the native routes love tracks by id and create
+  nothing. The Last.fm-compatible API loves by artist and title, resolved
+  as scrobbling resolves them (same normalization, credits, enrichment);
+  a track the server hasn't seen is created, as now playing would create
+  it, bounded by the love limits. An unlove by name only looks the track
+  up. Imported loves create tracks as imported scrobbles do.
+- **When the catalog changes:** a love points at the track, so it shows
+  whatever album the track's listeners have filed it under
+  ([Albums](#albums)); a track removed from the catalog takes its loves
+  with it (`ON DELETE CASCADE`, indexed by track). Tracks are never merged
+  today; a merge would have to move loves to the surviving track, keeping
+  the earlier `loved_at` where an account loved both.
+- **Deletion and export:** loves stay through the deletion grace period
+  (hidden with the profile) and come back with a restored account; the
+  erase deletes them with the user row; the export holds them
+  (`loved_tracks.csv`, `loved_tracks.json`, [privacy.md](privacy.md)).
+
+### From other apps
+
+The Last.fm-compatible API takes `track.love` and `track.unlove` (POST,
+signed and authenticated like `track.scrobble`: a session key or a
+scrobbler token, 120 requests a minute, within the love limits above;
+answered `<lfm status="ok"></lfm>` or `{}`; errors 6 for a missing artist
+or track and at the cap, 9, 13, 29), `user.getLovedTracks` (numbered
+pages, 50 by default, 1,000 at most) and `user.getRecentTracks` with
+`extended=1` (the artist as an object, and `loved`), as Pano Scrobbler
+asks for them. Audioscrobbler 1.2 plays rated `L` love their track. Each
+love records its source (`scrobblr`, `lastfm`, `audioscrobbler`,
+`lastfm_import`) and the client. A scrobbler token may love, as a Last.fm
+session may: it is what Last.fm apps do with it, and a leaked one can add
+or take back loves, nothing more. [scrobbler-clients.md](scrobbler-clients.md)
+has what each app does.
+
+### Imported from Last.fm
+
+A Last.fm import brings the account's loved tracks first
+(`user.getLovedTracks`, 1,000 a page), each page committed with its cursor
+under the import's lease, so it resumes after a slice, an error or a dead
+worker without loving anything twice; Last.fm's rate limit and errors are
+handled as for the history. A track already loved here keeps its love
+and time; loves stop at the cap, newest kept (`loved_error:
+cap_reached`), and don't count against `LASTFM_IMPORT_MAX_SCROBBLES`. A
+re-import reads only loves newer than its window, so a love taken back
+here isn't brought back; `full` rereads them all. If Last.fm won't show
+them (a hidden profile not signed with the user's session, or another
+lasting error), they are skipped (`loved_error`) and the history goes on.
+Progress: `loved_total` (what Last.fm lists), `loved_imported` (added),
+`loved_done`, `loved_error` on the import.
+
+### Measured
+
+On the synthetic population ([Measured](#measured-2) below describes the
+setup: 3,953,310 scrobbles, 314,903 follows) with `loves.sql`: 310,414
+loves over 4,001 accounts (median 38 an account, p90 171) and one
+account, `lover`, at 49,999, the worst case. 51 MB in all (20 MB heap,
+31 MB of indexes), about 170 bytes a love. The release API, Redis and
+TimescaleDB 2.29.2 / Postgres 18 in a container on the same desktop, one
+client at a time; latencies over HTTP, p50 / p99.
+
+| | p50 | p99 |
+| --- | --- | --- |
+| love a new track (account with 35 loves; 200 curls) | 9.3 ms | 19.7 ms |
+| love it again / unlove it | 5.5 / 5.3 ms | 18.8 / 15.9 ms |
+| love the 50,000th track / unlove at 50,000 | 17.4 / 4.9 ms | 29.4 / 8.0 ms |
+| love past the cap (409) | 14.0 ms | 44.3 ms |
+| loved tracks, 35 loves (oha, 200 requests) | 3.8 ms | 11.2 ms |
+| 49,999 loves: first page of 50 / of 200 | 15.2 / 19.5 ms | 39.5 / 51.6 ms |
+| 49,999 loves: a page of 200, 40,000 deep | 27.9 ms | 38.2 ms |
+| `user.getLovedTracks`, 1,000 a page: first / 49th | 78.5 / 95.4 ms | 112 / 169 ms |
+| `GET /v1/track/{id}` signed in (with `loved`) | 6.4 ms | 14.3 ms |
+
+Counting a list of 50,000 loves (the `total`, and the cap's check before
+a love) takes 10–13 ms of those times, an index-only scan; a typical
+account's is negligible. A counter kept by trigger would make both
+constant, at a write per love; not worth it at these numbers. A
+1,000-entry Last.fm page is built in both XML and JSON, as every answer
+of that API is.
+
+The `loved` flags, in psql (medians of 30 interleaved runs, the account
+with the most loves of the population, 390): 200 recent scrobbles 5.2 ms
+without, 7.3 ms with (about 10 µs a row, a primary-key probe); a feed
+page of 100 for an account following 121, 0.38 ms without, 0.60 ms with.
+
+Scrobbling is untouched: no trigger or function on `scrobbles` reads
+`loved_tracks`, and ingest doesn't touch it. 200 native scrobbles, with
+the 310,414 loves and with the table emptied, twice each in turn: p50
+25.6 and 28.8 ms with, 21.4 and 29.1 ms without, within this desktop's
+run-to-run noise. Deleting 50,000 loves, what they add to an erase,
+takes 63–83 ms.
+
+```bash
+psql "$SCRATCH_URL" -v users=4000 -v days=60 -f scripts/synthetic/population.sql
+psql "$SCRATCH_URL" -f scripts/synthetic/follows.sql
+psql "$SCRATCH_URL" -f scripts/synthetic/loves.sql
+```
+
 ## Similar artists, taste neighbours and recommendations
 
 What listening says about artists and people: an artist's similar artists
@@ -602,6 +757,10 @@ beyond the ETags. The daily run that makes them: [rankings.md](rankings.md#cost-
 | `GET /v1/album/{id}` | public |
 | `GET /v1/user/me/community/{artists,tracks,albums}` | `read` |
 | `GET /v1/user/me/feed` | `read` |
+| `GET /v1/user/{username}/loved` | public (likewise) |
+| `GET /v1/user/me/loved` | `read` |
+| `POST`, `DELETE /v1/track/{id}/love` | `write` |
+| `GET /v1/track/{id}` | public (a session gets `loved`) |
 | `POST`, `DELETE /v1/user/{username}/follow` | `write` |
 | `POST`, `DELETE /v1/user/{username}/block` | session |
 | `GET /v1/user/me/blocks` | session |
@@ -644,6 +803,11 @@ setting, which can put the account on display. `router/tests.rs` lists each.
   computed per request, as often as the per-address limit allows (60 a
   minute by default).
 
+- **Loves as a lever**: none. Loving takes no listening, so loves steer
+  nothing (no ranking, recommendation, similarity or album decision reads
+  them) and no count of them is published; a farm loving a track changes
+  only its own accounts' lists. The love limits bound how many catalog
+  entries the Last.fm-compatible API can create by loving names.
 - **Appearing in someone's taste neighbours**: only by choosing
   `listed`, and only while public; an account imitating someone's
   listening to show up beside them needs a week of weighted plays like
@@ -761,6 +925,8 @@ DATABASE_URL="$SCRATCH_URL" worker rank refresh
 - **Feed reach:** 14 days, and a feed doesn't merge or collapse repeats
   of one account.
 - **No follow approval, no muting, no notifications.**
+- **Loves are tracks only** (no loved artists or albums), are never
+  counted per track, and steer nothing.
 - **Similarity is a day old at most**, plays and skips since aside; a new
   account's listening counts for others after a week (the weights), a
   user with fewer than 5 artists gets no recommendations, and an artist

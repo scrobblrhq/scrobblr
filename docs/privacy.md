@@ -59,15 +59,18 @@ accounts: the account id there, OAuth tokens encrypted with
 errors.
 
 **Social and community**: follows, blocks (who blocks whom, since when),
-followers removed (until when they may follow again), comments, uploaded
-artist and album images (as candidates, with their likes), likes given.
+followers removed (until when they may follow again), loved tracks (when,
+and the app or import each came from), comments, uploaded artist and album
+images (as candidates, with their likes), likes given.
 
 **Who sees it** ([social.md](social.md#who-sees-whom)): a public profile's
 listening is shown to anyone, a private one's only to its owner, followers
 included (following takes no approval). Followers' feeds and community
 charts include only public accounts; follow lists, listener lists and
 search name only public ones; counts and catalog numbers include private
-ones, unnamed. An account that blocks a viewer doesn't exist for that
+ones, unnamed. Loved tracks are shown with the profile under the same
+rules and counted nowhere else: no "loved by" number is published for a
+track ([social.md](social.md#loved-tracks)). An account that blocks a viewer doesn't exist for that
 viewer signed in, and neither appears in the other's lists of people;
 nobody is told who blocks them ([social.md](social.md#blocking-and-removing-followers)).
 
@@ -160,7 +163,9 @@ now playing, when the registration origin was recorded, the similarity
 setting, the recommendations and taste neighbours as served and the
 skipped recommendations),
 `scrobbles.csv` and `scrobbles.json` (every scrobble with its source,
-client, import and label), and the uploaded images. Nothing is written to
+client, import and label), `loved_tracks.csv` and `loved_tracks.json`
+(every loved track with when and how it was loved), and the uploaded
+images. Nothing is written to
 the server's disk: there is no copy to expire.
 
 Left out, and said so in `account.json`: the password hash; credentials'
@@ -189,7 +194,7 @@ stay, and still count in catalog numbers and rankings.
 
 **Grace period**: `ACCOUNT_DELETION_GRACE_DAYS` (7 by default, 0 to 30).
 Logging in with the password (the native login, never a scrobbler's)
-restores the account, history, follows and blocks included; credentials and
+restores the account, history, follows, blocks and loved tracks included; credentials and
 links have to be made again. The username and email stay taken.
 
 **Then the worker erases it** (within a minute of the date): the scrobbles,
@@ -199,8 +204,9 @@ counters in the same transaction; the user's rows in the daily totals
 coordination factors and flags; then the user row (its album says go
 with it, and the tracks they were on are decided again without them),
 which every other table referencing it follows (`ON DELETE CASCADE`,
-checked by a test that looks for any column holding a user id): sessions and tokens left, origins,
-imports, follows, blocks and removals either way, comments, likes (taken
+checked by a test that looks for any column holding a user id, and fails
+when its fixture leaves one empty): sessions and tokens left, origins,
+imports, follows, blocks and removals either way, loved tracks, comments, likes (taken
 off the candidates' counts), its recommendations, skips and taste
 neighbours (its list and its place in others'), uploads, queued work. The
 global rankings and similar artists are recomputed on the worker's next

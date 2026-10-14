@@ -9,8 +9,8 @@ your Scrobblr server, the address its API is reachable on.
 ## 1. Make a scrobbler token
 
 In Scrobblr's settings, under Scrobblers, create a token and give it the
-name of the app it's for. It's shown once. A token can scrobble and do
-nothing else, and you can revoke it at any time.
+name of the app it's for. It's shown once. A token can scrobble and love
+or unlove tracks, and do nothing else; you can revoke it at any time.
 
 Use it wherever an app asks for a ListenBrainz token or an Audioscrobbler
 password. In Last.fm-style apps, use it instead of your password too: your
@@ -47,8 +47,23 @@ page is on the Scrobblr website: sign in there and approve the app.
   are ignored as being in the future.
 - Limits: 3,000 scrobbles a day per account (the server can change this), 50
   per request (1,000 for a ListenBrainz import), 120 requests a minute.
-- Supported: scrobbling, now playing, and in Last.fm apps your profile and
-  recent scrobbles. Loving tracks and other Last.fm features are not.
+- Supported: scrobbling, now playing, and in Last.fm apps loving and
+  unloving tracks, your profile, recent scrobbles (with whether you love
+  each track) and loved tracks. Audioscrobbler 1.2 players that rate a
+  play as loved love its track too. Other Last.fm features (tags, track and
+  artist info, charts, friends) are not.
+- Loving a track the server hasn't seen yet adds it to the catalog, as
+  scrobbling it would. Loves count against 300 loves and unloves an hour
+  per account (1,000 per address), shared with Scrobblr's own apps, and an
+  account can love 50,000 tracks; past either, the app gets Last.fm's
+  error 29 or 6. Loves show on your profile, as private as it is, and
+  nowhere else: they don't count in rankings or recommendations.
+- Web Scrobbler can't love tracks on Scrobblr. Its Last.fm scrobbler talks
+  only to last.fm, and its ListenBrainz scrobbler sends loves to
+  listenbrainz.org itself, whatever server you set, with your Scrobblr
+  token: listenbrainz.org refuses it, but the token has been sent there.
+  Revoke it if that worries you.
+- Your Last.fm loved tracks come over with the Last.fm import.
 
 ## For server operators
 
