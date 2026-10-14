@@ -199,8 +199,12 @@ fn progress(import: &ScrobbleImport) -> String {
         .oldest_played_at
         .map(|t| format!(" · back to {}", t.format("%Y-%m-%d")))
         .unwrap_or_default();
+    let loved = match &import.loved_error {
+        Some(why) => format!(" · {} loved ({why})", import.loved_imported),
+        None => format!(" · {} loved", import.loved_imported),
+    };
     format!(
-        "#{} {} [{}] {read} · {} new · {} duplicate · {} skipped{back_to}",
+        "#{} {} [{}] {read} · {} new · {} duplicate · {} skipped{back_to}{loved}",
         import.id,
         import.external_user,
         import.status.as_str(),

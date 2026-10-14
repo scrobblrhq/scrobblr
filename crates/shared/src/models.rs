@@ -989,6 +989,17 @@ pub struct ScrobbleImport {
     pub skipped: i64,
     /// How far back in time the import has reached.
     pub oldest_played_at: Option<DateTime<Utc>>,
+    /// Loved tracks the provider lists for the account, known once their
+    /// first page is read; `null` before, and when they couldn't be read.
+    pub loved_total: Option<i64>,
+    /// Loves added; tracks already loved here aren't counted.
+    pub loved_imported: i64,
+    /// The loves are read (before the scrobbles).
+    pub loved_done: bool,
+    /// Why the loves stopped short: `history_hidden` (the provider wouldn't
+    /// show them), `cap_reached` (the account loves the most tracks
+    /// allowed) or `lastfm_error`. The import goes on with the scrobbles.
+    pub loved_error: Option<String>,
     /// Set while a running import waits out a provider error.
     pub retrying_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,

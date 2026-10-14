@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH page AS (\n                SELECT DISTINCT ON (track_id) track_id, loved_at\n                FROM UNNEST($2::bigint[], $3::timestamptz[]) AS i(track_id, loved_at)\n                ORDER BY track_id, loved_at DESC\n            ), fresh AS (\n                SELECT * FROM page p\n                WHERE NOT EXISTS (SELECT 1 FROM loved_tracks l\n                                  WHERE l.user_id = $1 AND l.track_id = p.track_id)\n            ), room AS (\n                SELECT GREATEST($5 - count(*), 0) AS n FROM loved_tracks WHERE user_id = $1\n            ), inserted AS (\n                INSERT INTO loved_tracks (user_id, track_id, loved_at, source, import_id)\n                SELECT $1, f.track_id, f.loved_at, 'lastfm_import', $4\n                FROM fresh f\n                ORDER BY f.loved_at DESC, f.track_id\n                LIMIT (SELECT n FROM room)\n                RETURNING track_id\n            ), queued AS (\n                INSERT INTO enrichment_jobs (entity_type, entity_id, priority)\n                SELECT e.entity_type, e.entity_id, $6\n                FROM (\n                    SELECT 'track' AS entity_type, t.id AS entity_id FROM tracks t\n                    WHERE t.id IN (SELECT track_id FROM inserted) AND t.enriched_at IS NULL\n                    UNION\n                    SELECT 'artist', a.id FROM tracks t JOIN artists a ON a.id = t.artist_id\n                    WHERE t.id IN (SELECT track_id FROM inserted) AND a.enriched_at IS NULL\n                ) e\n                ON CONFLICT (entity_type, entity_id) DO NOTHING\n            )\n            SELECT (SELECT count(*) FROM inserted) AS \"imported!\",\n                   (SELECT count(*) FROM fresh) AS \"fresh!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "imported!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "fresh!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8Array",
+        "TimestamptzArray",
+        "Int8",
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "cd4cb5f442eb1496036de7b9dbdaa2629bec2322a38eb8397803676d50052846"
+}

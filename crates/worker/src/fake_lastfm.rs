@@ -1,6 +1,7 @@
 //! An in-process stand-in for the Last.fm API, so tests never call the real
-//! one. Pages `user.getRecentTracks` newest first like Last.fm, serves
-//! `track.getInfo` lengths, and can be told to fail the next requests.
+//! one. Pages `user.getRecentTracks` and `user.getLovedTracks` newest first
+//! like Last.fm, serves `track.getInfo` lengths, and can be told to fail the
+//! next requests.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
@@ -43,6 +44,7 @@ pub enum Failure {
 #[derive(Default)]
 struct FakeState {
     users: HashMap<String, (bool, Vec<FakePlay>)>,
+    loves: HashMap<String, Vec<FakePlay>>,
     lengths: HashMap<(String, String), i64>,
     failures: VecDeque<Failure>,
     to_exclusive: bool,
@@ -72,6 +74,16 @@ impl FakeLastfm {
             .unwrap()
             .users
             .insert(name.to_lowercase(), (false, plays));
+    }
+
+    /// The user's loved tracks: `uts` is when each was loved (the album is
+    /// ignored).
+    pub fn loves(&self, name: &str, loves: Vec<FakePlay>) {
+        self.state
+            .lock()
+            .unwrap()
+            .loves
+            .insert(name.to_lowercase(), loves);
     }
 
     pub fn hidden_user(&self, name: &str) {
@@ -142,6 +154,7 @@ async fn handle(
         .unwrap_or_default();
     match method.as_str() {
         "user.getrecenttracks" => recent_tracks(&state, &q),
+        "user.getlovedtracks" => loved_tracks(&state, &q),
         "track.getinfo" => {
             let key = (
                 q.get("artist").cloned().unwrap_or_default().to_lowercase(),
@@ -210,6 +223,47 @@ fn recent_tracks(state: &FakeState, q: &HashMap<String, String>) -> (StatusCode,
         "@attr": {
             "user": name, "page": page.to_string(), "perPage": limit.to_string(),
             "totalPages": total_pages.to_string(), "total": in_range.len().to_string()
+        }
+    }});
+    (StatusCode::OK, body.to_string())
+}
+
+fn loved_tracks(state: &FakeState, q: &HashMap<String, String>) -> (StatusCode, String) {
+    let name = q.get("user").cloned().unwrap_or_default();
+    let Some((hidden, _)) = state.users.get(&name.to_lowercase()) else {
+        return error(404, 6, "User not found");
+    };
+    if *hidden {
+        return error(403, 17, "Login: User required to be logged in");
+    }
+    let number = |key: &str| q.get(key).and_then(|v| v.parse::<usize>().ok());
+    let limit = number("limit").unwrap_or(50);
+    let page = number("page").unwrap_or(1).max(1);
+    let mut loves: Vec<&FakePlay> = state
+        .loves
+        .get(&name.to_lowercase())
+        .map(|l| l.iter().collect())
+        .unwrap_or_default();
+    loves.sort_by_key(|l| std::cmp::Reverse(l.uts));
+    let items: Vec<Value> = loves
+        .iter()
+        .skip((page - 1) * limit)
+        .take(limit)
+        .map(|l| {
+            json!({
+                "artist": { "url": "", "name": l.artist, "mbid": "" },
+                "date": { "uts": l.uts.to_string(), "#text": "" },
+                "mbid": l.mbid, "url": "", "name": l.track, "image": [],
+                "streamable": { "fulltrack": "0", "#text": "0" }
+            })
+        })
+        .collect();
+    let body = json!({ "lovedtracks": {
+        "track": items,
+        "@attr": {
+            "user": name, "page": page.to_string(), "perPage": limit.to_string(),
+            "totalPages": loves.len().div_ceil(limit).to_string(),
+            "total": loves.len().to_string()
         }
     }});
     (StatusCode::OK, body.to_string())

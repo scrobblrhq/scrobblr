@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE scrobble_imports SET loved_done = TRUE, loved_error = $3\n        WHERE id = $1 AND lease_token = $2\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "82312d78e065dd2b86cfe8693ff288b81335dbb8744dfe5572a9a7f913e2246e"
+}

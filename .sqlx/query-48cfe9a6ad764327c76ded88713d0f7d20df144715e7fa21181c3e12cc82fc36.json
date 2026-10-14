@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE scrobble_imports SET\n            loved_page     = $2,\n            loved_done     = $3,\n            loved_total    = COALESCE(loved_total, $4),\n            loved_imported = loved_imported + $5,\n            loved_error    = CASE WHEN $6 THEN 'cap_reached' ELSE loved_error END,\n            attempts       = 0,\n            error_message  = NULL,\n            leased_until   = NOW() + make_interval(secs => $7)\n        WHERE id = $1\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int4",
+        "Bool",
+        "Int8",
+        "Int8",
+        "Bool",
+        "Float8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "48cfe9a6ad764327c76ded88713d0f7d20df144715e7fa21181c3e12cc82fc36"
+}

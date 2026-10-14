@@ -45,6 +45,10 @@ struct ImportRow {
     duplicates: i64,
     skipped: i64,
     oldest_played_at: Option<DateTime<Utc>>,
+    loved_total: Option<i64>,
+    loved_imported: i64,
+    loved_done: bool,
+    loved_error: Option<String>,
     attempts: i32,
     next_attempt_at: DateTime<Utc>,
     created_at: DateTime<Utc>,
@@ -71,6 +75,10 @@ impl From<ImportRow> for ScrobbleImport {
             duplicates: r.duplicates,
             skipped: r.skipped,
             oldest_played_at: r.oldest_played_at,
+            loved_total: r.loved_total,
+            loved_imported: r.loved_imported,
+            loved_done: r.loved_done,
+            loved_error: r.loved_error,
             retrying_at: (status.is_active() && r.attempts > 0).then_some(r.next_attempt_at),
             created_at: r.created_at,
             started_at: r.started_at,
@@ -98,7 +106,8 @@ pub async fn create(
         VALUES ($1, $2, $3, $4, $5)
         RETURNING id, provider, external_user, verified, status, error_code, error_message,
                   window_from, window_to, total_expected, fetched, imported, duplicates, skipped,
-                  oldest_played_at, attempts, next_attempt_at, created_at, started_at, finished_at
+                  oldest_played_at, loved_total, loved_imported, loved_done, loved_error,
+                  attempts, next_attempt_at, created_at, started_at, finished_at
         "#,
         new.user_id,
         new.provider,
@@ -164,7 +173,8 @@ pub async fn active_for_user(
         r#"
         SELECT id, provider, external_user, verified, status, error_code, error_message,
                window_from, window_to, total_expected, fetched, imported, duplicates, skipped,
-               oldest_played_at, attempts, next_attempt_at, created_at, started_at, finished_at
+               oldest_played_at, loved_total, loved_imported, loved_done, loved_error,
+               attempts, next_attempt_at, created_at, started_at, finished_at
         FROM scrobble_imports
         WHERE user_id = $1 AND status IN ('pending', 'running')
         "#,
@@ -186,7 +196,8 @@ pub async fn list(
         r#"
         SELECT i.user_id, u.username, i.id, i.provider, i.external_user, i.verified, i.status,
                i.error_code, i.error_message, i.window_from, i.window_to, i.total_expected,
-               i.fetched, i.imported, i.duplicates, i.skipped, i.oldest_played_at, i.attempts,
+               i.fetched, i.imported, i.duplicates, i.skipped, i.oldest_played_at,
+               i.loved_total, i.loved_imported, i.loved_done, i.loved_error, i.attempts,
                i.next_attempt_at, i.created_at, i.started_at, i.finished_at
         FROM scrobble_imports i
         JOIN users u ON u.id = i.user_id
@@ -218,6 +229,10 @@ pub async fn list(
                 duplicates: r.duplicates,
                 skipped: r.skipped,
                 oldest_played_at: r.oldest_played_at,
+                loved_total: r.loved_total,
+                loved_imported: r.loved_imported,
+                loved_done: r.loved_done,
+                loved_error: r.loved_error,
                 attempts: r.attempts,
                 next_attempt_at: r.next_attempt_at,
                 created_at: r.created_at,
@@ -240,7 +255,8 @@ pub async fn get(
         r#"
         SELECT id, provider, external_user, verified, status, error_code, error_message,
                window_from, window_to, total_expected, fetched, imported, duplicates, skipped,
-               oldest_played_at, attempts, next_attempt_at, created_at, started_at, finished_at
+               oldest_played_at, loved_total, loved_imported, loved_done, loved_error,
+               attempts, next_attempt_at, created_at, started_at, finished_at
         FROM scrobble_imports
         WHERE id = $1 AND ($2::bigint IS NULL OR user_id = $2)
         "#,
@@ -279,6 +295,9 @@ pub struct ClaimedImport {
     pub window_from: Option<DateTime<Utc>>,
     pub window_to: DateTime<Utc>,
     pub cursor: Cursor,
+    /// The next page of loved tracks, read before the scrobbles.
+    pub loved_page: u32,
+    pub loved_done: bool,
     pub imported: i64,
     /// Scrobbles the user's other imports added, for the per-user cap.
     pub imported_before: i64,
@@ -296,6 +315,8 @@ struct ClaimRow {
     segment_to: Option<i64>,
     segment_page: Option<i32>,
     segment_oldest: Option<i64>,
+    loved_page: i32,
+    loved_done: bool,
     imported: i64,
     imported_before: i64,
     attempts: i32,
@@ -320,6 +341,8 @@ impl From<ClaimRow> for ClaimedImport {
             window_from: r.window_from,
             window_to: r.window_to,
             cursor,
+            loved_page: r.loved_page.max(1) as u32,
+            loved_done: r.loved_done,
             imported: r.imported,
             imported_before: r.imported_before,
             attempts: r.attempts,
@@ -353,7 +376,7 @@ pub async fn claim_next(
         )
         RETURNING id, user_id, external_user, verified, window_from,
                   window_to AS "window_to!", segment_to, segment_page, segment_oldest,
-                  imported, attempts, lease_token AS "lease_token!",
+                  loved_page, loved_done, imported, attempts, lease_token AS "lease_token!",
                   (SELECT COALESCE(sum(o.imported), 0) FROM scrobble_imports o
                    WHERE o.user_id = scrobble_imports.user_id AND o.id <> scrobble_imports.id
                   )::bigint AS "imported_before!"
@@ -385,7 +408,7 @@ pub async fn claim(
           AND (leased_until IS NULL OR leased_until < NOW())
         RETURNING id, user_id, external_user, verified, window_from,
                   window_to AS "window_to!", segment_to, segment_page, segment_oldest,
-                  imported, attempts, lease_token AS "lease_token!",
+                  loved_page, loved_done, imported, attempts, lease_token AS "lease_token!",
                   (SELECT COALESCE(sum(o.imported), 0) FROM scrobble_imports o
                    WHERE o.user_id = scrobble_imports.user_id AND o.id <> scrobble_imports.id
                   )::bigint AS "imported_before!"
@@ -582,6 +605,179 @@ pub async fn record_page(
         imported,
         duplicates,
     })
+}
+
+/// One loved track to import, as the provider reported it.
+#[derive(Debug, Clone)]
+pub struct ImportLove {
+    pub loved_at: DateTime<Utc>,
+    pub artist: String,
+    pub track: String,
+    pub track_mbid: Option<Uuid>,
+}
+
+/// A fetched page of loved tracks.
+pub struct LovedPage<'a> {
+    pub loves: &'a [ImportLove],
+    pub next_page: u32,
+    /// No page follows (the last one, or older than the window).
+    pub last: bool,
+    pub total: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LovesOutcome {
+    Recorded {
+        imported: i64,
+        /// The account reached `max` loved tracks: no page follows.
+        capped: bool,
+    },
+    LeaseLost,
+}
+
+/// Resolves the page's tracks (creating the new ones, as for scrobbles),
+/// loves those the user doesn't love yet, up to `max` loved tracks, and
+/// advances the job's loved-tracks cursor, in one transaction. A love
+/// already there keeps its time and source.
+pub async fn record_loves(
+    pool: &PgPool,
+    job: &ClaimedImport,
+    page: &LovedPage<'_>,
+    lease_secs: f64,
+    max: i64,
+) -> Result<LovesOutcome, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    let leased = sqlx::query_scalar!(
+        r#"
+        SELECT id FROM scrobble_imports
+        WHERE id = $1 AND lease_token = $2 AND status = 'running'
+        FOR UPDATE
+        "#,
+        job.id,
+        job.lease_token,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    if leased.is_none() {
+        tx.rollback().await?;
+        return Ok(LovesOutcome::LeaseLost);
+    }
+
+    let (mut imported, mut capped) = (0, false);
+    if !page.loves.is_empty() {
+        let plays: Vec<ImportPlay> = page
+            .loves
+            .iter()
+            .map(|l| ImportPlay {
+                played_at: l.loved_at,
+                artist: l.artist.clone(),
+                track: l.track.clone(),
+                album: None,
+                track_mbid: l.track_mbid,
+            })
+            .collect();
+        let artists = upsert_artists(&mut tx, &plays).await?;
+        let tracks = upsert_tracks(&mut tx, &plays, &artists, &HashMap::new()).await?;
+        let track_ids: Vec<i64> = plays
+            .iter()
+            .map(|p| tracks[&(artists[&normalize(&p.artist)], normalize(&p.track))])
+            .collect();
+        let loved_at: Vec<DateTime<Utc>> = plays.iter().map(|p| p.played_at).collect();
+
+        // The same lock as a live love, so the cap holds against both.
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('loves:' || $1, 0))")
+            .bind(job.user_id.to_string())
+            .execute(&mut *tx)
+            .await?;
+        let r = sqlx::query!(
+            r#"
+            WITH page AS (
+                SELECT DISTINCT ON (track_id) track_id, loved_at
+                FROM UNNEST($2::bigint[], $3::timestamptz[]) AS i(track_id, loved_at)
+                ORDER BY track_id, loved_at DESC
+            ), fresh AS (
+                SELECT * FROM page p
+                WHERE NOT EXISTS (SELECT 1 FROM loved_tracks l
+                                  WHERE l.user_id = $1 AND l.track_id = p.track_id)
+            ), room AS (
+                SELECT GREATEST($5 - count(*), 0) AS n FROM loved_tracks WHERE user_id = $1
+            ), inserted AS (
+                INSERT INTO loved_tracks (user_id, track_id, loved_at, source, import_id)
+                SELECT $1, f.track_id, f.loved_at, 'lastfm_import', $4
+                FROM fresh f
+                ORDER BY f.loved_at DESC, f.track_id
+                LIMIT (SELECT n FROM room)
+                RETURNING track_id
+            ), queued AS (
+                INSERT INTO enrichment_jobs (entity_type, entity_id, priority)
+                SELECT e.entity_type, e.entity_id, $6
+                FROM (
+                    SELECT 'track' AS entity_type, t.id AS entity_id FROM tracks t
+                    WHERE t.id IN (SELECT track_id FROM inserted) AND t.enriched_at IS NULL
+                    UNION
+                    SELECT 'artist', a.id FROM tracks t JOIN artists a ON a.id = t.artist_id
+                    WHERE t.id IN (SELECT track_id FROM inserted) AND a.enriched_at IS NULL
+                ) e
+                ON CONFLICT (entity_type, entity_id) DO NOTHING
+            )
+            SELECT (SELECT count(*) FROM inserted) AS "imported!",
+                   (SELECT count(*) FROM fresh) AS "fresh!"
+            "#,
+            job.user_id,
+            &track_ids,
+            &loved_at,
+            job.id,
+            max,
+            PRIORITY_IMPORT,
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        imported = r.imported;
+        capped = r.fresh > r.imported;
+    }
+
+    sqlx::query!(
+        r#"
+        UPDATE scrobble_imports SET
+            loved_page     = $2,
+            loved_done     = $3,
+            loved_total    = COALESCE(loved_total, $4),
+            loved_imported = loved_imported + $5,
+            loved_error    = CASE WHEN $6 THEN 'cap_reached' ELSE loved_error END,
+            attempts       = 0,
+            error_message  = NULL,
+            leased_until   = NOW() + make_interval(secs => $7)
+        WHERE id = $1
+        "#,
+        job.id,
+        page.next_page as i32,
+        page.last || capped,
+        page.total,
+        imported,
+        capped,
+        lease_secs,
+    )
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(LovesOutcome::Recorded { imported, capped })
+}
+
+/// Gives up on the job's loved tracks (`code` says why) and goes on to
+/// its scrobbles.
+pub async fn skip_loves(pool: &PgPool, job: &ClaimedImport, code: &str) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        r#"
+        UPDATE scrobble_imports SET loved_done = TRUE, loved_error = $3
+        WHERE id = $1 AND lease_token = $2
+        "#,
+        job.id,
+        job.lease_token,
+        code,
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 /// Resolves the plays' catalog entries, inserts the ones not already

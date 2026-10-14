@@ -1,5 +1,6 @@
-//! Imports a user's Last.fm history (`db::queries::imports` for the job
-//! model). A job is processed in slices of pages under a lease, so several
+//! Imports a user's Last.fm history and loved tracks
+//! (`db::queries::imports` for the job model). Loved tracks come first:
+//! they are a few pages where the history is thousands. A job is processed in slices of pages under a lease, so several
 //! imports take turns and a crashed worker's job is picked up again; every
 //! page commits together with the cursor, so nothing is fetched twice
 //! beyond the page in flight.
@@ -20,11 +21,14 @@ use sqlx::PgPool;
 
 use crate::enrichment::ratelimit::RateLimiter;
 use crate::heartbeat::Beat;
+use db::queries::loves::MAX_LOVED_TRACKS;
 use db::queries::{
     classification as classification_db, connected_accounts as connected_accounts_db,
     imports as imports_db, scrobbles as scrobbles_db,
 };
-use imports_db::{ClaimedImport, ImportPlay, Page, PageOutcome};
+use imports_db::{
+    ClaimedImport, ImportLove, ImportPlay, LovedPage, LovesOutcome, Page, PageOutcome,
+};
 use shared::lastfm::{
     ERROR_INVALID_PARAMETERS, ERROR_INVALID_SESSION, ERROR_LOGIN_REQUIRED, LastfmClient,
     LastfmError, RecentTracksQuery,
@@ -165,6 +169,71 @@ impl Importer {
         let window_from = job.window_from.map(|t| t.timestamp());
 
         let mut pages = 0;
+        while !job.loved_done && pages < max_pages {
+            self.limiter.acquire().await;
+            let fetched = match self
+                .client
+                .loved_tracks(&job.external_user, job.loved_page, session_key.as_deref())
+                .await
+            {
+                Ok(fetched) => fetched,
+                Err(e) if e.code() == Some(ERROR_INVALID_SESSION) && session_key.is_some() => {
+                    tracing::warn!(
+                        import_id = job.id,
+                        "import: Last.fm session rejected, continuing unsigned"
+                    );
+                    session_key = None;
+                    continue;
+                }
+                // The loves can't be read: the history walk decides whether
+                // the user exists and shows it.
+                Err(e) if !e.is_transient() => {
+                    let code = if e.code() == Some(ERROR_LOGIN_REQUIRED) {
+                        HISTORY_HIDDEN
+                    } else {
+                        LASTFM_ERROR
+                    };
+                    tracing::warn!(import_id = job.id, "import: loved tracks skipped: {e}");
+                    imports_db::skip_loves(&self.db, &job, code).await?;
+                    job.loved_done = true;
+                    continue;
+                }
+                Err(e) => return self.handle_error(&job, e).await,
+            };
+            // A re-import reads loves newer than its window only.
+            let loves: Vec<ImportLove> = fetched
+                .loves
+                .iter()
+                .filter(|l| window_from.is_none_or(|from| l.uts > from))
+                .filter_map(|l| {
+                    Some(ImportLove {
+                        loved_at: DateTime::from_timestamp(l.uts, 0)?,
+                        artist: l.artist.clone(),
+                        track: l.track.clone(),
+                        track_mbid: l.track_mbid,
+                    })
+                })
+                .collect();
+            let past_window =
+                window_from.is_some_and(|from| fetched.oldest_uts.is_some_and(|o| o <= from));
+            let page = LovedPage {
+                loves: &loves,
+                next_page: job.loved_page + 1,
+                last: !fetched.has_more() || past_window,
+                total: fetched.total as i64,
+            };
+            match imports_db::record_loves(&self.db, &job, &page, LEASE_SECS, MAX_LOVED_TRACKS)
+                .await?
+            {
+                LovesOutcome::Recorded { capped, .. } => {
+                    job.loved_page = page.next_page;
+                    job.loved_done = page.last || capped;
+                }
+                LovesOutcome::LeaseLost => return Ok(SliceEnd::LeaseLost),
+            }
+            pages += 1;
+        }
+
         while pages < max_pages {
             if job.imported_before + job.imported >= self.max_scrobbles {
                 self.checkpoint(job.id, job.user_id).await;

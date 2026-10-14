@@ -1,115 +1,125 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT i.user_id, u.username, i.id, i.provider, i.external_user, i.verified, i.status,\n               i.error_code, i.error_message, i.window_from, i.window_to, i.total_expected,\n               i.fetched, i.imported, i.duplicates, i.skipped, i.oldest_played_at, i.attempts,\n               i.next_attempt_at, i.created_at, i.started_at, i.finished_at\n        FROM scrobble_imports i\n        JOIN users u ON u.id = i.user_id\n        WHERE $1::bigint IS NULL OR i.user_id = $1\n        ORDER BY i.created_at DESC, i.id DESC\n        LIMIT $2\n        ",
+  "query": "\n        SELECT id, provider, external_user, verified, status, error_code, error_message,\n               window_from, window_to, total_expected, fetched, imported, duplicates, skipped,\n               oldest_played_at, loved_total, loved_imported, loved_done, loved_error,\n               attempts, next_attempt_at, created_at, started_at, finished_at\n        FROM scrobble_imports\n        WHERE id = $1 AND ($2::bigint IS NULL OR user_id = $2)\n        ",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "user_id",
-        "type_info": "Int8"
-      },
-      {
-        "ordinal": 1,
-        "name": "username",
-        "type_info": "Text"
-      },
-      {
-        "ordinal": 2,
         "name": "id",
         "type_info": "Int8"
       },
       {
-        "ordinal": 3,
+        "ordinal": 1,
         "name": "provider",
         "type_info": "Text"
       },
       {
-        "ordinal": 4,
+        "ordinal": 2,
         "name": "external_user",
         "type_info": "Text"
       },
       {
-        "ordinal": 5,
+        "ordinal": 3,
         "name": "verified",
         "type_info": "Bool"
       },
       {
-        "ordinal": 6,
+        "ordinal": 4,
         "name": "status",
         "type_info": "Text"
       },
       {
-        "ordinal": 7,
+        "ordinal": 5,
         "name": "error_code",
         "type_info": "Text"
       },
       {
-        "ordinal": 8,
+        "ordinal": 6,
         "name": "error_message",
         "type_info": "Text"
       },
       {
-        "ordinal": 9,
+        "ordinal": 7,
         "name": "window_from",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 10,
+        "ordinal": 8,
         "name": "window_to",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 11,
+        "ordinal": 9,
         "name": "total_expected",
         "type_info": "Int8"
       },
       {
-        "ordinal": 12,
+        "ordinal": 10,
         "name": "fetched",
         "type_info": "Int8"
       },
       {
-        "ordinal": 13,
+        "ordinal": 11,
         "name": "imported",
         "type_info": "Int8"
       },
       {
-        "ordinal": 14,
+        "ordinal": 12,
         "name": "duplicates",
         "type_info": "Int8"
       },
       {
-        "ordinal": 15,
+        "ordinal": 13,
         "name": "skipped",
         "type_info": "Int8"
       },
       {
-        "ordinal": 16,
+        "ordinal": 14,
         "name": "oldest_played_at",
         "type_info": "Timestamptz"
       },
       {
+        "ordinal": 15,
+        "name": "loved_total",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 16,
+        "name": "loved_imported",
+        "type_info": "Int8"
+      },
+      {
         "ordinal": 17,
+        "name": "loved_done",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 18,
+        "name": "loved_error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 19,
         "name": "attempts",
         "type_info": "Int4"
       },
       {
-        "ordinal": 18,
+        "ordinal": 20,
         "name": "next_attempt_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 19,
+        "ordinal": 21,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 20,
+        "ordinal": 22,
         "name": "started_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 21,
+        "ordinal": 23,
         "name": "finished_at",
         "type_info": "Timestamptz"
       }
@@ -126,8 +136,6 @@
       false,
       false,
       false,
-      false,
-      false,
       true,
       true,
       true,
@@ -135,6 +143,10 @@
       true,
       false,
       false,
+      false,
+      false,
+      true,
+      true,
       false,
       false,
       true,
@@ -145,5 +157,5 @@
       true
     ]
   },
-  "hash": "efb9fadfb47446f0663b343f6726c6cb25fb956dfa42aed007f42c2324585dba"
+  "hash": "5230375bba1b41a279e4f124f012cbc014e2560119cea8523152b2c47ffb4cfa"
 }

@@ -34,6 +34,25 @@ fetched: number, imported: number, duplicates: number, skipped: number,
  */
 oldest_played_at: string | null, 
 /**
+ * Loved tracks the provider lists for the account, known once their
+ * first page is read; `null` before, and when they couldn't be read.
+ */
+loved_total: number | null, 
+/**
+ * Loves added; tracks already loved here aren't counted.
+ */
+loved_imported: number, 
+/**
+ * The loves are read (before the scrobbles).
+ */
+loved_done: boolean, 
+/**
+ * Why the loves stopped short: `history_hidden` (the provider wouldn't
+ * show them), `cap_reached` (the account loves the most tracks
+ * allowed) or `lastfm_error`. The import goes on with the scrobbles.
+ */
+loved_error: string | null, 
+/**
  * Set while a running import waits out a provider error.
  */
 retrying_at: string | null, created_at: string, started_at: string | null, finished_at: string | null, };

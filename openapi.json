@@ -2277,6 +2277,30 @@
             "format": "int64",
             "type": "integer"
           },
+          "loved_done": {
+            "description": "The loves are read (before the scrobbles).",
+            "type": "boolean"
+          },
+          "loved_error": {
+            "description": "Why the loves stopped short: `history_hidden` (the provider wouldn't\n show them), `cap_reached` (the account loves the most tracks\n allowed) or `lastfm_error`. The import goes on with the scrobbles.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "loved_imported": {
+            "description": "Loves added; tracks already loved here aren't counted.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "loved_total": {
+            "description": "Loved tracks the provider lists for the account, known once their\n first page is read; `null` before, and when they couldn't be read.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "oldest_played_at": {
             "description": "How far back in time the import has reached.",
             "format": "date-time",
@@ -2348,6 +2372,8 @@
           "imported",
           "duplicates",
           "skipped",
+          "loved_imported",
+          "loved_done",
           "created_at"
         ],
         "type": "object"
@@ -7088,7 +7114,7 @@
     },
     "/v1/import/lastfm": {
       "post": {
-        "description": "Queues an import of the scrobble history of the Last.fm account linked through `GET /v1/connect/lastfm` (linking proves the user owns it). The worker runs it in the background; poll `GET /v1/imports/{id}` for progress. Imports are resumable and deduplicated: by default only scrobbles since the last completed import (minus two weeks, for late scrobbles) are fetched, and `full: true` rescans everything without creating duplicates. Scrobbles already sent to Scrobblr live are not imported twice. One import per user at a time, and one a day.",
+        "description": "Queues an import of the scrobble history of the Last.fm account linked through `GET /v1/connect/lastfm` (linking proves the user owns it). The worker runs it in the background; poll `GET /v1/imports/{id}` for progress. Imports are resumable and deduplicated: by default only scrobbles since the last completed import (minus two weeks, for late scrobbles) are fetched, and `full: true` rescans everything without creating duplicates. Scrobbles already sent to Scrobblr live are not imported twice. The account's loved tracks come first (`user.getLovedTracks`, newer than the window on a re-import, so a track unloved here stays unloved unless `full`), added to the user's loves up to the 50,000 an account may have; tracks already loved keep their love, and loves don't count against the scrobble cap. One import per user at a time, and one a day.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -7342,7 +7368,7 @@
         ]
       },
       "get": {
-        "description": "Progress of one of the authenticated user's imports: scrobbles read against Last.fm's total, how many were new, duplicates and invalid entries skipped, how far back in time it has reached, and why it failed if it did.",
+        "description": "Progress of one of the authenticated user's imports: scrobbles read against Last.fm's total, how many were new, duplicates and invalid entries skipped, how far back in time it has reached, the loved tracks read and added (`loved_total`, `loved_imported`, `loved_done`, and `loved_error` when they stopped short), and why it failed if it did.",
         "parameters": [
           {
             "in": "path",

@@ -1,5 +1,5 @@
 //! Last.fm Web Services client: listening-history import
-//! (`user.getRecentTracks`), track lengths (`track.getInfo`) and the web-auth
+//! (`user.getRecentTracks`, `user.getLovedTracks`), track lengths (`track.getInfo`) and the web-auth
 //! flow that proves a Scrobblr user owns a Last.fm account
 //! (`auth.getSession`). Shared by `crates/api` (auth) and `crates/worker`
 //! (import, lengths). Rate limiting is the caller's job.
@@ -17,6 +17,8 @@ const AUTH_URL: &str = "https://www.last.fm/api/auth/";
 
 /// `user.getRecentTracks` page size (the API maximum).
 pub const PAGE_LIMIT: u32 = 200;
+/// `user.getLovedTracks` page size.
+pub const LOVED_PAGE_LIMIT: u32 = 1000;
 /// Pages fetched before the walk restarts at page 1 further back in time.
 pub const PAGES_PER_SEGMENT: u32 = 20;
 /// Scrobbles before Audioscrobbler existed come from broken clients.
@@ -105,6 +107,35 @@ impl RecentTracksPage {
     /// Scrobbles on the page, excluding the now-playing entry.
     pub fn dated(&self) -> usize {
         self.plays.len() + self.invalid as usize
+    }
+}
+
+/// One of a user's loved tracks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LastfmLove {
+    /// When it was loved, Unix seconds.
+    pub uts: i64,
+    pub artist: String,
+    pub track: String,
+    pub track_mbid: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LovedTracksPage {
+    pub loves: Vec<LastfmLove>,
+    /// Entries rejected by [`LastfmLove`] validation.
+    pub invalid: u32,
+    /// Oldest love on the page, invalid ones included.
+    pub oldest_uts: Option<i64>,
+    pub page: u32,
+    pub total_pages: u32,
+    pub total: u64,
+}
+
+impl LovedTracksPage {
+    /// Whether the user's loves go on after this page.
+    pub fn has_more(&self) -> bool {
+        self.loves.len() + self.invalid as usize > 0 && self.page < self.total_pages
     }
 }
 
@@ -280,6 +311,26 @@ impl LastfmClient {
         let session_key = query.session_key.filter(|_| self.can_sign());
         let body = self.get(params, session_key).await?;
         parse_recent_tracks(&body)
+    }
+
+    /// A page of the user's loved tracks, newest first.
+    pub async fn loved_tracks(
+        &self,
+        user: &str,
+        page: u32,
+        session_key: Option<&str>,
+    ) -> Result<LovedTracksPage, LastfmError> {
+        let page = page.to_string();
+        let limit = LOVED_PAGE_LIMIT.to_string();
+        let params = vec![
+            ("method", "user.getlovedtracks"),
+            ("user", user),
+            ("limit", limit.as_str()),
+            ("page", page.as_str()),
+        ];
+        let session_key = session_key.filter(|_| self.can_sign());
+        let body = self.get(params, session_key).await?;
+        parse_loved_tracks(&body)
     }
 
     /// The track's length in ms, or `None` when Last.fm doesn't know it.
@@ -485,6 +536,67 @@ pub fn parse_recent_tracks(body: &str) -> Result<RecentTracksPage, LastfmError> 
                 album: valid_name(raw.album.and_then(|a| a.text)),
                 track_mbid: raw.mbid.and_then(|m| m.trim().parse().ok()),
             }),
+            _ => page.invalid += 1,
+        }
+    }
+    Ok(page)
+}
+
+#[derive(Deserialize)]
+struct LovedTracksBody {
+    lovedtracks: LovedTracks,
+}
+
+#[derive(Deserialize)]
+struct LovedTracks {
+    track: Option<OneOrMany<RawLove>>,
+    #[serde(rename = "@attr")]
+    attr: PageAttr,
+}
+
+#[derive(Deserialize)]
+struct RawLove {
+    name: Option<String>,
+    mbid: Option<String>,
+    artist: Option<NamedArtist>,
+    date: Option<RawDate>,
+}
+
+#[derive(Deserialize)]
+struct NamedArtist {
+    name: Option<String>,
+}
+
+pub fn parse_loved_tracks(body: &str) -> Result<LovedTracksPage, LastfmError> {
+    let parsed: LovedTracksBody = parse_json(body)?;
+    let attr = parsed.lovedtracks.attr;
+    let mut page = LovedTracksPage {
+        page: attr.page.and_then(|n| n.value()).unwrap_or(1) as u32,
+        total_pages: attr.total_pages.and_then(|n| n.value()).unwrap_or(0) as u32,
+        total: attr.total.and_then(|n| n.value()).unwrap_or(0) as u64,
+        ..Default::default()
+    };
+    for raw in parsed
+        .lovedtracks
+        .track
+        .map(OneOrMany::into_vec)
+        .unwrap_or_default()
+    {
+        let uts = raw.date.and_then(|d| d.uts.value());
+        if let Some(uts) = uts {
+            page.oldest_uts = Some(page.oldest_uts.map_or(uts, |o| o.min(uts)));
+        }
+        let artist = valid_name(raw.artist.and_then(|a| a.name));
+        let track = valid_name(raw.name);
+        match (uts, artist, track) {
+            (Some(uts), Some(artist), Some(track)) if uts >= MIN_TIMESTAMP => {
+                page.loves.push(LastfmLove {
+                    uts,
+                    artist,
+                    track,
+                    track_mbid: raw.mbid.and_then(|m| m.trim().parse().ok()),
+                })
+            }
             _ => page.invalid += 1,
         }
     }
@@ -775,5 +887,39 @@ mod tests {
         let history = vec![1_700_000_000; (PAGES_PER_SEGMENT * PAGE_LIMIT) as usize + 10];
         let (fetched, _) = walk(&history, Cursor::start(1_700_000_000), true);
         assert!(fetched.len() >= history.len());
+    }
+
+    #[test]
+    fn parses_loved_tracks_one_or_many() {
+        let many = r##"{"lovedtracks":{"track":[
+            {"artist":{"url":"https://www.last.fm/music/Slowdive","name":"Slowdive","mbid":""},
+             "date":{"uts":"1696440000","#text":"04 Oct 2023, 17:20"},"mbid":"8f2bc1b0-9c33-4f25-8e65-d2dbd1c9a5b1",
+             "url":"","name":"Alison","image":[],"streamable":{"fulltrack":"0","#text":"0"}},
+            {"artist":{"name":""},"date":{"uts":"1696430000"},"name":"Nameless"},
+            {"artist":{"name":"Low"},"name":"Words"}
+          ],"@attr":{"user":"rj","totalPages":"3","page":"1","perPage":"1000","total":"2003"}}}"##;
+        let page = parse_loved_tracks(many).unwrap();
+        assert_eq!((page.page, page.total_pages, page.total), (1, 3, 2003));
+        assert_eq!(page.invalid, 2);
+        assert_eq!(page.oldest_uts, Some(1_696_430_000));
+        assert!(page.has_more());
+        assert_eq!(
+            page.loves,
+            [LastfmLove {
+                uts: 1_696_440_000,
+                artist: "Slowdive".into(),
+                track: "Alison".into(),
+                track_mbid: Some("8f2bc1b0-9c33-4f25-8e65-d2dbd1c9a5b1".parse().unwrap()),
+            }]
+        );
+
+        let one = r##"{"lovedtracks":{"track":{"artist":{"name":"Low"},"date":{"uts":"1696440000"},"name":"Words"},
+            "@attr":{"page":"1","totalPages":"1","total":"1"}}}"##;
+        let page = parse_loved_tracks(one).unwrap();
+        assert_eq!(page.loves.len(), 1);
+        assert!(!page.has_more());
+        let none =
+            r#"{"lovedtracks":{"track":[],"@attr":{"page":"1","totalPages":"0","total":"0"}}}"#;
+        assert!(!parse_loved_tracks(none).unwrap().has_more());
     }
 }

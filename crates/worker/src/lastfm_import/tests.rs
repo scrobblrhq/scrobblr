@@ -178,8 +178,11 @@ async fn imports_a_whole_history_and_a_reimport_adds_nothing() {
         assert_eq!(done.skipped, 3);
         assert_eq!(done.total_expected, Some(history().len() as i64));
         assert!(done.duplicates >= 5);
-        // About one request per 200 scrobbles, plus the segment overlaps.
-        assert!(fake.requests() <= history().len() / 200 + 4, "{}", fake.requests());
+        // About one request per 200 scrobbles, plus the segment overlaps
+        // and the (empty) loved tracks.
+        assert!(fake.requests() <= history().len() / 200 + 5, "{}", fake.requests());
+        assert!(done.loved_done && done.loved_error.is_none());
+        assert_eq!((done.loved_total, done.loved_imported), (Some(0), 0));
 
         assert_eq!(count(&pool, "SELECT count(*) FROM scrobbles WHERE user_id = $1", user_id).await, UNIQUE_PLAYS);
         assert_eq!(count(&pool, "SELECT scrobble_count FROM users WHERE id = $1", user_id).await, UNIQUE_PLAYS);
@@ -302,7 +305,8 @@ async fn resumes_after_errors_and_a_dead_worker_without_duplicates() {
         assert_eq!(end, SliceEnd::Done);
         assert_eq!(done.imported, UNIQUE_PLAYS);
         assert!(done.retrying_at.is_none());
-        assert!(fetched_before >= 600);
+        // Three pages: the (empty) loved tracks and two of history.
+        assert!(fetched_before >= 400);
         assert_eq!(
             count(
                 &pool,
@@ -336,6 +340,9 @@ async fn unknown_hidden_and_empty_histories() {
             let (end, state) = drive(&importer, &pool, id).await;
             assert_eq!(end, expected, "{lastfm}");
             assert_eq!(state.imported, 0);
+            if lastfm == "shy" {
+                assert_eq!(state.loved_error.as_deref(), Some(super::HISTORY_HIDDEN));
+            }
             assert!(state.finished_at.is_some());
             if lastfm == "quiet" {
                 assert_eq!(state.total_expected, Some(0));
@@ -501,6 +508,200 @@ async fn the_cli_imports_in_the_foreground() {
             .await
             .unwrap_err();
         assert!(error.to_string().contains("already importing"), "{error}");
+    })
+    .await;
+}
+
+/// 2,503 loves (three pages of 1,000), newest first: two spellings of one
+/// track, one by an artist the history never played, and one without an
+/// artist; plus a little history.
+fn loves() -> Vec<FakePlay> {
+    let newest = Utc::now().timestamp() - 3600;
+    let mut loves: Vec<FakePlay> = (0..2500)
+        .map(|n| {
+            FakePlay::new(
+                newest - 30 * 86_400 - n * 3600,
+                &format!("Artist {}", n % 37),
+                &format!("Loved {n}"),
+                "",
+            )
+        })
+        .collect();
+    loves.push(FakePlay::new(newest, "Artist 1", " loved 1", ""));
+    loves.push(FakePlay::new(newest - 60, "Never Played", "Only Loved", ""));
+    loves.push(FakePlay::new(newest - 120, "", "Nameless", ""));
+    loves
+}
+
+async fn loved(pool: &PgPool, user_id: i64) -> i64 {
+    count(
+        pool,
+        "SELECT count(*) FROM loved_tracks WHERE user_id = $1",
+        user_id,
+    )
+    .await
+}
+
+/// Loves come before the history, a page at a time under the lease: a
+/// slice that ends, an error and a dead worker resume at the next page,
+/// and nothing is loved twice. A love already there keeps its time and
+/// source. A re-import reads only loves newer than its window, so a love
+/// taken back here stays taken back; a full rescan brings it back.
+#[tokio::test]
+#[ignore = "needs Postgres: just test-db"]
+async fn imports_loved_tracks_resumably_and_idempotently() {
+    with_db(|pool| async move {
+        let fake = FakeLastfm::default();
+        let newest = Utc::now().timestamp() - 600;
+        fake.user(
+            "rj",
+            (0..30)
+                .map(|n| FakePlay::new(newest - n * 600, "Artist 1", &format!("Loved {n}"), ""))
+                .collect(),
+        );
+        fake.loves("rj", loves());
+        let url = fake.start().await;
+        let importer = importer(&pool, &url, 1_000_000);
+        let user_id = user(&pool, "alice").await;
+
+        // Loved here already, earlier.
+        let artist = db::queries::tracks::find_or_create_artist(&pool, "Artist 2").await.unwrap();
+        let track = db::queries::tracks::find_or_create_track(&pool, artist.id, None, "Loved 2", None)
+            .await
+            .unwrap();
+        let earlier = Utc::now() - chrono::TimeDelta::days(400);
+        sqlx::query("INSERT INTO loved_tracks (user_id, track_id, loved_at, source) VALUES ($1, $2, $3, 'scrobblr')")
+            .bind(user_id)
+            .bind(track.id)
+            .bind(earlier)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let id = new_import(&pool, user_id, "rj").await;
+        let job = imports_db::claim(&pool, id, LEASE_SECS).await.unwrap().unwrap();
+        assert_eq!(importer.process(job, 1).await.unwrap(), SliceEnd::Paused);
+        let state = imports_db::get(&pool, id, None).await.unwrap().unwrap();
+        assert_eq!((state.loved_total, state.loved_done), (Some(2503), false));
+        assert_eq!(state.loved_imported, loved(&pool, user_id).await - 1);
+        assert_eq!(count(&pool, "SELECT count(*) FROM scrobbles WHERE user_id = $1", user_id).await, 0);
+
+        fake.fail_next(&[Failure::Status(503)]);
+        let job = imports_db::claim(&pool, id, LEASE_SECS).await.unwrap().unwrap();
+        assert!(matches!(importer.process(job, 1).await.unwrap(), SliceEnd::Deferred(_)));
+        drop(imports_db::claim(&pool, id, 0.0).await.unwrap().unwrap());
+        let (end, done) = drive(&importer, &pool, id).await;
+        assert_eq!(end, SliceEnd::Done);
+        assert!(done.loved_done && done.loved_error.is_none());
+        // 2,500 tracks, "Loved 1" twice (one track), "Only Loved", the
+        // nameless one skipped; "Loved 2" was loved already.
+        assert_eq!(loved(&pool, user_id).await, 2501);
+        assert_eq!(done.loved_imported, 2500);
+        assert_eq!(done.imported, 30);
+        let (source, at): (String, chrono::DateTime<Utc>) = sqlx::query_as(
+            "SELECT source, loved_at FROM loved_tracks WHERE user_id = $1 AND track_id = $2",
+        )
+        .bind(user_id)
+        .bind(track.id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(source, "scrobblr");
+        assert!((at - earlier).abs() < chrono::TimeDelta::seconds(1));
+        assert_eq!(
+            count(&pool, "SELECT count(*) FROM loved_tracks WHERE user_id = $1 AND source = 'lastfm_import' AND import_id IS NOT NULL", user_id).await,
+            2500
+        );
+        // The track only loved is in the catalog, queued for enrichment.
+        assert_eq!(
+            count(&pool, "SELECT count(*) FROM enrichment_jobs j JOIN tracks t ON t.id = j.entity_id AND j.entity_type = 'track' WHERE t.title = 'Only Loved' AND $1 > 0", 1).await,
+            1
+        );
+
+        // Taken back here, then loved anew on Last.fm.
+        sqlx::query("DELETE FROM loved_tracks WHERE user_id = $1 AND track_id = (SELECT id FROM tracks WHERE title = 'Loved 100')")
+            .bind(user_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let mut more = loves();
+        more.push(FakePlay::new(Utc::now().timestamp() - 30, "Artist 3", "Fresh Love", ""));
+        fake.loves("rj", more);
+        let requests = fake.requests();
+        let again = new_import(&pool, user_id, "rj").await;
+        let (_, incremental) = drive(&importer, &pool, again).await;
+        assert_eq!(incremental.loved_imported, 1);
+        assert_eq!(loved(&pool, user_id).await, 2501);
+        // One page of loves, a page of history.
+        assert!(fake.requests() - requests <= 3, "{}", fake.requests() - requests);
+
+        let full = new_import(&pool, user_id, "rj").await;
+        sqlx::query("UPDATE scrobble_imports SET window_from = NULL WHERE id = $1")
+            .bind(full)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let (_, full) = drive(&importer, &pool, full).await;
+        assert_eq!((full.loved_imported, full.imported), (1, 0));
+        assert_eq!(loved(&pool, user_id).await, 2502);
+    })
+    .await;
+}
+
+/// Loves past the account's cap are left out, newest kept, and the import
+/// goes on with the history.
+#[tokio::test]
+#[ignore = "needs Postgres: just test-db"]
+async fn imported_loves_stop_at_the_cap() {
+    with_db(|pool| async move {
+        let fake = FakeLastfm::default();
+        let newest = Utc::now().timestamp() - 600;
+        fake.user("rj", vec![FakePlay::new(newest, "Band", "Played", "")]);
+        fake.loves(
+            "rj",
+            (0..30)
+                .map(|n| FakePlay::new(newest - n * 60, "Band", &format!("Love {n}"), ""))
+                .collect(),
+        );
+        let url = fake.start().await;
+        let importer = importer(&pool, &url, 1_000_000);
+        let user_id = user(&pool, "carol").await;
+        sqlx::query(
+            "WITH artist AS (INSERT INTO artists (name, name_normalized)
+                             VALUES ('Many', 'many') RETURNING id),
+                  made AS (INSERT INTO tracks (artist_id, title, title_normalized)
+                           SELECT artist.id, 'T' || g, 't' || g
+                           FROM artist, generate_series(1, $2 - 10) g RETURNING id)
+             INSERT INTO loved_tracks (user_id, track_id, source)
+             SELECT $1, id, 'scrobblr' FROM made",
+        )
+        .bind(user_id)
+        .bind(db::queries::loves::MAX_LOVED_TRACKS)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let id = new_import(&pool, user_id, "rj").await;
+        let (end, done) = drive(&importer, &pool, id).await;
+        assert_eq!(end, SliceEnd::Done);
+        assert_eq!(done.loved_imported, 10);
+        assert_eq!(done.loved_error.as_deref(), Some("cap_reached"));
+        assert_eq!(done.imported, 1);
+        assert_eq!(
+            loved(&pool, user_id).await,
+            db::queries::loves::MAX_LOVED_TRACKS
+        );
+        // The newest ten.
+        assert_eq!(
+            count(
+                &pool,
+                "SELECT count(*) FROM loved_tracks l JOIN tracks t ON t.id = l.track_id
+                          WHERE l.user_id = $1 AND t.title IN ('Love 0', 'Love 9')",
+                user_id
+            )
+            .await,
+            2
+        );
     })
     .await;
 }

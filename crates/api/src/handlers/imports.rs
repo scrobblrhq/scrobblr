@@ -91,7 +91,7 @@ pub async fn start_lastfm_import(
 
 pub fn _start_lastfm_import_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Import Last.fm history")
-        .description("Queues an import of the scrobble history of the Last.fm account linked through `GET /v1/connect/lastfm` (linking proves the user owns it). The worker runs it in the background; poll `GET /v1/imports/{id}` for progress. Imports are resumable and deduplicated: by default only scrobbles since the last completed import (minus two weeks, for late scrobbles) are fetched, and `full: true` rescans everything without creating duplicates. Scrobbles already sent to Scrobblr live are not imported twice. One import per user at a time, and one a day.")
+        .description("Queues an import of the scrobble history of the Last.fm account linked through `GET /v1/connect/lastfm` (linking proves the user owns it). The worker runs it in the background; poll `GET /v1/imports/{id}` for progress. Imports are resumable and deduplicated: by default only scrobbles since the last completed import (minus two weeks, for late scrobbles) are fetched, and `full: true` rescans everything without creating duplicates. Scrobbles already sent to Scrobblr live are not imported twice. The account's loved tracks come first (`user.getLovedTracks`, newer than the window on a re-import, so a track unloved here stays unloved unless `full`), added to the user's loves up to the 50,000 an account may have; tracks already loved keep their love, and loves don't count against the scrobble cap. One import per user at a time, and one a day.")
         .tag("Imports")
         .response::<202, Json<ScrobbleImport>>()
         .response_with::<400, ErrorJson, _>(|r| r.description("No Last.fm account connected"))
@@ -138,7 +138,7 @@ pub async fn get_import(
 
 pub fn _get_import_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Get an import")
-        .description("Progress of one of the authenticated user's imports: scrobbles read against Last.fm's total, how many were new, duplicates and invalid entries skipped, how far back in time it has reached, and why it failed if it did.")
+        .description("Progress of one of the authenticated user's imports: scrobbles read against Last.fm's total, how many were new, duplicates and invalid entries skipped, how far back in time it has reached, the loved tracks read and added (`loved_total`, `loved_imported`, `loved_done`, and `loved_error` when they stopped short), and why it failed if it did.")
         .tag("Imports")
         .response::<200, Json<ScrobbleImport>>()
         .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))

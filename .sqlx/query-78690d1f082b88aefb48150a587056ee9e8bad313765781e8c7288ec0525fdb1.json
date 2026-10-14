@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT id, provider, external_user, verified, status, error_code, error_message,\n               window_from, window_to, total_expected, fetched, imported, duplicates, skipped,\n               oldest_played_at, attempts, next_attempt_at, created_at, started_at, finished_at\n        FROM scrobble_imports\n        WHERE id = $1 AND ($2::bigint IS NULL OR user_id = $2)\n        ",
+  "query": "\n        INSERT INTO scrobble_imports (user_id, provider, external_user, verified, window_from)\n        VALUES ($1, $2, $3, $4, $5)\n        RETURNING id, provider, external_user, verified, status, error_code, error_message,\n                  window_from, window_to, total_expected, fetched, imported, duplicates, skipped,\n                  oldest_played_at, loved_total, loved_imported, loved_done, loved_error,\n                  attempts, next_attempt_at, created_at, started_at, finished_at\n        ",
   "describe": {
     "columns": [
       {
@@ -80,26 +80,46 @@
       },
       {
         "ordinal": 15,
+        "name": "loved_total",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 16,
+        "name": "loved_imported",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 17,
+        "name": "loved_done",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 18,
+        "name": "loved_error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 19,
         "name": "attempts",
         "type_info": "Int4"
       },
       {
-        "ordinal": 16,
+        "ordinal": 20,
         "name": "next_attempt_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 17,
+        "ordinal": 21,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 18,
+        "ordinal": 22,
         "name": "started_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 19,
+        "ordinal": 23,
         "name": "finished_at",
         "type_info": "Timestamptz"
       }
@@ -107,7 +127,10 @@
     "parameters": {
       "Left": [
         "Int8",
-        "Int8"
+        "Text",
+        "Text",
+        "Bool",
+        "Timestamptz"
       ]
     },
     "nullable": [
@@ -126,6 +149,10 @@
       false,
       false,
       true,
+      true,
+      false,
+      false,
+      true,
       false,
       false,
       false,
@@ -133,5 +160,5 @@
       true
     ]
   },
-  "hash": "57bb55b9de47f741a2b7beda77c6b3ddbb80699d1e826f8a151b4f91c3c1cbd0"
+  "hash": "78690d1f082b88aefb48150a587056ee9e8bad313765781e8c7288ec0525fdb1"
 }
