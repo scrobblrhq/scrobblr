@@ -145,6 +145,35 @@ pub async fn find_track_id(
     .await
 }
 
+/// The track each recording MBID names: the one MusicBrainz enrichment
+/// matched it to, else one a client named it for that enrichment hasn't
+/// decided yet (nor rejected that MBID for), the most played first. MBIDs
+/// naming no track are left out. Creates nothing.
+pub async fn find_by_recording_mbids(
+    pool: &PgPool,
+    mbids: &[Uuid],
+) -> Result<Vec<(Uuid, i64)>, sqlx::Error> {
+    let rows = sqlx::query!(
+        r#"
+        SELECT DISTINCT ON (m.mbid) m.mbid AS "mbid!", c.id AS "track_id!"
+        FROM UNNEST($1::uuid[]) AS m(mbid)
+        CROSS JOIN LATERAL (
+            SELECT t.id, 0 AS rank, 0::bigint AS plays FROM tracks t WHERE t.mbid = m.mbid
+            UNION ALL
+            SELECT t.id, 1, t.scrobble_count FROM tracks t
+            WHERE t.mbid_hint = m.mbid AND t.mbid IS NULL
+              AND NOT EXISTS (SELECT 1 FROM track_mbid_rejections r
+                              WHERE r.track_id = t.id AND r.mbid = m.mbid)
+        ) c
+        ORDER BY m.mbid, c.rank, c.plays DESC, c.id
+        "#,
+        mbids,
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().map(|r| (r.mbid, r.track_id)).collect())
+}
+
 /// Without counts: for lookups, not responses.
 pub async fn find_artist_by_id(pool: &PgPool, id: i64) -> Result<Option<Artist>, sqlx::Error> {
     sqlx::query_as!(

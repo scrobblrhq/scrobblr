@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT DISTINCT ON (m.mbid) m.mbid AS \"mbid!\", c.id AS \"track_id!\"\n        FROM UNNEST($1::uuid[]) AS m(mbid)\n        CROSS JOIN LATERAL (\n            SELECT t.id, 0 AS rank, 0::bigint AS plays FROM tracks t WHERE t.mbid = m.mbid\n            UNION ALL\n            SELECT t.id, 1, t.scrobble_count FROM tracks t\n            WHERE t.mbid_hint = m.mbid AND t.mbid IS NULL\n              AND NOT EXISTS (SELECT 1 FROM track_mbid_rejections r\n                              WHERE r.track_id = t.id AND r.mbid = m.mbid)\n        ) c\n        ORDER BY m.mbid, c.rank, c.plays DESC, c.id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "mbid!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "track_id!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "80a1294e351e3b213bf6a1350991010710f6259e5b9befdf80377430afb55487"
+}

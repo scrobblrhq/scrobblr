@@ -15,6 +15,7 @@ pub const MAX_LOVED_TRACKS: i64 = 50_000;
 pub const SOURCE_SCROBBLR: &str = "scrobblr";
 pub const SOURCE_LASTFM: &str = "lastfm";
 pub const SOURCE_AUDIOSCROBBLER: &str = "audioscrobbler";
+pub const SOURCE_LISTENBRAINZ: &str = "listenbrainz";
 pub const SOURCE_LASTFM_IMPORT: &str = "lastfm_import";
 
 /// Where a love came from.
