@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO loved_tracks (user_id, track_id, source, client_id)\n        VALUES ($1, $2, $3, $4)\n        RETURNING loved_at\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "loved_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "65b17dd8b6c7c311126da8229024df16bcb3c2c064e7184cab8051bb7114f69f"
+}

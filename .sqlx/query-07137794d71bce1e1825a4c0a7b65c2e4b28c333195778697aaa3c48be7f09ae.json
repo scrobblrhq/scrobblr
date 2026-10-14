@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT (SELECT loved_at FROM loved_tracks WHERE user_id = $1 AND track_id = $2)\n                   AS \"already?\",\n               (SELECT count(*) FROM loved_tracks WHERE user_id = $1) AS \"loved!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "already?",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 1,
+        "name": "loved!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "07137794d71bce1e1825a4c0a7b65c2e4b28c333195778697aaa3c48be7f09ae"
+}

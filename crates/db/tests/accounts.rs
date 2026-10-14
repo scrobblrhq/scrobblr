@@ -27,7 +27,7 @@ async fn exec(pool: &PgPool, sql: &str, id: i64) {
 /// (live, imported, on an old compressed chunk), its labels, weights and
 /// coordination factor, credentials of every kind, a linked account, an
 /// import, follows, a comment, uploads and likes, now playing, its
-/// recommendations and a skip.
+/// recommendations and a skip, and loved tracks.
 async fn populate(pool: &PgPool, name: &str, artwork_artist: i64) -> i64 {
     let user_id: i64 = sqlx::query_scalar(
         "INSERT INTO users (username, email, password_hash, created_at, image_url)
@@ -133,6 +133,8 @@ async fn populate(pool: &PgPool, name: &str, artwork_artist: i64) -> i64 {
          SELECT $1, ARRAY[id], '{500}', ARRAY[id], '{1}' FROM artists ORDER BY id LIMIT 1",
         "INSERT INTO recommendation_skips (user_id, artist_id, until)
          SELECT $1, id, NOW() + INTERVAL '90 days' FROM artists ORDER BY id LIMIT 1",
+        "INSERT INTO loved_tracks (user_id, track_id, source)
+         SELECT $1, id, 'scrobblr' FROM tracks ORDER BY id LIMIT 2",
     ] {
         exec(pool, sql, user_id).await;
     }
@@ -410,6 +412,12 @@ async fn an_erase_leaves_no_row_about_the_user_and_corrects_shared_numbers() {
         cdb::enqueue_scrobble_classification(&pool, gone, Utc::now() - TimeDelta::days(4), Utc::now())
             .await
             .unwrap();
+        exec(
+            &pool,
+            "INSERT INTO ranking_queue (user_id, day) VALUES ($1, CURRENT_DATE)",
+            gone,
+        )
+        .await;
         rdb::refresh_snapshots(&pool, &weights, Period::Year, Utc::now().date_naive(), 100)
             .await
             .unwrap();
@@ -447,10 +455,19 @@ async fn an_erase_leaves_no_row_about_the_user_and_corrects_shared_numbers() {
             "public.user_neighbours.neighbour_user_id",
             "public.user_recommendations.user_id",
             "public.recommendation_skips.user_id",
+            "public.loved_tracks.user_id",
         ] {
             let n = about_gone.iter().find(|(t, _)| t == table).map(|(_, n)| *n);
             assert!(n.is_some_and(|n| n > 0), "the fixture puts rows in {table}");
         }
+        // Every column naming a user has a row about the erased one, so a
+        // table added later fails here until the fixture fills it too.
+        let unfilled: Vec<&str> = about_gone
+            .iter()
+            .filter(|(_, n)| *n == 0)
+            .map(|(t, _)| t.as_str())
+            .collect();
+        assert_eq!(unfilled, Vec::<&str>::new(), "the fixture puts no row in these");
         let about_stays = rows_about(&pool, stays).await;
         let stays_plays: i64 = sqlx::query_scalar("SELECT count(*) FROM scrobbles WHERE user_id = $1")
             .bind(stays)

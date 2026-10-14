@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM loved_tracks WHERE user_id = $1 AND track_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "14573c8fba2a77e12326deb7668cde5d216c4e38badef32a76cb1b4a60647417"
+}

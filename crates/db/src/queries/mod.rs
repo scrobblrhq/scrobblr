@@ -11,6 +11,7 @@ pub mod enrichment;
 pub mod export;
 pub mod feed;
 pub mod imports;
+pub mod loves;
 pub mod monitoring;
 pub mod rankings;
 pub mod scrobble_clients;

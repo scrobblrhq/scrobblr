@@ -1,0 +1,78 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT l.track_id, t.title AS track_title, t.mbid AS track_mbid,\n               t.artist_id, a.name AS artist_name, t.album_id,\n               al.title AS \"album_title?\", al.image_url AS \"album_image?\",\n               a.image_url AS artist_image, l.loved_at\n        FROM (\n            SELECT track_id, loved_at FROM loved_tracks\n            WHERE user_id = $1\n            ORDER BY loved_at DESC, track_id DESC\n            LIMIT $2 OFFSET $3\n        ) l\n        JOIN tracks t  ON t.id = l.track_id\n        JOIN artists a ON a.id = t.artist_id\n        LEFT JOIN albums al ON al.id = t.album_id\n        ORDER BY l.loved_at DESC, l.track_id DESC\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "track_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "track_title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "track_mbid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "artist_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "artist_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "album_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "album_title?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "album_image?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "artist_image",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "loved_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "1c7dee7a33b92a9f4f52a5e3ca6720c9096fdf088eeabab20882a7d9365f413e"
+}
