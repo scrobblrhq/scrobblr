@@ -2736,7 +2736,7 @@
       "SimilarUsersQuery": {
         "properties": {
           "limit": {
-            "description": "Entries: 10 by default, 50 at most.",
+            "description": "Entries: 10 by default, 30 at most.",
             "format": "int64",
             "type": [
               "integer",
@@ -12192,11 +12192,11 @@
             "style": "simple"
           },
           {
-            "description": "Entries: 10 by default, 50 at most.",
+            "description": "Entries: 10 by default, 30 at most.",
             "in": "query",
             "name": "limit",
             "schema": {
-              "description": "Entries: 10 by default, 50 at most.",
+              "description": "Entries: 10 by default, 30 at most.",
               "format": "int64",
               "type": [
                 "integer",

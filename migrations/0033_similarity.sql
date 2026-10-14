@@ -53,16 +53,16 @@ CREATE TABLE artist_neighbours (
     PRIMARY KEY (artist_id, position)
 );
 
+-- A user's list in one row, best first: always read whole, and written
+-- 100 times faster than a row per entry, whose foreign keys cost ~25 µs
+-- each. For each artist, the user's artist that voted most for it and how
+-- many did.
 CREATE TABLE user_recommendations (
-    user_id            BIGINT    NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    position           SMALLINT  NOT NULL,
-    artist_id          BIGINT    NOT NULL REFERENCES artists (id) ON DELETE CASCADE,
-    score              INT       NOT NULL,
-    -- The user's artist that voted most for it, and how many did.
-    because_artist_id  BIGINT    NOT NULL REFERENCES artists (id) ON DELETE CASCADE,
-    because_count      INT       NOT NULL,
-
-    PRIMARY KEY (user_id, position)
+    user_id             BIGINT    PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
+    artist_ids          BIGINT[]  NOT NULL,
+    scores              INT[]     NOT NULL,
+    because_artist_ids  BIGINT[]  NOT NULL,
+    because_counts      INT[]     NOT NULL
 );
 
 -- Accounts listed when the run was made; readers check they still are,

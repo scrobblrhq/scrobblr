@@ -190,7 +190,7 @@ impl Default for SimilarityParams {
             user_artists: 200,
             min_user_artists: 5,
             recommendations: 100,
-            taste_neighbours: 50,
+            taste_neighbours: 30,
             min_shared: 3,
             half_life_days: 180,
             max_postings: 1000,
@@ -1140,7 +1140,7 @@ mod tests {
         ];
         let neighbours = taste_neighbours(&m, &histories, &p);
         let first = &neighbours[&1];
-        assert_eq!(first.len(), 39);
+        assert_eq!(first.len(), p.taste_neighbours as usize);
         assert!(first.iter().all(|n| n.user_id != 1 && n.user_id <= 40));
         // 100 is everyone's: it tells nobody apart.
         assert_eq!(first[0].shared, 3);

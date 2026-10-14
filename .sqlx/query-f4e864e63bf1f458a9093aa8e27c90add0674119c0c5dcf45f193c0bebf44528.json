@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO user_recommendations\n                (user_id, artist_ids, scores, because_artist_ids, because_counts)\n            SELECT t.user_id, array_agg(t.artist_id ORDER BY t.position),\n                   array_agg(t.score ORDER BY t.position),\n                   array_agg(t.because_artist_id ORDER BY t.position),\n                   array_agg(t.because_count ORDER BY t.position)\n            FROM UNNEST($1::bigint[], $2::int[], $3::bigint[], $4::int[], $5::bigint[], $6::int[])\n                 AS t(user_id, position, artist_id, score, because_artist_id, because_count)\n            JOIN users u ON u.id = t.user_id\n            WHERE u.similarity <> 'off' AND u.delete_after IS NULL\n            GROUP BY t.user_id\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "Int4Array",
+        "Int8Array",
+        "Int4Array",
+        "Int8Array",
+        "Int4Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f4e864e63bf1f458a9093aa8e27c90add0674119c0c5dcf45f193c0bebf44528"
+}

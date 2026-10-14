@@ -408,32 +408,46 @@ async fn store_recommendations(
     for (user, list) in &output.recommendations {
         for (i, r) in list.iter().enumerate() {
             users.push(*user);
-            positions.push(i as i16 + 1);
+            positions.push(i as i32);
             artists.push(r.artist_id);
             scores.push(r.score.min(i32::MAX as i64) as i32);
             because.push(r.because);
             counts.push(r.because_count as i32);
         }
     }
-    in_batches!(users.len(), |r| sqlx::query!(
-        r#"
-        INSERT INTO user_recommendations
-            (user_id, position, artist_id, score, because_artist_id, because_count)
-        SELECT t.*
-        FROM UNNEST($1::bigint[], $2::smallint[], $3::bigint[], $4::int[], $5::bigint[], $6::int[])
-             AS t(user_id, position, artist_id, score, because_artist_id, because_count)
-        JOIN users u ON u.id = t.user_id
-        WHERE u.similarity <> 'off' AND u.delete_after IS NULL
-        "#,
-        &users[r.clone()],
-        &positions[r.clone()],
-        &artists[r.clone()],
-        &scores[r.clone()],
-        &because[r.clone()],
-        &counts[r],
-    )
-    .execute(&mut **tx)
-    .await?);
+    // A user's entries make one row: a batch ends between two users.
+    let mut start = 0;
+    while start < users.len() {
+        let mut end = (start + BATCH).min(users.len());
+        while end < users.len() && users[end] == users[end - 1] {
+            end += 1;
+        }
+        let r = start..end;
+        sqlx::query!(
+            r#"
+            INSERT INTO user_recommendations
+                (user_id, artist_ids, scores, because_artist_ids, because_counts)
+            SELECT t.user_id, array_agg(t.artist_id ORDER BY t.position),
+                   array_agg(t.score ORDER BY t.position),
+                   array_agg(t.because_artist_id ORDER BY t.position),
+                   array_agg(t.because_count ORDER BY t.position)
+            FROM UNNEST($1::bigint[], $2::int[], $3::bigint[], $4::int[], $5::bigint[], $6::int[])
+                 AS t(user_id, position, artist_id, score, because_artist_id, because_count)
+            JOIN users u ON u.id = t.user_id
+            WHERE u.similarity <> 'off' AND u.delete_after IS NULL
+            GROUP BY t.user_id
+            "#,
+            &users[r.clone()],
+            &positions[r.clone()],
+            &artists[r.clone()],
+            &scores[r.clone()],
+            &because[r.clone()],
+            &counts[r],
+        )
+        .execute(&mut **tx)
+        .await?;
+        start = end;
+    }
     Ok(())
 }
 
@@ -684,18 +698,20 @@ pub async fn recommendations(
     sqlx::query_as!(
         RecommendationEntry,
         r#"
-        SELECT r.artist_id, a.name, a.image_url, r.score::bigint AS "score!",
-               r.because_artist_id AS because_id, b.name AS because_name,
-               r.because_count::bigint AS "because_count!"
+        SELECT e.artist_id AS "artist_id!", a.name, a.image_url, e.score::bigint AS "score!",
+               e.because_id AS "because_id!", b.name AS because_name,
+               e.because_count::bigint AS "because_count!"
         FROM user_recommendations r
-        JOIN artists a ON a.id = r.artist_id
-        JOIN artists b ON b.id = r.because_artist_id
+        CROSS JOIN LATERAL unnest(r.artist_ids, r.scores, r.because_artist_ids, r.because_counts)
+            WITH ORDINALITY AS e(artist_id, score, because_id, because_count, position)
+        JOIN artists a ON a.id = e.artist_id
+        JOIN artists b ON b.id = e.because_id
         WHERE r.user_id = $1
           AND NOT EXISTS (SELECT 1 FROM recommendation_skips k
-                          WHERE k.user_id = $1 AND k.artist_id = r.artist_id AND k.until > NOW())
+                          WHERE k.user_id = $1 AND k.artist_id = e.artist_id AND k.until > NOW())
           AND NOT EXISTS (SELECT 1 FROM scrobbles s
-                          WHERE s.user_id = $1 AND s.artist_id = r.artist_id AND s.played_at >= $2)
-        ORDER BY r.position
+                          WHERE s.user_id = $1 AND s.artist_id = e.artist_id AND s.played_at >= $2)
+        ORDER BY e.position
         "#,
         user_id,
         run_started_at - LATE_PLAYS,

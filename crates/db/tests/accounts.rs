@@ -129,8 +129,8 @@ async fn populate(pool: &PgPool, name: &str, artwork_artist: i64) -> i64 {
          SELECT $1, id, artist_id, NOW() + INTERVAL '3 minutes' FROM tracks LIMIT 1",
         "UPDATE users SET similarity = 'listed', similarity_changed_at = NOW() WHERE id = $1",
         "INSERT INTO user_recommendations
-             (user_id, position, artist_id, score, because_artist_id, because_count)
-         SELECT $1, 1, id, 500, id, 1 FROM artists ORDER BY id LIMIT 1",
+             (user_id, artist_ids, scores, because_artist_ids, because_counts)
+         SELECT $1, ARRAY[id], '{500}', ARRAY[id], '{1}' FROM artists ORDER BY id LIMIT 1",
         "INSERT INTO recommendation_skips (user_id, artist_id, until)
          SELECT $1, id, NOW() + INTERVAL '90 days' FROM artists ORDER BY id LIMIT 1",
     ] {

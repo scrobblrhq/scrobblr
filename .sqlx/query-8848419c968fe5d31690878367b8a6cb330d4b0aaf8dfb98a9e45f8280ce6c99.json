@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT e.artist_id AS \"artist_id!\", a.name, a.image_url, e.score::bigint AS \"score!\",\n               e.because_id AS \"because_id!\", b.name AS because_name,\n               e.because_count::bigint AS \"because_count!\"\n        FROM user_recommendations r\n        CROSS JOIN LATERAL unnest(r.artist_ids, r.scores, r.because_artist_ids, r.because_counts)\n            WITH ORDINALITY AS e(artist_id, score, because_id, because_count, position)\n        JOIN artists a ON a.id = e.artist_id\n        JOIN artists b ON b.id = e.because_id\n        WHERE r.user_id = $1\n          AND NOT EXISTS (SELECT 1 FROM recommendation_skips k\n                          WHERE k.user_id = $1 AND k.artist_id = e.artist_id AND k.until > NOW())\n          AND NOT EXISTS (SELECT 1 FROM scrobbles s\n                          WHERE s.user_id = $1 AND s.artist_id = e.artist_id AND s.played_at >= $2)\n        ORDER BY e.position\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "artist_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "image_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "score!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "because_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "because_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "because_count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      null,
+      false,
+      true,
+      null,
+      null,
+      false,
+      null
+    ]
+  },
+  "hash": "8848419c968fe5d31690878367b8a6cb330d4b0aaf8dfb98a9e45f8280ce6c99"
+}

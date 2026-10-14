@@ -31,7 +31,7 @@ use shared::similarity::{FULL, SKIP_DAYS, SimilarityMode, common_listeners};
 pub const ARTIST_LIMIT: i64 = 20;
 pub const MAX_ARTIST_LIMIT: i64 = 50;
 pub const USER_LIMIT: i64 = 10;
-pub const MAX_USER_LIMIT: i64 = 50;
+pub const MAX_USER_LIMIT: i64 = 30;
 pub const RECOMMENDATION_LIMIT: i64 = 20;
 pub const MAX_RECOMMENDATION_LIMIT: i64 = 100;
 
@@ -196,7 +196,7 @@ fn public_headers<T>(r: TransformResponse<'_, T>) -> TransformResponse<'_, T> {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SimilarUsersQuery {
-    /// Entries: 10 by default, 50 at most.
+    /// Entries: 10 by default, 30 at most.
     pub limit: Option<i64>,
 }
 
@@ -609,8 +609,8 @@ mod tests {
             &app.pool,
             &format!(
                 "INSERT INTO user_recommendations
-                     (user_id, position, artist_id, score, because_artist_id, because_count)
-                 VALUES ({u}, 1, {b3}, 800, {b1}, 2), ({u}, 2, {b4}, 200, {b1}, 1)",
+                     (user_id, artist_ids, scores, because_artist_ids, because_counts)
+                 VALUES ({u}, ARRAY[{b3}, {b4}], '{{800, 200}}', ARRAY[{b1}, {b1}], '{{2, 1}}')",
                 u = app.user_id,
                 b1 = band(1),
                 b3 = band(3),
