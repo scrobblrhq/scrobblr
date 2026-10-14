@@ -4299,7 +4299,7 @@
     },
     "/2.0": {
       "get": {
-        "description": "Last.fm API 2.0 for scrobblers: `auth.getToken`, `auth.getSession`, `auth.getMobileSession` (POST), `track.scrobble` (POST, up to 50 as `artist[i]` …), `track.updateNowPlaying` (POST), `track.love` and `track.unlove` (POST), `user.getInfo`, `user.getRecentTracks` (with `extended=1`, the artist as an object and `loved`) and `user.getLovedTracks`. Parameters come as a query string or a form body. Authenticated with a Scrobblr scrobbler credential as `sk` (a session key, or a scrobbler token given as the password to `auth.getMobileSession`), never with native API tokens. `api_sig` is checked for API keys the server knows the secret of. Answers in Last.fm's XML, or JSON with `format=json`; errors carry Last.fm's codes.",
+        "description": "Last.fm API 2.0 for scrobblers: `auth.getToken`, `auth.getSession`, `auth.getMobileSession` (POST), `track.scrobble` (POST, up to 50 as `artist[i]` …), `track.updateNowPlaying` (POST), `track.love` and `track.unlove` (POST), `track.getInfo` (by `artist` and `track` or `mbid`; with `username` or a session, `userloved` and `userplaycount` where that user's profile may be seen; no `listeners`, and `playcount` only past `RANKING_MIN_LISTENERS`), `user.getInfo`, `user.getRecentTracks` (with `extended=1`, the artist as an object and `loved`) and `user.getLovedTracks`. Parameters come as a query string or a form body. Authenticated with a Scrobblr scrobbler credential as `sk` (a session key, or a scrobbler token given as the password to `auth.getMobileSession`), never with native API tokens. `api_sig` is checked for API keys the server knows the secret of. Answers in Last.fm's XML, or JSON with `format=json`; errors carry Last.fm's codes.",
         "parameters": [
           {
             "description": "Last.fm method name",
@@ -4364,7 +4364,7 @@
         ]
       },
       "post": {
-        "description": "Last.fm API 2.0 for scrobblers: `auth.getToken`, `auth.getSession`, `auth.getMobileSession` (POST), `track.scrobble` (POST, up to 50 as `artist[i]` …), `track.updateNowPlaying` (POST), `track.love` and `track.unlove` (POST), `user.getInfo`, `user.getRecentTracks` (with `extended=1`, the artist as an object and `loved`) and `user.getLovedTracks`. Parameters come as a query string or a form body. Authenticated with a Scrobblr scrobbler credential as `sk` (a session key, or a scrobbler token given as the password to `auth.getMobileSession`), never with native API tokens. `api_sig` is checked for API keys the server knows the secret of. Answers in Last.fm's XML, or JSON with `format=json`; errors carry Last.fm's codes.",
+        "description": "Last.fm API 2.0 for scrobblers: `auth.getToken`, `auth.getSession`, `auth.getMobileSession` (POST), `track.scrobble` (POST, up to 50 as `artist[i]` …), `track.updateNowPlaying` (POST), `track.love` and `track.unlove` (POST), `track.getInfo` (by `artist` and `track` or `mbid`; with `username` or a session, `userloved` and `userplaycount` where that user's profile may be seen; no `listeners`, and `playcount` only past `RANKING_MIN_LISTENERS`), `user.getInfo`, `user.getRecentTracks` (with `extended=1`, the artist as an object and `loved`) and `user.getLovedTracks`. Parameters come as a query string or a form body. Authenticated with a Scrobblr scrobbler credential as `sk` (a session key, or a scrobbler token given as the password to `auth.getMobileSession`), never with native API tokens. `api_sig` is checked for API keys the server knows the secret of. Answers in Last.fm's XML, or JSON with `format=json`; errors carry Last.fm's codes.",
         "requestBody": {
           "content": {
             "application/x-www-form-urlencoded": {
@@ -4387,6 +4387,10 @@
                     "description": "Artist; `artist[i]` in batches",
                     "type": "string"
                   },
+                  "autocorrect": {
+                    "description": "track.getInfo: accepted and ignored; names match as scrobbling matches them (case and surrounding spaces aside)",
+                    "type": "string"
+                  },
                   "duration": {
                     "description": "Track length in seconds",
                     "type": "string"
@@ -4404,7 +4408,7 @@
                     "type": "string"
                   },
                   "mbid": {
-                    "description": "MusicBrainz recording id, used as an enrichment hint",
+                    "description": "MusicBrainz recording id: an enrichment hint when scrobbling, the track to look up in track.getInfo",
                     "type": "string"
                   },
                   "method": {
@@ -4440,7 +4444,7 @@
                     "type": "string"
                   },
                   "username": {
-                    "description": "auth.getMobileSession: the Scrobblr username",
+                    "description": "track.getInfo: whose `userloved` and `userplaycount` to show; also auth.getMobileSession's Scrobblr username",
                     "type": "string"
                   }
                 },
@@ -4486,7 +4490,7 @@
     },
     "/2.0/": {
       "get": {
-        "description": "Last.fm API 2.0 for scrobblers: `auth.getToken`, `auth.getSession`, `auth.getMobileSession` (POST), `track.scrobble` (POST, up to 50 as `artist[i]` …), `track.updateNowPlaying` (POST), `track.love` and `track.unlove` (POST), `user.getInfo`, `user.getRecentTracks` (with `extended=1`, the artist as an object and `loved`) and `user.getLovedTracks`. Parameters come as a query string or a form body. Authenticated with a Scrobblr scrobbler credential as `sk` (a session key, or a scrobbler token given as the password to `auth.getMobileSession`), never with native API tokens. `api_sig` is checked for API keys the server knows the secret of. Answers in Last.fm's XML, or JSON with `format=json`; errors carry Last.fm's codes.",
+        "description": "Last.fm API 2.0 for scrobblers: `auth.getToken`, `auth.getSession`, `auth.getMobileSession` (POST), `track.scrobble` (POST, up to 50 as `artist[i]` …), `track.updateNowPlaying` (POST), `track.love` and `track.unlove` (POST), `track.getInfo` (by `artist` and `track` or `mbid`; with `username` or a session, `userloved` and `userplaycount` where that user's profile may be seen; no `listeners`, and `playcount` only past `RANKING_MIN_LISTENERS`), `user.getInfo`, `user.getRecentTracks` (with `extended=1`, the artist as an object and `loved`) and `user.getLovedTracks`. Parameters come as a query string or a form body. Authenticated with a Scrobblr scrobbler credential as `sk` (a session key, or a scrobbler token given as the password to `auth.getMobileSession`), never with native API tokens. `api_sig` is checked for API keys the server knows the secret of. Answers in Last.fm's XML, or JSON with `format=json`; errors carry Last.fm's codes.",
         "parameters": [
           {
             "description": "Last.fm method name",
@@ -4551,7 +4555,7 @@
         ]
       },
       "post": {
-        "description": "Last.fm API 2.0 for scrobblers: `auth.getToken`, `auth.getSession`, `auth.getMobileSession` (POST), `track.scrobble` (POST, up to 50 as `artist[i]` …), `track.updateNowPlaying` (POST), `track.love` and `track.unlove` (POST), `user.getInfo`, `user.getRecentTracks` (with `extended=1`, the artist as an object and `loved`) and `user.getLovedTracks`. Parameters come as a query string or a form body. Authenticated with a Scrobblr scrobbler credential as `sk` (a session key, or a scrobbler token given as the password to `auth.getMobileSession`), never with native API tokens. `api_sig` is checked for API keys the server knows the secret of. Answers in Last.fm's XML, or JSON with `format=json`; errors carry Last.fm's codes.",
+        "description": "Last.fm API 2.0 for scrobblers: `auth.getToken`, `auth.getSession`, `auth.getMobileSession` (POST), `track.scrobble` (POST, up to 50 as `artist[i]` …), `track.updateNowPlaying` (POST), `track.love` and `track.unlove` (POST), `track.getInfo` (by `artist` and `track` or `mbid`; with `username` or a session, `userloved` and `userplaycount` where that user's profile may be seen; no `listeners`, and `playcount` only past `RANKING_MIN_LISTENERS`), `user.getInfo`, `user.getRecentTracks` (with `extended=1`, the artist as an object and `loved`) and `user.getLovedTracks`. Parameters come as a query string or a form body. Authenticated with a Scrobblr scrobbler credential as `sk` (a session key, or a scrobbler token given as the password to `auth.getMobileSession`), never with native API tokens. `api_sig` is checked for API keys the server knows the secret of. Answers in Last.fm's XML, or JSON with `format=json`; errors carry Last.fm's codes.",
         "requestBody": {
           "content": {
             "application/x-www-form-urlencoded": {
@@ -4574,6 +4578,10 @@
                     "description": "Artist; `artist[i]` in batches",
                     "type": "string"
                   },
+                  "autocorrect": {
+                    "description": "track.getInfo: accepted and ignored; names match as scrobbling matches them (case and surrounding spaces aside)",
+                    "type": "string"
+                  },
                   "duration": {
                     "description": "Track length in seconds",
                     "type": "string"
@@ -4591,7 +4599,7 @@
                     "type": "string"
                   },
                   "mbid": {
-                    "description": "MusicBrainz recording id, used as an enrichment hint",
+                    "description": "MusicBrainz recording id: an enrichment hint when scrobbling, the track to look up in track.getInfo",
                     "type": "string"
                   },
                   "method": {
@@ -4627,7 +4635,7 @@
                     "type": "string"
                   },
                   "username": {
-                    "description": "auth.getMobileSession: the Scrobblr username",
+                    "description": "track.getInfo: whose `userloved` and `userplaycount` to show; also auth.getMobileSession's Scrobblr username",
                     "type": "string"
                   }
                 },

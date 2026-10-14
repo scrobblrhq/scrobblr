@@ -333,6 +333,29 @@ pub async fn recent_scrobbles_page(
         .collect())
 }
 
+/// The user's plays of the track as their profile counts them: the daily
+/// aggregate's (today's included) without the classifier's duplicates.
+pub async fn user_track_plays(
+    pool: &PgPool,
+    user_id: i64,
+    track_id: i64,
+) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar!(
+        r#"
+        SELECT GREATEST(
+            (SELECT COALESCE(sum(play_count), 0) FROM scrobbles_daily_by_track
+             WHERE track_id = $2 AND user_id = $1)
+          - (SELECT count(*) FROM scrobble_flags
+             WHERE track_id = $2 AND user_id = $1 AND status = 'duplicate'),
+            0)::bigint AS "plays!"
+        "#,
+        user_id,
+        track_id,
+    )
+    .fetch_one(pool)
+    .await
+}
+
 /// A user's scrobbles in `[from, to]`, duplicates left out.
 pub async fn count_scrobbles(
     pool: &PgPool,

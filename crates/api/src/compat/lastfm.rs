@@ -27,7 +27,9 @@ use crate::state::AppState;
 use db::queries::loves::{self as loves_db, MAX_LOVED_TRACKS, SOURCE_LASTFM};
 use db::queries::scrobble_clients::{ClientIdentity, PROTOCOL_LASTFM};
 use db::queries::scrobblers::{self as scrobblers_db, Credential, KIND_SESSION, KIND_TOKEN};
-use db::queries::{blocks as blocks_db, scrobbles as scrobbles_db, users as users_db};
+use db::queries::{
+    blocks as blocks_db, scrobbles as scrobbles_db, tracks as tracks_db, users as users_db,
+};
 use shared::lastfm::signature;
 use shared::models::User;
 use shared::scrobble::MAX_NAME_LEN;
@@ -238,6 +240,7 @@ async fn dispatch(state: &AppState, http_method: &Method, params: &Params, ip: &
             posted()?;
             love(state, params, ip, false).await
         }
+        "track.getinfo" => track_info(state, params).await,
         "user.getinfo" => user_info(state, params).await,
         "user.getrecenttracks" => recent_tracks(state, params).await,
         "user.getlovedtracks" => loved_tracks(state, params).await,
@@ -710,6 +713,143 @@ async fn visible_user(state: &AppState, params: &Params) -> Result<User, LfmErro
         return Err(LfmError::new(17, "Login: User requires to be logged in"));
     }
     Ok(user)
+}
+
+/// The track `mbid` names, else `artist` and `track` as scrobbling names
+/// them. Creates nothing.
+async fn find_track(state: &AppState, params: &Params) -> Result<Option<i64>, LfmError> {
+    let mbid = super::mbid(params.get("mbid"));
+    if let Some(mbid) = mbid
+        && let Some((_, id)) = tracks_db::find_by_recording_mbids(&state.db, &[mbid])
+            .await?
+            .first()
+    {
+        return Ok(Some(*id));
+    }
+    match (params.text("artist"), params.text("track")) {
+        (Some(artist), Some(track)) => {
+            Ok(tracks_db::find_track_id(&state.db, artist, track).await?)
+        }
+        _ if mbid.is_some() => Ok(None),
+        _ => Err(LfmError::invalid_parameters(
+            "artist and track, or mbid, are required",
+        )),
+    }
+}
+
+/// The account `name` if the viewer may see its listening: its own, or a
+/// public one that doesn't block the viewer and isn't waiting to be erased.
+/// Never says which of these it isn't.
+async fn seen_user(
+    state: &AppState,
+    name: &str,
+    viewer: Option<&Credential>,
+) -> Result<Option<i64>, LfmError> {
+    let Some(user) = users_db::find_by_username(&state.db, name)
+        .await?
+        .filter(|u| u.delete_after.is_none())
+    else {
+        return Ok(None);
+    };
+    let viewer = viewer.map(|v| v.user_id);
+    if viewer == Some(user.id) {
+        return Ok(Some(user.id));
+    }
+    if user.is_private {
+        return Ok(None);
+    }
+    if let Some(viewer) = viewer
+        && blocks_db::blocks(&state.db, user.id, viewer).await?
+    {
+        return Ok(None);
+    }
+    Ok(Some(user.id))
+}
+
+/// `track.getInfo`. With `username`, or a session, `userloved` and
+/// `userplaycount` for that user, left out when the requester may not see
+/// them. No `listeners`, which isn't kept; `playcount` only for a track
+/// enough listeners played, as the native track page has it.
+async fn track_info(state: &AppState, params: &Params) -> LfmResult {
+    let (api_key, _) = check_api_key(&state.compat, params, false)?;
+    let viewer = match params.text("sk") {
+        Some(_) => Some(session(state, params, &api_key).await?),
+        None => None,
+    };
+    let not_found = || LfmError::new(6, "Track not found");
+    let id = find_track(state, params).await?.ok_or_else(not_found)?;
+    let min_listeners = i32::try_from(state.rankings.min_listeners).unwrap_or(i32::MAX);
+    let t = tracks_db::track_info(&state.db, id, min_listeners)
+        .await?
+        .ok_or_else(not_found)?;
+    let user = match params.text("username") {
+        Some(name) => seen_user(state, name, viewer.as_ref()).await?,
+        None => viewer.as_ref().map(|v| v.user_id),
+    };
+    let user = match user {
+        Some(user_id) => Some((
+            scrobbles_db::user_track_plays(&state.db, user_id, id).await?,
+            loves_db::loved_at(&state.db, user_id, id).await?.is_some(),
+        )),
+        None => None,
+    };
+
+    let mbid = |m: Option<uuid::Uuid>| m.map(|m| m.to_string()).unwrap_or_default();
+    let duration = t.duration_ms.unwrap_or(0).to_string();
+    let mut xml = format!(
+        "<track><name>{}</name><mbid>{}</mbid><url></url><duration>{duration}</duration>\
+         <streamable fulltrack=\"0\">0</streamable>",
+        xml_escape(&t.title),
+        mbid(t.mbid),
+    );
+    let mut json = json!({
+        "name": t.title,
+        "mbid": mbid(t.mbid),
+        "url": "",
+        "duration": duration,
+        "streamable": { "#text": "0", "fulltrack": "0" },
+        "artist": { "name": t.artist_name, "mbid": mbid(t.artist_mbid), "url": "" },
+        "toptags": { "tag": [] },
+    });
+    if let Some(plays) = t.scrobble_count {
+        xml.push_str(&format!("<playcount>{plays}</playcount>"));
+        json["playcount"] = json!(plays.to_string());
+    }
+    xml.push_str(&format!(
+        "<artist><name>{}</name><mbid>{}</mbid><url></url></artist>",
+        xml_escape(&t.artist_name),
+        mbid(t.artist_mbid),
+    ));
+    if let Some(title) = &t.album_title {
+        let (image_xml, image_json) = images(t.album_image.as_deref());
+        let artist = t.album_artist.as_deref().unwrap_or(&t.artist_name);
+        xml.push_str(&format!(
+            "<album><artist>{}</artist><title>{}</title><mbid>{}</mbid><url></url>{image_xml}</album>",
+            xml_escape(artist),
+            xml_escape(title),
+            mbid(t.album_mbid),
+        ));
+        json["album"] = json!({
+            "artist": artist,
+            "title": title,
+            "mbid": mbid(t.album_mbid),
+            "url": "",
+            "image": image_json,
+        });
+    }
+    if let Some((plays, loved)) = user {
+        let loved = u8::from(loved);
+        xml.push_str(&format!(
+            "<userplaycount>{plays}</userplaycount><userloved>{loved}</userloved>"
+        ));
+        json["userplaycount"] = json!(plays.to_string());
+        json["userloved"] = json!(loved.to_string());
+    }
+    xml.push_str("<toptags></toptags></track>");
+    Ok(Body {
+        xml,
+        json: json!({ "track": json }),
+    })
 }
 
 fn profile_url(state: &AppState, username: &str) -> String {

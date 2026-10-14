@@ -1274,3 +1274,328 @@ async fn web_scrobbler_and_pylast_love_with_checked_signatures() {
     })
     .await;
 }
+
+/// A form post of `params` signed the documented way (pylast's), XML back.
+async fn pylast(app: &TestApp, params: &[(&str, &str)], secret: &str) -> (StatusCode, String) {
+    let signed = documented_signed(params, secret);
+    app.post_form("/2.0/", &pairs(&signed)).await
+}
+
+async fn scrobble_and_love(
+    app: &TestApp,
+    (artist, track, album): (&str, &str, &str),
+    ago: TimeDelta,
+) -> i64 {
+    let play = json!({
+        "track": track,
+        "artist": artist,
+        "album": album,
+        "played_at": Utc::now() - ago,
+        "duration_ms": 200_000,
+    });
+    let (status, body) = app.api(Method::POST, "/v1/scrobble", Some(play)).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let id: i64 = sqlx::query_scalar("SELECT id FROM tracks WHERE title = $1")
+        .bind(track)
+        .fetch_one(&app.pool)
+        .await
+        .unwrap();
+    let (status, _) = app
+        .api(Method::POST, &format!("/v1/track/{id}/love"), None)
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    id
+}
+
+fn xml_text<'a>(body: &'a str, tag: &str) -> Option<&'a str> {
+    let open = format!("<{tag}>");
+    let start = body.find(&open)? + open.len();
+    Some(&body[start..start + body[start..].find('<')?])
+}
+
+/// track.getInfo as pylast asks for it (a signed form post with the
+/// session key and `username`, XML back, the first `<name>` and `<mbid>`
+/// read as the track's) and as Web Scrobbler's Last.fm scrobbler does (an
+/// unsigned GET with `username` and `album`, JSON back), by MBID, and
+/// what it answers for tracks it doesn't have: never creating them.
+#[tokio::test]
+#[ignore = "needs Postgres and Redis: just test-db"]
+async fn track_get_info_as_pylast_and_web_scrobbler_ask_for_it() {
+    let config = CompatConfig {
+        api_keys: [("pylast-key".to_string(), "pylast-secret".to_string())]
+            .into_iter()
+            .collect(),
+        ..Default::default()
+    };
+    with_app(config, |app| async move {
+        let sk = app.new_token("pylast").await;
+        let id = scrobble_and_love(
+            &app,
+            ("Portishead", "Roads", "Dummy"),
+            TimeDelta::minutes(10),
+        )
+        .await;
+        let (mbid, album_mbid) = (uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
+        sqlx::query("UPDATE tracks SET mbid = $2 WHERE id = $1")
+            .bind(id)
+            .bind(mbid)
+            .execute(&app.pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE albums SET mbid = $1")
+            .bind(album_mbid)
+            .execute(&app.pool)
+            .await
+            .unwrap();
+        let tracks_before: i64 = sqlx::query_scalar("SELECT count(*) FROM tracks")
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+
+        let (status, body) = pylast(
+            &app,
+            &[
+                ("method", "track.getInfo"),
+                ("artist", "portishead"),
+                ("track", "ROADS "),
+                ("username", &app.username),
+                ("api_key", "pylast-key"),
+                ("sk", &sk),
+            ],
+            "pylast-secret",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(xml_text(&body, "name"), Some("Roads"));
+        assert_eq!(xml_text(&body, "mbid"), Some(mbid.to_string().as_str()));
+        assert_eq!(xml_text(&body, "duration"), Some("200000"));
+        assert_eq!(xml_text(&body, "userloved"), Some("1"));
+        assert_eq!(xml_text(&body, "userplaycount"), Some("1"));
+        assert!(
+            body.contains("<album><artist>Portishead</artist><title>Dummy</title>"),
+            "{body}"
+        );
+        // One listener: no global count, and listeners are never kept.
+        assert!(
+            !body.contains("<playcount>") && !body.contains("<listeners>"),
+            "{body}"
+        );
+
+        let query = form(&[
+            ("track", "Roads"),
+            ("artist", "Portishead"),
+            ("method", "track.getinfo"),
+            ("username", &app.username),
+            ("album", "Dummy"),
+            ("api_key", "d9bb1870d3269646f740544d9def2c95"),
+            ("format", "json"),
+        ]);
+        let (status, _, body) = app.get(&format!("/2.0/?{query}")).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let info: Value = serde_json::from_str(&body).unwrap();
+        let track = &info["track"];
+        assert_eq!(
+            (
+                &track["name"],
+                &track["artist"]["name"],
+                &track["userloved"]
+            ),
+            (&json!("Roads"), &json!("Portishead"), &json!("1"))
+        );
+        assert_eq!(track["duration"], "200000");
+        assert_eq!(track["album"]["title"], "Dummy");
+        assert_eq!(track["album"]["mbid"], album_mbid.to_string());
+        assert_eq!(track["album"]["image"].as_array().unwrap().len(), 4);
+
+        // By MBID, as tagged files give it, or a hint a client gave.
+        let app = &app;
+        let by_mbid = |mbid: String| async move {
+            let (status, _, body) = app
+                .get(&format!(
+                    "/2.0/?method=track.getInfo&mbid={mbid}&api_key=k&format=json"
+                ))
+                .await;
+            (status, serde_json::from_str::<Value>(&body).unwrap())
+        };
+        let (status, info) = by_mbid(mbid.to_string()).await;
+        assert_eq!(
+            (status, &info["track"]["name"]),
+            (StatusCode::OK, &json!("Roads"))
+        );
+        assert!(info["track"].get("userloved").is_none());
+        let hinted = uuid::Uuid::new_v4();
+        sqlx::query("UPDATE tracks SET mbid = NULL, mbid_hint = $2 WHERE id = $1")
+            .bind(id)
+            .bind(hinted)
+            .execute(&app.pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            by_mbid(hinted.to_string()).await.1["track"]["name"],
+            "Roads"
+        );
+
+        // Not found, missing parameters, a bad signature or session.
+        for (params, code) in [
+            (vec![("artist", "Portishead"), ("track", "Glory Box")], 6),
+            (vec![("mbid", "8f2bc1b0-9c33-4f25-8e65-d2dbd1c9a5b1")], 6),
+            (vec![("artist", "Portishead")], 6),
+        ] {
+            let mut all = vec![
+                ("method", "track.getInfo"),
+                ("api_key", "k"),
+                ("format", "json"),
+            ];
+            all.extend(params);
+            let (status, _, body) = app.get(&format!("/2.0/?{}", form(&all))).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+            assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["error"], code);
+        }
+        let (status, body) = pylast(
+            app,
+            &[
+                ("method", "track.getInfo"),
+                ("artist", "Portishead"),
+                ("track", "Roads"),
+                ("api_key", "pylast-key"),
+                ("sk", &sk),
+            ],
+            "wrong-secret",
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert!(body.contains("<error code=\"13\">"), "{body}");
+        let (status, _, body) = app
+            .get("/2.0/?method=track.getInfo&artist=Portishead&track=Roads&api_key=k&sk=nope")
+            .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert!(body.contains("<error code=\"9\">"), "{body}");
+
+        let tracks_after: i64 = sqlx::query_scalar("SELECT count(*) FROM tracks")
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+        assert_eq!(tracks_after, tracks_before, "a read created a track");
+    })
+    .await;
+}
+
+/// `userloved` and `userplaycount` are shown as the user's profile is:
+/// to anyone while public, to the owner alone while private, to no one
+/// while waiting to be erased, not to an account it blocks; and a track's
+/// play count only once enough listeners played it.
+#[tokio::test]
+#[ignore = "needs Postgres and Redis: just test-db"]
+async fn track_get_info_shows_a_user_only_as_their_profile_allows() {
+    let one_listener = |state: &mut crate::state::AppState| state.rankings.min_listeners = 1;
+    with_custom_app(one_listener, |app| async move {
+        let owner_sk = app.new_token("owner").await;
+        scrobble_and_love(
+            &app,
+            ("Low", "Words", "I Could Live in Hope"),
+            TimeDelta::days(2),
+        )
+        .await;
+        let (viewer, _, viewer_session) = app.other_user("viewer").await;
+        let (_, created) = app
+            .api_as(
+                &viewer_session,
+                Method::POST,
+                "/v1/scrobbler/tokens",
+                Some(json!({ "name": "viewer" })),
+            )
+            .await;
+        let viewer_sk = created["token"].as_str().unwrap().to_string();
+        let info = |sk: Option<&str>, username: Option<&str>| {
+            let mut params = vec![
+                ("method", "track.getInfo".to_string()),
+                ("artist", "Low".into()),
+                ("track", "Words".into()),
+                ("api_key", "k".into()),
+                ("format", "json".into()),
+            ];
+            if let Some(sk) = sk {
+                params.push(("sk", sk.to_string()));
+            }
+            if let Some(username) = username {
+                params.push(("username", username.to_string()));
+            }
+            let owned: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
+            let path = format!("/2.0/?{}", form(&owned));
+            let app = &app;
+            async move {
+                let (status, _, body) = app.get(&path).await;
+                assert_eq!(status, StatusCode::OK, "{body}");
+                serde_json::from_str::<Value>(&body).unwrap()["track"].clone()
+            }
+        };
+        let owner = app.username.clone();
+        let loved = |track: &Value| track.get("userloved").cloned();
+
+        assert_eq!(loved(&info(None, Some(&owner)).await), Some(json!("1")));
+        assert_eq!(
+            loved(&info(Some(&viewer_sk), Some(&owner)).await),
+            Some(json!("1"))
+        );
+        assert_eq!(loved(&info(Some(&viewer_sk), None).await), Some(json!("0")));
+        assert_eq!(loved(&info(None, Some("nobody_here")).await), None);
+
+        sqlx::query("UPDATE users SET is_private = TRUE WHERE id = $1")
+            .bind(app.user_id)
+            .execute(&app.pool)
+            .await
+            .unwrap();
+        assert_eq!(loved(&info(None, Some(&owner)).await), None);
+        assert_eq!(loved(&info(Some(&viewer_sk), Some(&owner)).await), None);
+        assert_eq!(
+            loved(&info(Some(&owner_sk), Some(&owner)).await),
+            Some(json!("1"))
+        );
+        let own = info(Some(&owner_sk), None).await;
+        assert_eq!(
+            (loved(&own), &own["userplaycount"]),
+            (Some(json!("1")), &json!("1"))
+        );
+        sqlx::query("UPDATE users SET is_private = FALSE WHERE id = $1")
+            .bind(app.user_id)
+            .execute(&app.pool)
+            .await
+            .unwrap();
+
+        sqlx::query("INSERT INTO user_blocks (blocker_id, blocked_id) VALUES ($1, $2)")
+            .bind(app.user_id)
+            .bind(viewer)
+            .execute(&app.pool)
+            .await
+            .unwrap();
+        assert_eq!(loved(&info(Some(&viewer_sk), Some(&owner)).await), None);
+        assert_eq!(loved(&info(None, Some(&owner)).await), Some(json!("1")));
+        sqlx::query("DELETE FROM user_blocks")
+            .execute(&app.pool)
+            .await
+            .unwrap();
+
+        sqlx::query("UPDATE users SET delete_after = NOW() + INTERVAL '7 days' WHERE id = $1")
+            .bind(app.user_id)
+            .execute(&app.pool)
+            .await
+            .unwrap();
+        assert_eq!(loved(&info(None, Some(&owner)).await), None);
+        sqlx::query("UPDATE users SET delete_after = NULL")
+            .execute(&app.pool)
+            .await
+            .unwrap();
+
+        // The track's play count, once the aggregates hold a listener.
+        assert!(info(None, None).await.get("playcount").is_none());
+        db::queries::scrobbles::refresh_scrobble_aggregates(
+            &app.pool,
+            Utc::now() - TimeDelta::days(3),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(info(None, None).await["playcount"], "1");
+    })
+    .await;
+}

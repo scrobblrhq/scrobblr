@@ -33,7 +33,10 @@ fn plain(description: &str) -> Value {
 fn lastfm() -> Value {
     let description = "Last.fm API 2.0 for scrobblers: `auth.getToken`, `auth.getSession`, \
         `auth.getMobileSession` (POST), `track.scrobble` (POST, up to 50 as `artist[i]` …), \
-        `track.updateNowPlaying` (POST), `track.love` and `track.unlove` (POST), `user.getInfo`, \
+        `track.updateNowPlaying` (POST), `track.love` and `track.unlove` (POST), `track.getInfo` \
+        (by `artist` and `track` or `mbid`; with `username` or a session, `userloved` and \
+        `userplaycount` where that user's profile may be seen; no `listeners`, and `playcount` \
+        only past `RANKING_MIN_LISTENERS`), `user.getInfo`, \
         `user.getRecentTracks` (with `extended=1`, the artist as an object and `loved`) and \
         `user.getLovedTracks`. Parameters come as a query string or a form body. Authenticated with a Scrobblr scrobbler \
         credential as `sk` (a session key, or a scrobbler token given as the password to \
@@ -51,12 +54,13 @@ fn lastfm() -> Value {
         "album": string("Album; `album[i]` in batches"),
         "timestamp": string("Unix seconds the play started; `timestamp[i]` in batches"),
         "duration": string("Track length in seconds"),
-        "mbid": string("MusicBrainz recording id, used as an enrichment hint"),
+        "mbid": string("MusicBrainz recording id: an enrichment hint when scrobbling, the track to look up in track.getInfo"),
+        "username": string("track.getInfo: whose `userloved` and `userplaycount` to show; also auth.getMobileSession's Scrobblr username"),
+        "autocorrect": string("track.getInfo: accepted and ignored; names match as scrobbling matches them (case and surrounding spaces aside)"),
         "user": string("user.getInfo, user.getRecentTracks, user.getLovedTracks: the Scrobblr username; the session's when absent"),
         "limit": string("user.getRecentTracks (200 at most), user.getLovedTracks (1000 at most): entries a page, 50 by default"),
         "page": string("Page number, from 1"),
         "extended": string("user.getRecentTracks: `1` for the artist as an object and `loved`"),
-        "username": string("auth.getMobileSession: the Scrobblr username"),
         "password": string("auth.getMobileSession: a scrobbler token, or the account password when allowed"),
         "token": string("auth.getSession: the authorized token"),
     });

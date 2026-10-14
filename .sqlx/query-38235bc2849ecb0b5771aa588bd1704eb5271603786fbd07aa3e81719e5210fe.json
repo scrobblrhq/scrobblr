@@ -1,0 +1,83 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT t.id, t.title, t.mbid,\n               COALESCE(t.duration_ms, t.mb_duration_ms, t.deezer_duration_ms) AS duration_ms,\n               a.name AS artist_name, a.mbid AS artist_mbid,\n               al.title AS \"album_title?\", al.mbid AS \"album_mbid?\",\n               al.image_url AS \"album_image?\", aa.name AS \"album_artist?\",\n               CASE WHEN track_has_listeners(t.id, $2) THEN t.scrobble_count END\n                   AS \"scrobble_count?\"\n        FROM tracks t\n        JOIN artists a ON a.id = t.artist_id\n        LEFT JOIN albums al ON al.id = t.album_id\n        LEFT JOIN artists aa ON aa.id = al.artist_id\n        WHERE t.id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "mbid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "duration_ms",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "artist_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "artist_mbid",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 6,
+        "name": "album_title?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "album_mbid?",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 8,
+        "name": "album_image?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "album_artist?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "scrobble_count?",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      null,
+      false,
+      true,
+      false,
+      true,
+      true,
+      false,
+      null
+    ]
+  },
+  "hash": "38235bc2849ecb0b5771aa588bd1704eb5271603786fbd07aa3e81719e5210fe"
+}

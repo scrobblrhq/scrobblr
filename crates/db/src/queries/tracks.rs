@@ -174,6 +174,52 @@ pub async fn find_by_recording_mbids(
     Ok(rows.into_iter().map(|r| (r.mbid, r.track_id)).collect())
 }
 
+/// What `track.getInfo` shows of a track: its catalog album, the longest
+/// known length, and its play count only when at least `min_listeners`
+/// users played it.
+#[derive(Debug, Clone)]
+pub struct TrackInfo {
+    pub id: i64,
+    pub title: String,
+    pub mbid: Option<Uuid>,
+    pub duration_ms: Option<i32>,
+    pub artist_name: String,
+    pub artist_mbid: Option<Uuid>,
+    pub album_title: Option<String>,
+    pub album_mbid: Option<Uuid>,
+    pub album_image: Option<String>,
+    pub album_artist: Option<String>,
+    pub scrobble_count: Option<i64>,
+}
+
+pub async fn track_info(
+    pool: &PgPool,
+    id: i64,
+    min_listeners: i32,
+) -> Result<Option<TrackInfo>, sqlx::Error> {
+    sqlx::query_as!(
+        TrackInfo,
+        r#"
+        SELECT t.id, t.title, t.mbid,
+               COALESCE(t.duration_ms, t.mb_duration_ms, t.deezer_duration_ms) AS duration_ms,
+               a.name AS artist_name, a.mbid AS artist_mbid,
+               al.title AS "album_title?", al.mbid AS "album_mbid?",
+               al.image_url AS "album_image?", aa.name AS "album_artist?",
+               CASE WHEN track_has_listeners(t.id, $2) THEN t.scrobble_count END
+                   AS "scrobble_count?"
+        FROM tracks t
+        JOIN artists a ON a.id = t.artist_id
+        LEFT JOIN albums al ON al.id = t.album_id
+        LEFT JOIN artists aa ON aa.id = al.artist_id
+        WHERE t.id = $1
+        "#,
+        id,
+        min_listeners,
+    )
+    .fetch_optional(pool)
+    .await
+}
+
 /// Without counts: for lookups, not responses.
 pub async fn find_artist_by_id(pool: &PgPool, id: i64) -> Result<Option<Artist>, sqlx::Error> {
     sqlx::query_as!(
