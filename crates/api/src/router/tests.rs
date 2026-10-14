@@ -30,6 +30,7 @@ const ROUTES: &[(&str, &str, Access)] = &[
     ("GET", "/v1/imports/{id}", Access::Scope(Scope::Read)),
     ("GET", "/v1/user/me", Access::Scope(Scope::Read)),
     ("GET", "/v1/user/me/feed", Access::Scope(Scope::Read)),
+    ("GET", "/v1/user/me/loved", Access::Scope(Scope::Read)),
     (
         "GET",
         "/v1/user/me/community/artists",
@@ -59,6 +60,8 @@ const ROUTES: &[(&str, &str, Access)] = &[
     ("POST", "/v1/import/lastfm", Access::Scope(Scope::Write)),
     ("DELETE", "/v1/imports/{id}", Access::Scope(Scope::Write)),
     ("PATCH", "/v1/user/me", Access::Scope(Scope::Write)),
+    ("POST", "/v1/track/{id}/love", Access::Scope(Scope::Write)),
+    ("DELETE", "/v1/track/{id}/love", Access::Scope(Scope::Write)),
     (
         "POST",
         "/v1/user/{username}/follow",
@@ -174,6 +177,7 @@ const PUBLIC: &[(&str, &str)] = &[
     ("GET", "/v1/album/{id}/images"),
     ("GET", "/v1/user/{username}/recent"),
     ("GET", "/v1/user/{username}/live"),
+    ("GET", "/v1/user/{username}/loved"),
     ("GET", "/v1/user/{username}/top-artists"),
     ("GET", "/v1/user/{username}/top-tracks"),
     ("GET", "/v1/user/{username}/charts/artists"),

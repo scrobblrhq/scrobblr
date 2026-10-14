@@ -467,6 +467,37 @@ pub struct FeedPage {
     pub next: Option<String>,
 }
 
+/// A track a user loves.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct LovedTrack {
+    pub track_id: i64,
+    pub track_title: String,
+    pub artist_id: i64,
+    pub artist_name: String,
+    /// The album the catalog files the track under (the one its listeners
+    /// named); `null` without one.
+    pub album_id: Option<i64>,
+    pub album_title: Option<String>,
+    #[serde(serialize_with = "crate::media::serialize_opt_url")]
+    pub album_image: Option<String>,
+    /// For when the album has no cover, or there is no album.
+    #[serde(serialize_with = "crate::media::serialize_opt_url")]
+    pub artist_image: Option<String>,
+    pub loved_at: DateTime<Utc>,
+}
+
+/// A page of a user's loved tracks, newest love first.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct LovedTrackPage {
+    pub entries: Vec<LovedTrack>,
+    /// Every track the user loves.
+    pub total: i64,
+    /// `before` for the next page; `null` on the last one.
+    pub next: Option<String>,
+}
+
 /// A user who listens to a given artist or track, with their play count.
 /// Only public profiles are ever returned.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
@@ -1093,6 +1124,18 @@ mod tests {
                 album_image: image(),
                 duration_ms: None,
                 status: Some(ScrobbleLabel::Counted),
+            })
+            .unwrap(),
+            serde_json::to_value(LovedTrack {
+                track_id: 1,
+                track_title: "t".into(),
+                artist_id: 1,
+                artist_name: "a".into(),
+                album_id: None,
+                album_title: None,
+                album_image: image(),
+                artist_image: image(),
+                loved_at: now,
             })
             .unwrap(),
             serde_json::to_value(TopArtist {

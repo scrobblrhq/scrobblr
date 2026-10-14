@@ -1498,6 +1498,112 @@
         },
         "type": "object"
       },
+      "LovedQuery": {
+        "properties": {
+          "before": {
+            "description": "The previous page's `next`, for the page after it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "description": "Entries per page: 50 by default, 200 at most.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "LovedTrack": {
+        "description": "A track a user loves.",
+        "properties": {
+          "album_id": {
+            "description": "The album the catalog files the track under (the one its listeners\n named); `null` without one.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "album_image": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "album_title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "artist_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "artist_image": {
+            "description": "For when the album has no cover, or there is no album.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "artist_name": {
+            "type": "string"
+          },
+          "loved_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "track_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "track_title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "track_id",
+          "track_title",
+          "artist_id",
+          "artist_name",
+          "loved_at"
+        ],
+        "type": "object"
+      },
+      "LovedTrackPage": {
+        "description": "A page of a user's loved tracks, newest love first.",
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/LovedTrack"
+            },
+            "type": "array"
+          },
+          "next": {
+            "description": "`before` for the next page; `null` on the last one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total": {
+            "description": "Every track the user loves.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "entries",
+          "total"
+        ],
+        "type": "object"
+      },
       "NewCommentRequest": {
         "properties": {
           "body": {
@@ -8659,6 +8765,176 @@
         ]
       }
     },
+    "/v1/track/{id}/love": {
+      "delete": {
+        "description": "Takes the track out of the user's loved tracks; unloving a track not loved changes nothing. Counts against the same hourly limits as loving.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Not loved any more"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No credential, or an invalid or expired one"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Needs a session or an API token with the `write` scope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Track not found"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over 300 loves and unloves an hour for this account or 1000 from this address, or over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Unlove a track",
+        "tags": [
+          "Loved tracks"
+        ]
+      },
+      "post": {
+        "description": "Adds the track to the user's loved tracks; loving a track already loved changes nothing (its first `loved_at` stands). An account may love 50000 tracks at most, and love or unlove 300 times an hour (1000 from one address), through this API and the Last.fm-compatible one together, refused attempts included. Loves are shown with the profile, under its privacy, and feed nothing else: rankings, recommendations, similarity and album attribution don't read them, and no count of a track's loves is published.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Loved, now or before"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No credential, or an invalid or expired one"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Needs a session or an API token with the `write` scope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Track not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Already loving 50000 tracks"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over 300 loves and unloves an hour for this account or 1000 from this address, or over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Love a track",
+        "tags": [
+          "Loved tracks"
+        ]
+      }
+    },
     "/v1/track/{id}/refresh": {
       "post": {
         "description": "Queues a forced metadata re-enrichment for the track (MusicBrainz ID, duration). Processed asynchronously by the background worker.",
@@ -10071,6 +10347,111 @@
         "summary": "Remove a follower",
         "tags": [
           "Users"
+        ]
+      }
+    },
+    "/v1/user/me/loved": {
+      "get": {
+        "description": "The signed-in user's loved tracks, whatever the profile's privacy. Newest love first, `limit` entries a page (50 by default, 200 at most): pass `next` as `before` for the following page; `next` is `null` on the last. `total` counts every track the user loves. Each entry shows the track with its artist and the album the catalog files it under (`album_image`, else `artist_image`, for artwork).",
+        "parameters": [
+          {
+            "description": "The previous page's `next`, for the page after it.",
+            "in": "query",
+            "name": "before",
+            "schema": {
+              "description": "The previous page's `next`, for the page after it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "Entries per page: 50 by default, 200 at most.",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Entries per page: 50 by default, 200 at most.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LovedTrackPage"
+                }
+              }
+            },
+            "description": "A page of a user's loved tracks, newest love first."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Invalid `before` cursor"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No credential, or an invalid or expired one"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Needs a session or an API token with the `read` scope"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "My loved tracks",
+        "tags": [
+          "Loved tracks"
         ]
       }
     },
@@ -12070,6 +12451,121 @@
         "summary": "Live now playing (SSE)",
         "tags": [
           "Scrobbles"
+        ]
+      }
+    },
+    "/v1/user/{username}/loved": {
+      "get": {
+        "description": "Newest love first, `limit` entries a page (50 by default, 200 at most): pass `next` as `before` for the following page; `next` is `null` on the last. `total` counts every track the user loves. Each entry shows the track with its artist and the album the catalog files it under (`album_image`, else `artist_image`, for artwork). They are as visible as the profile: a private profile answers 403 to everyone but its owner, and an account waiting to be deleted or blocking the signed-in viewer 404, as one that doesn't exist.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "username",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "The previous page's `next`, for the page after it.",
+            "in": "query",
+            "name": "before",
+            "schema": {
+              "description": "The previous page's `next`, for the page after it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "Entries per page: 50 by default, 200 at most.",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Entries per page: 50 by default, 200 at most.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LovedTrackPage"
+                }
+              }
+            },
+            "description": "A page of a user's loved tracks, newest love first."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Invalid `before` cursor"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Profile is private"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "User not found, waiting to be deleted, or blocking the viewer"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "A user's loved tracks",
+        "tags": [
+          "Loved tracks"
         ]
       }
     },

@@ -7,6 +7,7 @@ pub mod community;
 pub mod connected_accounts;
 pub mod feed;
 pub mod imports;
+pub mod loves;
 pub mod rankings;
 pub mod scrobbles;
 pub mod similarity;

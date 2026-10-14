@@ -1,7 +1,7 @@
 //! Limits counted in Redis: password logins and the scrobbles an account
 //! may submit per UTC day (shared by the native API and the
-//! scrobbler-compatible ones), image uploads, follows, blocks, account
-//! exports and deletion requests. Windows are part of the
+//! scrobbler-compatible ones), image uploads, follows, blocks, loves,
+//! account exports and deletion requests. Windows are part of the
 //! keys, so a key that missed its expiry still stops counting when its
 //! window ends.
 
@@ -123,6 +123,23 @@ pub async fn block_attempt(state: &AppState, user_id: i64, ip: &str) -> bool {
         ),
     ];
     take_or_pass(state, keys, BLOCK_WINDOW_SECS, "block").await
+}
+
+const LOVE_WINDOW_SECS: i64 = 3600;
+pub const LOVES_PER_USER: i64 = 300;
+pub const LOVES_PER_IP: i64 = 1000;
+
+/// Counts a love or an unlove, from any API, and says whether it may go
+/// ahead: at most [`LOVES_PER_USER`] per account and [`LOVES_PER_IP`] per
+/// address an hour, refused ones included: far beyond a listener's, and a
+/// bound on the catalog entries loving by name can create. Fails open.
+pub async fn love_attempt(state: &AppState, user_id: i64, ip: &str) -> bool {
+    let window = Utc::now().timestamp() / LOVE_WINDOW_SECS;
+    let keys = [
+        (format!("love:user:{user_id}:{window}"), LOVES_PER_USER),
+        (format!("love:ip:{}:{window}", network(ip)), LOVES_PER_IP),
+    ];
+    take_or_pass(state, keys, LOVE_WINDOW_SECS, "love").await
 }
 
 const PAIR_WINDOW_SECS: i64 = 24 * 3600;

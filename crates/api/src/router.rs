@@ -35,8 +35,8 @@ use crate::{
     compat,
     errors::ErrorJson,
     handlers::{
-        account, auth, blocks, charts, community, connected_accounts, feed, imports, rankings,
-        scrobbles, similarity, tracks, uploads, users,
+        account, auth, blocks, charts, community, connected_accounts, feed, imports, loves,
+        rankings, scrobbles, similarity, tracks, uploads, users,
     },
     limits,
     middleware::{
@@ -140,6 +140,10 @@ pub fn build(state: AppState) -> Router {
         )
         .api_route("/v1/user/me/feed", get_with(feed::feed, feed::_feed_doc))
         .api_route(
+            "/v1/user/me/loved",
+            get_with(loves::own_loved, loves::_own_loved_doc),
+        )
+        .api_route(
             "/v1/user/me/community/artists",
             get_with(charts::community_artists, charts::_community_artists_doc),
         )
@@ -198,6 +202,15 @@ pub fn build(state: AppState) -> Router {
         .api_route(
             "/v1/user/{username}/follow",
             delete_with(users::unfollow, users::_unfollow_doc),
+        )
+        // Loved tracks
+        .api_route(
+            "/v1/track/{id}/love",
+            post_with(loves::love, loves::_love_doc),
+        )
+        .api_route(
+            "/v1/track/{id}/love",
+            delete_with(loves::unlove, loves::_unlove_doc),
         )
         // Recommendations
         .api_route(
@@ -546,6 +559,10 @@ pub fn build(state: AppState) -> Router {
                 scrobbles::live_now_playing,
                 scrobbles::_live_now_playing_doc,
             ),
+        )
+        .api_route(
+            "/v1/user/{username}/loved",
+            get_with(loves::user_loved, loves::_user_loved_doc),
         )
         .api_route(
             "/v1/user/{username}/top-artists",

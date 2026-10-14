@@ -25,6 +25,8 @@ export * from "./FollowEntry.js";
 export * from "./FollowPage.js";
 export * from "./ImageCandidate.js";
 export * from "./ImportStatus.js";
+export * from "./LovedTrack.js";
+export * from "./LovedTrackPage.js";
 export * from "./NowPlaying.js";
 export * from "./NowPlayingRich.js";
 export * from "./RankedAlbum.js";
