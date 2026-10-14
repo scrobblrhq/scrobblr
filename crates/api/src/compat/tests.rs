@@ -930,3 +930,348 @@ async fn password_logins_never_restore_a_deleted_account() {
     })
     .await;
 }
+
+async fn loved(app: &TestApp) -> Vec<(String, String, Option<String>, Option<bool>)> {
+    sqlx::query_as(
+        r#"
+        SELECT t.title, l.source, c.name, c.verified
+        FROM loved_tracks l
+        JOIN tracks t ON t.id = l.track_id
+        LEFT JOIN scrobble_clients c ON c.id = l.client_id
+        ORDER BY t.title
+        "#,
+    )
+    .fetch_all(&app.pool)
+    .await
+    .unwrap()
+}
+
+/// Pano Scrobbler's GNU FM mode: `track.love` and `track.unlove` as signed
+/// form posts, then its loved-tracks and recent-tracks screens, read with
+/// `extended=1` and the session key, unsigned.
+#[tokio::test]
+#[ignore = "needs Postgres and Redis: just test-db"]
+async fn pano_scrobbler_loves_unloves_and_reads_loved_tracks() {
+    with_app(CompatConfig::default(), |app| async move {
+        let sk = app.new_token("Pano Scrobbler").await;
+        let love = |method: &'static str, artist: &'static str, track: &'static str| {
+            pano_signed(
+                &[
+                    ("method", method),
+                    ("artist", artist),
+                    ("track", track),
+                    ("sk", &sk),
+                    ("api_key", "panoScrobbler"),
+                    ("format", "json"),
+                ],
+                "panoScrobbler",
+            )
+        };
+        let scrobble = pano_signed(
+            &[
+                ("method", "track.scrobble"),
+                ("artist", "Slowdive"),
+                ("track", "Alison"),
+                ("timestamp", &ago(10)),
+                ("sk", &sk),
+                ("api_key", "panoScrobbler"),
+                ("format", "json"),
+            ],
+            "panoScrobbler",
+        );
+        let (status, body) = app.post_form("/2.0/", &pairs(&scrobble)).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+
+        // Loving twice is no error; a track never scrobbled is created.
+        for (artist, track) in [
+            ("Slowdive", "Alison"),
+            ("slowdive", "ALISON "),
+            ("Slowdive", "Machine Gun"),
+        ] {
+            let (status, body) = app
+                .post_form("/2.0/", &pairs(&love("track.love", artist, track)))
+                .await;
+            assert_eq!((status, body.as_str()), (StatusCode::OK, "{}"));
+        }
+        assert_eq!(
+            loved(&app).await,
+            [
+                (
+                    "Alison".to_string(),
+                    "lastfm".to_string(),
+                    Some("panoScrobbler".to_string()),
+                    Some(true)
+                ),
+                (
+                    "Machine Gun".to_string(),
+                    "lastfm".to_string(),
+                    Some("panoScrobbler".to_string()),
+                    Some(true)
+                ),
+            ]
+        );
+
+        let read = |method: &str, extra: &[(&str, &str)]| {
+            let mut params = vec![
+                ("method", method.to_string()),
+                ("user", app.username.clone()),
+                ("limit", "50".into()),
+                ("page", "1".into()),
+                ("extended", "1".into()),
+                ("format", "json".into()),
+                ("api_key", "panoScrobbler".into()),
+                ("sk", sk.clone()),
+            ];
+            params.extend(extra.iter().map(|(k, v)| (*k, v.to_string())));
+            let owned: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
+            format!("/2.0/?{}", form(&owned))
+        };
+        let (status, _, body) = app.get(&read("user.getLovedTracks", &[])).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let page: Value = serde_json::from_str(&body).unwrap();
+        let tracks = page["lovedtracks"]["track"].as_array().unwrap();
+        assert_eq!(page["lovedtracks"]["@attr"]["total"], "2");
+        assert_eq!(page["lovedtracks"]["@attr"]["totalPages"], "1");
+        // Newest love first: Machine Gun, then Alison.
+        assert_eq!(tracks[0]["name"], "Machine Gun");
+        assert_eq!(tracks[1]["name"], "Alison");
+        assert_eq!(tracks[1]["artist"]["name"], "Slowdive");
+        assert!(
+            tracks[1]["date"]["uts"]
+                .as_str()
+                .unwrap()
+                .parse::<i64>()
+                .is_ok()
+        );
+        assert_eq!(tracks[1]["image"].as_array().unwrap().len(), 4);
+
+        let (status, _, body) = app.get(&read("user.getRecentTracks", &[])).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let recent: Value = serde_json::from_str(&body).unwrap();
+        let first = &recent["recenttracks"]["track"][0];
+        assert_eq!(
+            (&first["name"], &first["artist"]["name"], &first["loved"]),
+            (&json!("Alison"), &json!("Slowdive"), &json!("1"))
+        );
+
+        let (status, body) = app
+            .post_form("/2.0/", &pairs(&love("track.unlove", "Slowdive", "Alison")))
+            .await;
+        assert_eq!((status, body.as_str()), (StatusCode::OK, "{}"));
+        // Unloving something never loved, or unknown, changes nothing and
+        // creates nothing.
+        let (status, _) = app
+            .post_form(
+                "/2.0/",
+                &pairs(&love("track.unlove", "Nobody", "Never Heard")),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        let unknown: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM tracks WHERE title = 'Never Heard'")
+                .fetch_one(&app.pool)
+                .await
+                .unwrap();
+        assert_eq!(unknown, 0);
+        let (_, _, body) = app.get(&read("user.getLovedTracks", &[])).await;
+        let page: Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(page["lovedtracks"]["@attr"]["total"], "1");
+        let (_, _, body) = app.get(&read("user.getRecentTracks", &[])).await;
+        let recent: Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(recent["recenttracks"]["track"][0]["loved"], "0");
+
+        // Errors as Last.fm codes them.
+        let (status, body) = app
+            .post_form("/2.0/", &pairs(&love("track.love", "Slowdive", "")))
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["error"], 6);
+        let wrong_sk = pano_signed(
+            &[
+                ("method", "track.love"),
+                ("artist", "Slowdive"),
+                ("track", "Alison"),
+                ("sk", "not-a-session"),
+                ("api_key", "panoScrobbler"),
+                ("format", "json"),
+            ],
+            "panoScrobbler",
+        );
+        let (status, body) = app.post_form("/2.0/", &pairs(&wrong_sk)).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["error"], 9);
+        let love_get = form(&pairs(&love("track.love", "Slowdive", "Alison")));
+        let (status, _, body) = app.get(&format!("/2.0/?{love_get}")).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    })
+    .await;
+}
+
+/// Web Scrobbler's Last.fm request shape (a POST carrying its parameters,
+/// signature and `format=json` in the query string) and pylast's (the
+/// documented signature in a form body, answered in XML), with keys whose
+/// secrets the server knows; the profile rules, the love limit and the cap.
+#[tokio::test]
+#[ignore = "needs Postgres and Redis: just test-db"]
+async fn web_scrobbler_and_pylast_love_with_checked_signatures() {
+    let (ws_key, ws_secret) = (
+        "d9bb1870d3269646f740544d9def2c95",
+        "2160733a567d4a1a69a73fad54c564b2",
+    );
+    let config = CompatConfig {
+        api_keys: [
+            (ws_key.to_string(), ws_secret.to_string()),
+            ("pylast-key".to_string(), "pylast-secret".to_string()),
+        ]
+        .into_iter()
+        .collect(),
+        ..Default::default()
+    };
+    with_app(config, |app| async move {
+        let sk = app.new_token("scripts").await;
+        let web_scrobbler = |method: &str, secret: &str| {
+            let signed = documented_signed(
+                &[
+                    ("method", method),
+                    ("track", "Teardrop"),
+                    ("artist", "Massive Attack"),
+                    ("sk", &sk),
+                    ("api_key", ws_key),
+                    ("format", "json"),
+                ],
+                secret,
+            );
+            Request::builder()
+                .method(Method::POST)
+                .uri(format!("/2.0/?{}", form(&pairs(&signed))))
+                .body(Body::empty())
+                .unwrap()
+        };
+        let (status, _, body) = app.send(web_scrobbler("track.love", ws_secret)).await;
+        assert_eq!((status, body.as_str()), (StatusCode::OK, "{}"));
+        let (status, _, body) = app.send(web_scrobbler("track.love", "wrong")).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["error"], 13);
+        assert_eq!(
+            loved(&app).await,
+            [(
+                "Teardrop".to_string(),
+                "lastfm".to_string(),
+                Some(ws_key.to_string()),
+                Some(true)
+            )]
+        );
+        let (status, _, _) = app.send(web_scrobbler("track.unlove", ws_secret)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(loved(&app).await.is_empty());
+
+        let pylast = |method: &str, track: &str| {
+            documented_signed(
+                &[
+                    ("method", method),
+                    ("artist", "Portishead"),
+                    ("track", track),
+                    ("api_key", "pylast-key"),
+                    ("sk", &sk),
+                ],
+                "pylast-secret",
+            )
+        };
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/2.0/")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(form(&pairs(&pylast("track.love", "Roads")))))
+            .unwrap();
+        let (status, headers, body) = app.send(req).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(
+            headers[header::CONTENT_TYPE]
+                .to_str()
+                .unwrap()
+                .starts_with("text/xml")
+        );
+        assert!(body.contains("<lfm status=\"ok\"></lfm>"), "{body}");
+
+        // Read in XML, unsigned and signed out, as pylast's
+        // `User.get_loved_tracks` does.
+        let path = format!(
+            "/2.0/?method=user.getLovedTracks&user={}&api_key=pylast-key",
+            app.username
+        );
+        let (status, _, body) = app.get(&path).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body.contains("total=\"1\""), "{body}");
+        assert!(body.contains("<name>Roads</name>"), "{body}");
+        assert!(body.contains("<artist><name>Portishead</name>"), "{body}");
+
+        // A private profile's loves are its owner's alone; a leaving
+        // account has none to show.
+        sqlx::query("UPDATE users SET is_private = TRUE")
+            .execute(&app.pool)
+            .await
+            .unwrap();
+        let (status, _, body) = app.get(&path).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert!(body.contains("<error code=\"17\">"), "{body}");
+        let (status, _, _) = app.get(&format!("{path}&sk={sk}")).await;
+        assert_eq!(status, StatusCode::OK);
+        sqlx::query(
+            "UPDATE users SET is_private = FALSE, delete_after = NOW() + INTERVAL '7 days'",
+        )
+        .execute(&app.pool)
+        .await
+        .unwrap();
+        let (status, _, body) = app.get(&path).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(
+            body.contains("<error code=\"6\">User not found</error>"),
+            "{body}"
+        );
+        sqlx::query("UPDATE users SET delete_after = NULL")
+            .execute(&app.pool)
+            .await
+            .unwrap();
+
+        // The cap and the hourly love limit, shared with the native API.
+        sqlx::query(
+            "WITH artist AS (INSERT INTO artists (name, name_normalized)
+                             VALUES ('Many', 'many') RETURNING id),
+                  made AS (INSERT INTO tracks (artist_id, title, title_normalized)
+                           SELECT artist.id, 'T' || g, 't' || g
+                           FROM artist, generate_series(1, $2 - 1) g RETURNING id)
+             INSERT INTO loved_tracks (user_id, track_id, source)
+             SELECT $1, id, 'scrobblr' FROM made",
+        )
+        .bind(app.user_id)
+        .bind(db::queries::loves::MAX_LOVED_TRACKS)
+        .execute(&app.pool)
+        .await
+        .unwrap();
+        let (status, body) = app
+            .post_form("/2.0/", &pairs(&pylast("track.love", "Glory Box")))
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(
+            body.contains("<error code=\"6\">") && body.contains("50000"),
+            "{body}"
+        );
+        let window = Utc::now().timestamp() / 3600;
+        let _: () = fred::interfaces::KeysInterface::set(
+            &app.redis,
+            format!("love:user:{}:{window}", app.user_id),
+            crate::limits::LOVES_PER_USER,
+            None,
+            None,
+            false,
+        )
+        .await
+        .unwrap();
+        let (status, body) = app
+            .post_form("/2.0/", &pairs(&pylast("track.unlove", "Roads")))
+            .await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+        assert!(body.contains("<error code=\"29\">"), "{body}");
+    })
+    .await;
+}

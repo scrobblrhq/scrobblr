@@ -20,15 +20,17 @@ use chrono::{DateTime, TimeDelta, Utc};
 use serde_json::{Value, json};
 use subtle::ConstantTimeEq;
 
-use super::{CompatConfig, Ignored, Params, Play, Playing};
+use super::{CompatConfig, Ignored, Params, Play, Playing, Unloved};
 use crate::errors::AppError;
 use crate::handlers::auth::verify_password_login;
 use crate::state::AppState;
+use db::queries::loves::{self as loves_db, MAX_LOVED_TRACKS, SOURCE_LASTFM};
 use db::queries::scrobble_clients::{ClientIdentity, PROTOCOL_LASTFM};
 use db::queries::scrobblers::{self as scrobblers_db, Credential, KIND_SESSION, KIND_TOKEN};
 use db::queries::{blocks as blocks_db, scrobbles as scrobbles_db, users as users_db};
 use shared::lastfm::signature;
 use shared::models::User;
+use shared::scrobble::MAX_NAME_LEN;
 
 const MAX_BATCH: usize = 50;
 const AUTH_TOKEN_TTL: TimeDelta = TimeDelta::hours(1);
@@ -228,8 +230,17 @@ async fn dispatch(state: &AppState, http_method: &Method, params: &Params, ip: &
             posted()?;
             update_now_playing(state, params).await
         }
+        "track.love" => {
+            posted()?;
+            love(state, params, ip, true).await
+        }
+        "track.unlove" => {
+            posted()?;
+            love(state, params, ip, false).await
+        }
         "user.getinfo" => user_info(state, params).await,
         "user.getrecenttracks" => recent_tracks(state, params).await,
+        "user.getlovedtracks" => loved_tracks(state, params).await,
         _ => Err(LfmError::new(
             3,
             "Invalid Method - No method with that name in this package",
@@ -638,6 +649,39 @@ async fn update_now_playing(state: &AppState, params: &Params) -> LfmResult {
     })
 }
 
+/// `track.love` (`love`) and `track.unlove`: signed and authenticated like
+/// `track.scrobble`, within the love limits shared with the native API.
+async fn love(state: &AppState, params: &Params, ip: &str, love: bool) -> LfmResult {
+    let (api_key, signed) = check_api_key(&state.compat, params, true)?;
+    let credential = session(state, params, &api_key).await?;
+    if !crate::limits::love_attempt(state, credential.user_id, ip).await {
+        return Err(LfmError::rate_limited());
+    }
+    let text = |name: &str| params.get(name).unwrap_or_default();
+    let client = ClientIdentity::new(PROTOCOL_LASTFM, &api_key, signed == Signed::Verified);
+    match super::love_by_name(
+        state,
+        &credential,
+        &client,
+        SOURCE_LASTFM,
+        (text("artist"), text("track")),
+        love,
+    )
+    .await?
+    {
+        Ok(()) => Ok(Body {
+            xml: String::new(),
+            json: json!({}),
+        }),
+        Err(Unloved::Invalid) => Err(LfmError::invalid_parameters(&format!(
+            "artist and track are required, each at most {MAX_NAME_LEN} characters"
+        ))),
+        Err(Unloved::AtLimit) => Err(LfmError::invalid_parameters(&format!(
+            "you already love {MAX_LOVED_TRACKS} tracks, the most allowed"
+        ))),
+    }
+}
+
 /// The user named by `user`, or the session's, if the requester may see
 /// them: a private profile only to its owner, and not to an account it
 /// blocks, which finds no such user.
@@ -746,20 +790,35 @@ struct RecentEntry {
     album: String,
     image: Option<String>,
     played_at: Option<DateTime<Utc>>,
+    loved: bool,
 }
 
-async fn recent_tracks(state: &AppState, params: &Params) -> LfmResult {
-    let user = visible_user(state, params).await?;
+fn page_params(params: &Params, max_limit: i64) -> (i64, i64) {
     let limit = params
         .text("limit")
         .and_then(|l| l.parse::<i64>().ok())
         .unwrap_or(50)
-        .clamp(1, 200);
+        .clamp(1, max_limit);
     let page = params
         .text("page")
         .and_then(|p| p.parse::<i64>().ok())
         .unwrap_or(1)
         .max(1);
+    (limit, page)
+}
+
+fn date(at: DateTime<Utc>) -> (String, Value) {
+    let text = at.format("%d %b %Y, %H:%M").to_string();
+    (
+        format!("<date uts=\"{}\">{text}</date>", at.timestamp()),
+        json!({ "uts": at.timestamp().to_string(), "#text": text }),
+    )
+}
+
+async fn recent_tracks(state: &AppState, params: &Params) -> LfmResult {
+    let user = visible_user(state, params).await?;
+    let extended = matches!(params.text("extended"), Some("1" | "true"));
+    let (limit, page) = page_params(params, 200);
     let (from, to) = (unix_param(params, "from")?, unix_param(params, "to")?);
 
     let total = match (from, to) {
@@ -778,12 +837,17 @@ async fn recent_tracks(state: &AppState, params: &Params) -> LfmResult {
         && to.is_none()
         && let Some(np) = scrobbles_db::get_now_playing(&state.db, user.id).await?
     {
+        let loved = extended
+            && loves_db::loved_at(&state.db, user.id, np.track_id)
+                .await?
+                .is_some();
         entries.push(RecentEntry {
             artist: np.artist_name,
             track: np.track_title,
             album: np.album_title.unwrap_or_default(),
             image: np.album_image.or(np.artist_image),
             played_at: None,
+            loved,
         });
     }
     entries.extend(page_scrobbles.into_iter().map(|s| RecentEntry {
@@ -792,6 +856,7 @@ async fn recent_tracks(state: &AppState, params: &Params) -> LfmResult {
         album: s.album_title.unwrap_or_default(),
         image: s.album_image,
         played_at: Some(s.played_at),
+        loved: s.loved,
     }));
 
     let total_pages = (total + limit - 1) / limit;
@@ -803,31 +868,44 @@ async fn recent_tracks(state: &AppState, params: &Params) -> LfmResult {
     for e in &entries {
         let (image_xml, image_json) = images(e.image.as_deref());
         let (date_xml, date_json, attr) = match e.played_at {
-            Some(at) => (
-                format!(
-                    "<date uts=\"{}\">{}</date>",
-                    at.timestamp(),
-                    at.format("%d %b %Y, %H:%M")
-                ),
-                json!({ "uts": at.timestamp().to_string(), "#text": at.format("%d %b %Y, %H:%M").to_string() }),
-                None,
-            ),
+            Some(at) => {
+                let (xml, json) = date(at);
+                (xml, json, None)
+            }
             None => (
                 String::new(),
                 Value::Null,
                 Some(json!({ "nowplaying": "true" })),
             ),
         };
+        // `extended=1`: the artist as an object, and whether the user loves
+        // the track.
+        let (artist_xml, artist_json) = if extended {
+            let (images_xml, images_json) = images(None);
+            (
+                format!(
+                    "<artist><url></url><name>{}</name><mbid></mbid>{images_xml}</artist>\
+                     <loved>{}</loved>",
+                    xml_escape(&e.artist),
+                    u8::from(e.loved)
+                ),
+                json!({ "url": "", "name": e.artist, "image": images_json, "mbid": "" }),
+            )
+        } else {
+            (
+                format!("<artist mbid=\"\">{}</artist>", xml_escape(&e.artist)),
+                json!({ "mbid": "", "#text": e.artist }),
+            )
+        };
         xml.push_str(&format!(
-            "<track{np}><artist mbid=\"\">{artist}</artist><name>{track}</name><mbid></mbid>\
+            "<track{np}>{artist_xml}<name>{track}</name><mbid></mbid>\
              <album mbid=\"\">{album}</album><url></url>{date_xml}<streamable>0</streamable>{image_xml}</track>",
             np = if attr.is_some() { " nowplaying=\"true\"" } else { "" },
-            artist = xml_escape(&e.artist),
             track = xml_escape(&e.track),
             album = xml_escape(&e.album),
         ));
         let mut track = json!({
-            "artist": { "mbid": "", "#text": e.artist },
+            "artist": artist_json,
             "name": e.track,
             "mbid": "",
             "album": { "mbid": "", "#text": e.album },
@@ -837,6 +915,9 @@ async fn recent_tracks(state: &AppState, params: &Params) -> LfmResult {
         });
         if !date_json.is_null() {
             track["date"] = date_json;
+        }
+        if extended {
+            track["loved"] = json!(u8::from(e.loved).to_string());
         }
         if let Some(attr) = attr {
             track["@attr"] = attr;
@@ -848,6 +929,65 @@ async fn recent_tracks(state: &AppState, params: &Params) -> LfmResult {
         xml,
         json: json!({
             "recenttracks": {
+                "track": tracks,
+                "@attr": {
+                    "user": user.username,
+                    "page": page.to_string(),
+                    "perPage": limit.to_string(),
+                    "totalPages": total_pages.to_string(),
+                    "total": total.to_string(),
+                },
+            }
+        }),
+    })
+}
+
+/// `user.getLovedTracks`: newest love first, under the same visibility as
+/// the user's recent tracks.
+async fn loved_tracks(state: &AppState, params: &Params) -> LfmResult {
+    let user = visible_user(state, params).await?;
+    let (limit, page) = page_params(params, 1000);
+    let total = loves_db::count(&state.db, user.id).await?;
+    let offset = (page - 1).saturating_mul(limit);
+    let loves = if offset < total {
+        loves_db::page_at(&state.db, user.id, limit, offset).await?
+    } else {
+        Vec::new()
+    };
+
+    let total_pages = (total + limit - 1) / limit;
+    let mut xml = format!(
+        "<lovedtracks user=\"{}\" page=\"{page}\" perPage=\"{limit}\" totalPages=\"{total_pages}\" total=\"{total}\">",
+        xml_escape(&user.username)
+    );
+    let mut tracks = Vec::with_capacity(loves.len());
+    for l in &loves {
+        let (image_xml, image_json) =
+            images(l.album_image.as_deref().or(l.artist_image.as_deref()));
+        let (date_xml, date_json) = date(l.loved_at);
+        let mbid = l.track_mbid.map(|m| m.to_string()).unwrap_or_default();
+        xml.push_str(&format!(
+            "<track><name>{track}</name><mbid>{mbid}</mbid><url></url>{date_xml}\
+             <artist><name>{artist}</name><mbid></mbid><url></url></artist>{image_xml}\
+             <streamable fulltrack=\"0\">0</streamable></track>",
+            track = xml_escape(&l.track_title),
+            artist = xml_escape(&l.artist_name),
+        ));
+        tracks.push(json!({
+            "artist": { "url": "", "name": l.artist_name, "mbid": "" },
+            "date": date_json,
+            "mbid": mbid,
+            "url": "",
+            "name": l.track_title,
+            "image": image_json,
+            "streamable": { "fulltrack": "0", "#text": "0" },
+        }));
+    }
+    xml.push_str("</lovedtracks>");
+    Ok(Body {
+        xml,
+        json: json!({
+            "lovedtracks": {
                 "track": tracks,
                 "@attr": {
                     "user": user.username,

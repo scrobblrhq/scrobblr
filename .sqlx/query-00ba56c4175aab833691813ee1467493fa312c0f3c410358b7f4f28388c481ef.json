@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT t.id FROM tracks t\n        JOIN artists a ON a.id = t.artist_id\n        WHERE a.name_normalized = $1 AND t.title_normalized = $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "00ba56c4175aab833691813ee1467493fa312c0f3c410358b7f4f28388c481ef"
+}

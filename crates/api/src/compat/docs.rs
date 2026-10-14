@@ -33,8 +33,9 @@ fn plain(description: &str) -> Value {
 fn lastfm() -> Value {
     let description = "Last.fm API 2.0 for scrobblers: `auth.getToken`, `auth.getSession`, \
         `auth.getMobileSession` (POST), `track.scrobble` (POST, up to 50 as `artist[i]` …), \
-        `track.updateNowPlaying` (POST), `user.getInfo` and `user.getRecentTracks`. Parameters \
-        come as a query string or a form body. Authenticated with a Scrobblr scrobbler \
+        `track.updateNowPlaying` (POST), `track.love` and `track.unlove` (POST), `user.getInfo`, \
+        `user.getRecentTracks` (with `extended=1`, the artist as an object and `loved`) and \
+        `user.getLovedTracks`. Parameters come as a query string or a form body. Authenticated with a Scrobblr scrobbler \
         credential as `sk` (a session key, or a scrobbler token given as the password to \
         `auth.getMobileSession`), never with native API tokens. `api_sig` is checked for API \
         keys the server knows the secret of. Answers in Last.fm's XML, or JSON with \
@@ -51,6 +52,10 @@ fn lastfm() -> Value {
         "timestamp": string("Unix seconds the play started; `timestamp[i]` in batches"),
         "duration": string("Track length in seconds"),
         "mbid": string("MusicBrainz recording id, used as an enrichment hint"),
+        "user": string("user.getInfo, user.getRecentTracks, user.getLovedTracks: the Scrobblr username; the session's when absent"),
+        "limit": string("user.getRecentTracks (200 at most), user.getLovedTracks (1000 at most): entries a page, 50 by default"),
+        "page": string("Page number, from 1"),
+        "extended": string("user.getRecentTracks: `1` for the artist as an object and `loved`"),
         "username": string("auth.getMobileSession: the Scrobblr username"),
         "password": string("auth.getMobileSession: a scrobbler token, or the account password when allowed"),
         "token": string("auth.getSession: the authorized token"),
@@ -63,9 +68,9 @@ fn lastfm() -> Value {
                 "application/json": { "schema": { "type": "object" } }
             }
         },
-        "400": { "description": "Invalid parameters (Last.fm error 6) or method (3)" },
+        "400": { "description": "Invalid parameters (Last.fm error 6, also a love past 50,000 loved tracks) or method (3)" },
         "403": { "description": "Invalid API key (10), session (9), signature (13) or authentication (4)" },
-        "429": { "description": "Rate limit exceeded (29): requests, logins or the daily scrobble limit" },
+        "429": { "description": "Rate limit exceeded (29): requests, logins, loves or the daily scrobble limit" },
         "503": { "description": "Temporarily unavailable (16)" }
     });
     json!({

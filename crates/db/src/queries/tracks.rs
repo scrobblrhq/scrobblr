@@ -125,6 +125,26 @@ pub async fn find_or_create_artist(pool: &PgPool, name: &str) -> Result<Artist, 
     Err(sqlx::Error::RowNotFound)
 }
 
+/// The track `artist` and `title` name, normalized as ingest normalizes
+/// them, if the catalog has it. Creates nothing.
+pub async fn find_track_id(
+    pool: &PgPool,
+    artist: &str,
+    title: &str,
+) -> Result<Option<i64>, sqlx::Error> {
+    sqlx::query_scalar!(
+        r#"
+        SELECT t.id FROM tracks t
+        JOIN artists a ON a.id = t.artist_id
+        WHERE a.name_normalized = $1 AND t.title_normalized = $2
+        "#,
+        artist.trim().to_lowercase(),
+        title.trim().to_lowercase(),
+    )
+    .fetch_optional(pool)
+    .await
+}
+
 /// Without counts: for lookups, not responses.
 pub async fn find_artist_by_id(pool: &PgPool, id: i64) -> Result<Option<Artist>, sqlx::Error> {
     sqlx::query_as!(

@@ -4273,7 +4273,7 @@
     },
     "/2.0": {
       "get": {
-        "description": "Last.fm API 2.0 for scrobblers: `auth.getToken`, `auth.getSession`, `auth.getMobileSession` (POST), `track.scrobble` (POST, up to 50 as `artist[i]` …), `track.updateNowPlaying` (POST), `user.getInfo` and `user.getRecentTracks`. Parameters come as a query string or a form body. Authenticated with a Scrobblr scrobbler credential as `sk` (a session key, or a scrobbler token given as the password to `auth.getMobileSession`), never with native API tokens. `api_sig` is checked for API keys the server knows the secret of. Answers in Last.fm's XML, or JSON with `format=json`; errors carry Last.fm's codes.",
+        "description": "Last.fm API 2.0 for scrobblers: `auth.getToken`, `auth.getSession`, `auth.getMobileSession` (POST), `track.scrobble` (POST, up to 50 as `artist[i]` …), `track.updateNowPlaying` (POST), `track.love` and `track.unlove` (POST), `user.getInfo`, `user.getRecentTracks` (with `extended=1`, the artist as an object and `loved`) and `user.getLovedTracks`. Parameters come as a query string or a form body. Authenticated with a Scrobblr scrobbler credential as `sk` (a session key, or a scrobbler token given as the password to `auth.getMobileSession`), never with native API tokens. `api_sig` is checked for API keys the server knows the secret of. Answers in Last.fm's XML, or JSON with `format=json`; errors carry Last.fm's codes.",
         "parameters": [
           {
             "description": "Last.fm method name",
@@ -4320,13 +4320,13 @@
             "description": "Last.fm-shaped answer"
           },
           "400": {
-            "description": "Invalid parameters (Last.fm error 6) or method (3)"
+            "description": "Invalid parameters (Last.fm error 6, also a love past 50,000 loved tracks) or method (3)"
           },
           "403": {
             "description": "Invalid API key (10), session (9), signature (13) or authentication (4)"
           },
           "429": {
-            "description": "Rate limit exceeded (29): requests, logins or the daily scrobble limit"
+            "description": "Rate limit exceeded (29): requests, logins, loves or the daily scrobble limit"
           },
           "503": {
             "description": "Temporarily unavailable (16)"
@@ -4338,7 +4338,7 @@
         ]
       },
       "post": {
-        "description": "Last.fm API 2.0 for scrobblers: `auth.getToken`, `auth.getSession`, `auth.getMobileSession` (POST), `track.scrobble` (POST, up to 50 as `artist[i]` …), `track.updateNowPlaying` (POST), `user.getInfo` and `user.getRecentTracks`. Parameters come as a query string or a form body. Authenticated with a Scrobblr scrobbler credential as `sk` (a session key, or a scrobbler token given as the password to `auth.getMobileSession`), never with native API tokens. `api_sig` is checked for API keys the server knows the secret of. Answers in Last.fm's XML, or JSON with `format=json`; errors carry Last.fm's codes.",
+        "description": "Last.fm API 2.0 for scrobblers: `auth.getToken`, `auth.getSession`, `auth.getMobileSession` (POST), `track.scrobble` (POST, up to 50 as `artist[i]` …), `track.updateNowPlaying` (POST), `track.love` and `track.unlove` (POST), `user.getInfo`, `user.getRecentTracks` (with `extended=1`, the artist as an object and `loved`) and `user.getLovedTracks`. Parameters come as a query string or a form body. Authenticated with a Scrobblr scrobbler credential as `sk` (a session key, or a scrobbler token given as the password to `auth.getMobileSession`), never with native API tokens. `api_sig` is checked for API keys the server knows the secret of. Answers in Last.fm's XML, or JSON with `format=json`; errors carry Last.fm's codes.",
         "requestBody": {
           "content": {
             "application/x-www-form-urlencoded": {
@@ -4365,8 +4365,16 @@
                     "description": "Track length in seconds",
                     "type": "string"
                   },
+                  "extended": {
+                    "description": "user.getRecentTracks: `1` for the artist as an object and `loved`",
+                    "type": "string"
+                  },
                   "format": {
                     "description": "`json` for JSON answers; XML otherwise",
+                    "type": "string"
+                  },
+                  "limit": {
+                    "description": "user.getRecentTracks (200 at most), user.getLovedTracks (1000 at most): entries a page, 50 by default",
                     "type": "string"
                   },
                   "mbid": {
@@ -4375,6 +4383,10 @@
                   },
                   "method": {
                     "description": "Last.fm method name, e.g. track.scrobble",
+                    "type": "string"
+                  },
+                  "page": {
+                    "description": "Page number, from 1",
                     "type": "string"
                   },
                   "password": {
@@ -4395,6 +4407,10 @@
                   },
                   "track": {
                     "description": "Track; `track[i]` in batches",
+                    "type": "string"
+                  },
+                  "user": {
+                    "description": "user.getInfo, user.getRecentTracks, user.getLovedTracks: the Scrobblr username; the session's when absent",
                     "type": "string"
                   },
                   "username": {
@@ -4424,13 +4440,13 @@
             "description": "Last.fm-shaped answer"
           },
           "400": {
-            "description": "Invalid parameters (Last.fm error 6) or method (3)"
+            "description": "Invalid parameters (Last.fm error 6, also a love past 50,000 loved tracks) or method (3)"
           },
           "403": {
             "description": "Invalid API key (10), session (9), signature (13) or authentication (4)"
           },
           "429": {
-            "description": "Rate limit exceeded (29): requests, logins or the daily scrobble limit"
+            "description": "Rate limit exceeded (29): requests, logins, loves or the daily scrobble limit"
           },
           "503": {
             "description": "Temporarily unavailable (16)"
@@ -4444,7 +4460,7 @@
     },
     "/2.0/": {
       "get": {
-        "description": "Last.fm API 2.0 for scrobblers: `auth.getToken`, `auth.getSession`, `auth.getMobileSession` (POST), `track.scrobble` (POST, up to 50 as `artist[i]` …), `track.updateNowPlaying` (POST), `user.getInfo` and `user.getRecentTracks`. Parameters come as a query string or a form body. Authenticated with a Scrobblr scrobbler credential as `sk` (a session key, or a scrobbler token given as the password to `auth.getMobileSession`), never with native API tokens. `api_sig` is checked for API keys the server knows the secret of. Answers in Last.fm's XML, or JSON with `format=json`; errors carry Last.fm's codes.",
+        "description": "Last.fm API 2.0 for scrobblers: `auth.getToken`, `auth.getSession`, `auth.getMobileSession` (POST), `track.scrobble` (POST, up to 50 as `artist[i]` …), `track.updateNowPlaying` (POST), `track.love` and `track.unlove` (POST), `user.getInfo`, `user.getRecentTracks` (with `extended=1`, the artist as an object and `loved`) and `user.getLovedTracks`. Parameters come as a query string or a form body. Authenticated with a Scrobblr scrobbler credential as `sk` (a session key, or a scrobbler token given as the password to `auth.getMobileSession`), never with native API tokens. `api_sig` is checked for API keys the server knows the secret of. Answers in Last.fm's XML, or JSON with `format=json`; errors carry Last.fm's codes.",
         "parameters": [
           {
             "description": "Last.fm method name",
@@ -4491,13 +4507,13 @@
             "description": "Last.fm-shaped answer"
           },
           "400": {
-            "description": "Invalid parameters (Last.fm error 6) or method (3)"
+            "description": "Invalid parameters (Last.fm error 6, also a love past 50,000 loved tracks) or method (3)"
           },
           "403": {
             "description": "Invalid API key (10), session (9), signature (13) or authentication (4)"
           },
           "429": {
-            "description": "Rate limit exceeded (29): requests, logins or the daily scrobble limit"
+            "description": "Rate limit exceeded (29): requests, logins, loves or the daily scrobble limit"
           },
           "503": {
             "description": "Temporarily unavailable (16)"
@@ -4509,7 +4525,7 @@
         ]
       },
       "post": {
-        "description": "Last.fm API 2.0 for scrobblers: `auth.getToken`, `auth.getSession`, `auth.getMobileSession` (POST), `track.scrobble` (POST, up to 50 as `artist[i]` …), `track.updateNowPlaying` (POST), `user.getInfo` and `user.getRecentTracks`. Parameters come as a query string or a form body. Authenticated with a Scrobblr scrobbler credential as `sk` (a session key, or a scrobbler token given as the password to `auth.getMobileSession`), never with native API tokens. `api_sig` is checked for API keys the server knows the secret of. Answers in Last.fm's XML, or JSON with `format=json`; errors carry Last.fm's codes.",
+        "description": "Last.fm API 2.0 for scrobblers: `auth.getToken`, `auth.getSession`, `auth.getMobileSession` (POST), `track.scrobble` (POST, up to 50 as `artist[i]` …), `track.updateNowPlaying` (POST), `track.love` and `track.unlove` (POST), `user.getInfo`, `user.getRecentTracks` (with `extended=1`, the artist as an object and `loved`) and `user.getLovedTracks`. Parameters come as a query string or a form body. Authenticated with a Scrobblr scrobbler credential as `sk` (a session key, or a scrobbler token given as the password to `auth.getMobileSession`), never with native API tokens. `api_sig` is checked for API keys the server knows the secret of. Answers in Last.fm's XML, or JSON with `format=json`; errors carry Last.fm's codes.",
         "requestBody": {
           "content": {
             "application/x-www-form-urlencoded": {
@@ -4536,8 +4552,16 @@
                     "description": "Track length in seconds",
                     "type": "string"
                   },
+                  "extended": {
+                    "description": "user.getRecentTracks: `1` for the artist as an object and `loved`",
+                    "type": "string"
+                  },
                   "format": {
                     "description": "`json` for JSON answers; XML otherwise",
+                    "type": "string"
+                  },
+                  "limit": {
+                    "description": "user.getRecentTracks (200 at most), user.getLovedTracks (1000 at most): entries a page, 50 by default",
                     "type": "string"
                   },
                   "mbid": {
@@ -4546,6 +4570,10 @@
                   },
                   "method": {
                     "description": "Last.fm method name, e.g. track.scrobble",
+                    "type": "string"
+                  },
+                  "page": {
+                    "description": "Page number, from 1",
                     "type": "string"
                   },
                   "password": {
@@ -4566,6 +4594,10 @@
                   },
                   "track": {
                     "description": "Track; `track[i]` in batches",
+                    "type": "string"
+                  },
+                  "user": {
+                    "description": "user.getInfo, user.getRecentTracks, user.getLovedTracks: the Scrobblr username; the session's when absent",
                     "type": "string"
                   },
                   "username": {
@@ -4595,13 +4627,13 @@
             "description": "Last.fm-shaped answer"
           },
           "400": {
-            "description": "Invalid parameters (Last.fm error 6) or method (3)"
+            "description": "Invalid parameters (Last.fm error 6, also a love past 50,000 loved tracks) or method (3)"
           },
           "403": {
             "description": "Invalid API key (10), session (9), signature (13) or authentication (4)"
           },
           "429": {
-            "description": "Rate limit exceeded (29): requests, logins or the daily scrobble limit"
+            "description": "Rate limit exceeded (29): requests, logins, loves or the daily scrobble limit"
           },
           "503": {
             "description": "Temporarily unavailable (16)"

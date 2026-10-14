@@ -33,9 +33,10 @@ use crate::errors::{ApiResult, AppError};
 use crate::handlers::scrobbles::{NowPlayingRequest, set_now_playing};
 use crate::limits;
 use crate::state::AppState;
+use db::queries::loves::{self as loves_db, LoveSource, Loved, MAX_LOVED_TRACKS};
 use db::queries::scrobble_clients::ClientIdentity;
 use db::queries::scrobblers::{self as scrobblers_db, Credential};
-use db::queries::{auth as auth_db, scrobbles as scrobbles_db};
+use db::queries::{auth as auth_db, scrobbles as scrobbles_db, tracks as tracks_db};
 use shared::models::ScrobblerCredential;
 use shared::scrobble::{MAX_CLOCK_SKEW, MAX_NAME_LEN, ScrobbleInput, ScrobbleValidationError};
 
@@ -374,6 +375,68 @@ pub async fn now_playing(
     };
     set_now_playing(state, credential.user_id, &request, client.protocol).await?;
     Ok(Ok(()))
+}
+
+/// Why a love or an unlove by name wasn't recorded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unloved {
+    /// A blank or overlong artist or title.
+    Invalid,
+    /// The account loves [`MAX_LOVED_TRACKS`] tracks already.
+    AtLimit,
+}
+
+/// Loves (`love`) or unloves the track `artist` and `title` name, for the
+/// credential's user. A love resolves the track as scrobbling does,
+/// creating it if the catalog doesn't have it yet (the love limits bound
+/// how many); an unlove creates nothing. Rate limits are the caller's.
+pub async fn love_by_name(
+    state: &AppState,
+    credential: &Credential,
+    client: &ClientIdentity,
+    source: &'static str,
+    (artist, track): (&str, &str),
+    love: bool,
+) -> ApiResult<Result<(), Unloved>> {
+    let (artist, track) = (artist.trim(), track.trim());
+    let usable = |s: &str| !s.is_empty() && s.chars().count() <= MAX_NAME_LEN;
+    if !usable(artist) || !usable(track) {
+        return Ok(Err(Unloved::Invalid));
+    }
+    if !love {
+        if let Some(track_id) = tracks_db::find_track_id(&state.db, artist, track).await? {
+            loves_db::unlove(&state.db, credential.user_id, track_id).await?;
+        }
+        return Ok(Ok(()));
+    }
+    let entry = tracks_db::resolve(
+        &state.db,
+        &tracks_db::CatalogInput {
+            artist,
+            featured_artists: &[],
+            album: None,
+            track,
+            duration_ms: None,
+            recording_mbid: None,
+        },
+    )
+    .await?;
+    let from = LoveSource {
+        source,
+        client_id: state.clients.id(&state.db, client).await,
+    };
+    match loves_db::love(
+        &state.db,
+        credential.user_id,
+        entry.track.id,
+        from,
+        MAX_LOVED_TRACKS,
+    )
+    .await?
+    {
+        Loved::Now(_) | Loved::Already(_) => Ok(Ok(())),
+        Loved::AtLimit => Ok(Err(Unloved::AtLimit)),
+    }
 }
 
 /// Stores a session or token for `user_id` and returns its secret.
