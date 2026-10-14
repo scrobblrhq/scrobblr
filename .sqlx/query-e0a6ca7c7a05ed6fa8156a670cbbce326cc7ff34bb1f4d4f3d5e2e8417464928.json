@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM user_neighbours WHERE neighbour_user_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e0a6ca7c7a05ed6fa8156a670cbbce326cc7ff34bb1f4d4f3d5e2e8417464928"
+}

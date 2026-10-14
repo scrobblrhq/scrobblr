@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM recommendation_skips WHERE until <= NOW()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "2d6f360df3a64d76166cffe1c67cd422b06788eb41890cc3f66911b90884b778"
+}

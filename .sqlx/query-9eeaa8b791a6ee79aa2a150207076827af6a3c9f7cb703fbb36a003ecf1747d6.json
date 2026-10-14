@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO user_neighbours\n            (user_id, position, neighbour_user_id, score, shared_artists, top_shared)\n        SELECT t.user_id, t.position, t.neighbour_user_id, t.score, t.shared_artists,\n               array_remove(ARRAY[t.s1, t.s2, t.s3], NULL)\n        FROM UNNEST($1::bigint[], $2::smallint[], $3::bigint[], $4::int[], $5::int[],\n                    $6::bigint[], $7::bigint[], $8::bigint[])\n             AS t(user_id, position, neighbour_user_id, score, shared_artists, s1, s2, s3)\n        JOIN users u ON u.id = t.user_id\n        JOIN users n ON n.id = t.neighbour_user_id\n        WHERE u.similarity <> 'off' AND u.delete_after IS NULL\n          AND n.similarity = 'listed' AND n.delete_after IS NULL\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "Int2Array",
+        "Int8Array",
+        "Int4Array",
+        "Int4Array",
+        "Int8Array",
+        "Int8Array",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9eeaa8b791a6ee79aa2a150207076827af6a3c9f7cb703fbb36a003ecf1747d6"
+}

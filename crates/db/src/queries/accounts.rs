@@ -470,6 +470,11 @@ async fn delete_user_row(
         sqlx::query!("UPDATE ranking_snapshots SET invalidated = TRUE")
             .execute(&mut **tx)
             .await?;
+        sqlx::query!(
+            "UPDATE similarity_runs SET invalidated = TRUE WHERE id = (SELECT max(id) FROM similarity_runs)"
+        )
+        .execute(&mut **tx)
+        .await?;
     }
     Ok(avatar
         .into_iter()

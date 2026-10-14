@@ -1,0 +1,84 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT r.id AS run_id, r.started_at, r.finished_at, r.refresh_secs, c.total AS \"total!\",\n               e.position AS \"position?\", e.neighbour_id AS \"neighbour_id?\", e.name AS \"name?\",\n               e.image_url AS \"image_url?\", e.score AS \"score?\", e.listeners AS \"listeners?\"\n        FROM (SELECT * FROM similarity_runs ORDER BY id DESC LIMIT 1) r\n        CROSS JOIN LATERAL (\n            SELECT count(*) AS total FROM artist_neighbours WHERE artist_id = $1\n        ) c\n        LEFT JOIN LATERAL (\n            SELECT n.position, n.neighbour_id, a.name, a.image_url, n.score, n.listeners\n            FROM artist_neighbours n\n            JOIN artists a ON a.id = n.neighbour_id\n            WHERE n.artist_id = $1 AND n.position > $2\n            ORDER BY n.position\n            LIMIT $3\n        ) e ON true\n        ORDER BY e.position\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "run_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "started_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "finished_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "refresh_secs",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "total!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "position?",
+        "type_info": "Int2"
+      },
+      {
+        "ordinal": 6,
+        "name": "neighbour_id?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "image_url?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "score?",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 10,
+        "name": "listeners?",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int2",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      null,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "b44c0788af1ffa20e55051e9ee3d62e8fc85c06bc39971d153fac35a1ba3ce30"
+}

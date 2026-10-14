@@ -1,0 +1,110 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id, fingerprint, window_from, window_to, coordination_run_id, accounts, candidates,\n               artists, neighbours, recommended_users, neighboured_users, refresh_secs,\n               invalidated, started_at, took_ms, finished_at\n        FROM similarity_runs\n        ORDER BY id DESC\n        LIMIT 1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "fingerprint",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "window_from",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 3,
+        "name": "window_to",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 4,
+        "name": "coordination_run_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "accounts",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "candidates",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "artists",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 8,
+        "name": "neighbours",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 9,
+        "name": "recommended_users",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 10,
+        "name": "neighboured_users",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 11,
+        "name": "refresh_secs",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 12,
+        "name": "invalidated",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 13,
+        "name": "started_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 14,
+        "name": "took_ms",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 15,
+        "name": "finished_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "5d2485e6103ef7238fdacd9e1e688a2bc998ae6e263541b0f68d6e6a1845c280"
+}

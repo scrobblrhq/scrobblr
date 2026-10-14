@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT n.neighbour_id AS artist_id, a.name, n.score::bigint AS \"score!\",\n               n.listeners::bigint AS \"listeners!\"\n        FROM artist_neighbours n JOIN artists a ON a.id = n.neighbour_id\n        WHERE n.artist_id = $1\n        ORDER BY n.position\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "artist_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "score!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "listeners!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "e3d7794ddaaae5c64695bbc17e5c784d6138b1cc0c2b5535abe12a6b43caedbe"
+}

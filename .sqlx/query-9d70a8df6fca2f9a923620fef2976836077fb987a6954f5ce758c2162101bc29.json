@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO user_recommendations\n            (user_id, position, artist_id, score, because_artist_id, because_count)\n        SELECT t.*\n        FROM UNNEST($1::bigint[], $2::smallint[], $3::bigint[], $4::int[], $5::bigint[], $6::int[])\n             AS t(user_id, position, artist_id, score, because_artist_id, because_count)\n        JOIN users u ON u.id = t.user_id\n        WHERE u.similarity <> 'off' AND u.delete_after IS NULL\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "Int2Array",
+        "Int8Array",
+        "Int4Array",
+        "Int8Array",
+        "Int4Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9d70a8df6fca2f9a923620fef2976836077fb987a6954f5ce758c2162101bc29"
+}

@@ -16,6 +16,7 @@ pub mod rankings;
 pub mod scrobble_clients;
 pub mod scrobblers;
 pub mod scrobbles;
+pub mod similarity;
 pub mod tracks;
 pub mod uploads;
 pub mod users;

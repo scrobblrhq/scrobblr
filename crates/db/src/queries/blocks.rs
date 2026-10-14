@@ -77,7 +77,8 @@ pub enum Blocked {
 }
 
 /// Blocks `blocked_id` unless `blocker_id` already blocks `max` accounts,
-/// and ends the follows between them.
+/// and ends the follows between them and their place in each other's taste
+/// neighbours.
 pub async fn block(
     pool: &PgPool,
     blocker_id: i64,
@@ -118,6 +119,16 @@ pub async fn block(
         r#"
         DELETE FROM user_follows
         WHERE (follower_id = $1 AND followee_id = $2) OR (follower_id = $2 AND followee_id = $1)
+        "#,
+        blocker_id,
+        blocked_id,
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!(
+        r#"
+        DELETE FROM user_neighbours
+        WHERE (user_id = $1 AND neighbour_user_id = $2) OR (user_id = $2 AND neighbour_user_id = $1)
         "#,
         blocker_id,
         blocked_id,

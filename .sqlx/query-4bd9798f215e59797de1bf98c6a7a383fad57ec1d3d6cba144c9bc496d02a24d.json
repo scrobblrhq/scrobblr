@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        DELETE FROM recommendation_skips\n        WHERE user_id = $1 AND artist_id IN (\n            SELECT artist_id FROM recommendation_skips WHERE user_id = $1\n            ORDER BY skipped_at DESC, artist_id OFFSET $2\n        )\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4bd9798f215e59797de1bf98c6a7a383fad57ec1d3d6cba144c9bc496d02a24d"
+}

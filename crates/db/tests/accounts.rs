@@ -26,7 +26,8 @@ async fn exec(pool: &PgPool, sql: &str, id: i64) {
 /// A user with a row in every table that can hold one: listening history
 /// (live, imported, on an old compressed chunk), its labels, weights and
 /// coordination factor, credentials of every kind, a linked account, an
-/// import, follows, a comment, uploads and likes, now playing.
+/// import, follows, a comment, uploads and likes, now playing, its
+/// recommendations and a skip.
 async fn populate(pool: &PgPool, name: &str, artwork_artist: i64) -> i64 {
     let user_id: i64 = sqlx::query_scalar(
         "INSERT INTO users (username, email, password_hash, created_at, image_url)
@@ -126,6 +127,12 @@ async fn populate(pool: &PgPool, name: &str, artwork_artist: i64) -> i64 {
          SELECT 'artist', id, $1, 'great band' FROM artists LIMIT 1",
         "INSERT INTO now_playing (user_id, track_id, artist_id, expires_at)
          SELECT $1, id, artist_id, NOW() + INTERVAL '3 minutes' FROM tracks LIMIT 1",
+        "UPDATE users SET similarity = 'listed', similarity_changed_at = NOW() WHERE id = $1",
+        "INSERT INTO user_recommendations
+             (user_id, position, artist_id, score, because_artist_id, because_count)
+         SELECT $1, 1, id, 500, id, 1 FROM artists ORDER BY id LIMIT 1",
+        "INSERT INTO recommendation_skips (user_id, artist_id, until)
+         SELECT $1, id, NOW() + INTERVAL '90 days' FROM artists ORDER BY id LIMIT 1",
     ] {
         exec(pool, sql, user_id).await;
     }
@@ -327,6 +334,9 @@ async fn an_erase_leaves_no_row_about_the_user_and_corrects_shared_numbers() {
                 "INSERT INTO user_blocks (blocker_id, blocked_id) VALUES ($1, $2)",
                 "INSERT INTO follower_removals (user_id, follower_id, until)
                  VALUES ($1, $2, NOW() + INTERVAL '30 days')",
+                "INSERT INTO user_neighbours
+                     (user_id, position, neighbour_user_id, score, shared_artists, top_shared)
+                 VALUES ($1, 1, $2, 500, 3, '{}')",
             ] {
                 sqlx::query(sql).bind(a).bind(b).execute(&pool).await.unwrap();
             }
@@ -403,6 +413,15 @@ async fn an_erase_leaves_no_row_about_the_user_and_corrects_shared_numbers() {
         rdb::refresh_snapshots(&pool, &weights, Period::Year, Utc::now().date_naive(), 100)
             .await
             .unwrap();
+        sqlx::query(
+            "INSERT INTO similarity_runs
+                 (fingerprint, window_from, window_to, accounts, candidates, artists, neighbours,
+                  recommended_users, neighboured_users, refresh_secs, started_at, took_ms)
+             VALUES ('f', CURRENT_DATE - 179, CURRENT_DATE, 2, 2, 1, 1, 2, 2, 86400, NOW(), 1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         scrobbles_db::refresh_scrobble_aggregates(
             &pool,
             Utc::now() - TimeDelta::days(400),
@@ -425,6 +444,9 @@ async fn an_erase_leaves_no_row_about_the_user_and_corrects_shared_numbers() {
             "public.user_blocks.blocked_id",
             "public.follower_removals.follower_id",
             "public.track_album_votes.user_id",
+            "public.user_neighbours.neighbour_user_id",
+            "public.user_recommendations.user_id",
+            "public.recommendation_skips.user_id",
         ] {
             let n = about_gone.iter().find(|(t, _)| t == table).map(|(_, n)| *n);
             assert!(n.is_some_and(|n| n > 0), "the fixture puts rows in {table}");
@@ -495,7 +517,9 @@ async fn an_erase_leaves_no_row_about_the_user_and_corrects_shared_numbers() {
                 | "public.user_blocks.blocker_id"
                 | "public.user_blocks.blocked_id"
                 | "public.follower_removals.user_id"
-                | "public.follower_removals.follower_id" => 1,
+                | "public.follower_removals.follower_id"
+                | "public.user_neighbours.user_id"
+                | "public.user_neighbours.neighbour_user_id" => 1,
                 _ => 0,
             };
             assert_eq!(n - lost, *m, "{table}");
@@ -527,6 +551,12 @@ async fn an_erase_leaves_no_row_about_the_user_and_corrects_shared_numbers() {
                 .await
                 .unwrap();
         assert!(invalidated);
+        let similarity_invalidated: bool =
+            sqlx::query_scalar("SELECT bool_and(invalidated) FROM similarity_runs")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(similarity_invalidated, "the similarity it counted in is due again");
 
         // Uploads to delete: the avatar and the artwork no artist shows. The
         // one the artist shows is the catalog's now: it stays.

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        DELETE FROM user_neighbours\n        WHERE (user_id = $1 AND neighbour_user_id = $2) OR (user_id = $2 AND neighbour_user_id = $1)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7d7d6fe0d871458e123236669945a795a973664acff97e346857a519b484ac67"
+}

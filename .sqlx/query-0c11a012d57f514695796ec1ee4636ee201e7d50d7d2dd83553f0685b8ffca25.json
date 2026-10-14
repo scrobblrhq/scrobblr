@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE users\n        SET similarity = $2,\n            similarity_changed_at = CASE WHEN similarity = $2 THEN similarity_changed_at\n                                         ELSE NOW() END\n        WHERE id = $1\n        RETURNING similarity_changed_at, is_private\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "similarity_changed_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 1,
+        "name": "is_private",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      false
+    ]
+  },
+  "hash": "0c11a012d57f514695796ec1ee4636ee201e7d50d7d2dd83553f0685b8ffca25"
+}

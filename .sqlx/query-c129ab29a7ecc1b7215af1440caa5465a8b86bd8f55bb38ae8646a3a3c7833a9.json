@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT user_id, artist_id, sum(weight)::bigint AS \"weight!\", sum(plays)::bigint AS \"plays!\"\n        FROM ranking_daily\n        WHERE day BETWEEN $1 AND $2\n        GROUP BY 1, 2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "artist_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "weight!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "plays!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Date",
+        "Date"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "c129ab29a7ecc1b7215af1440caa5465a8b86bd8f55bb38ae8646a3a3c7833a9"
+}

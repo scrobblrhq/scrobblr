@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE similarity_runs SET invalidated = TRUE WHERE id = (SELECT max(id) FROM similarity_runs)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "1c9be2d5661fdc46700f8201e6d0a65fbd6bf90909ab1183aaeab857a3c25664"
+}

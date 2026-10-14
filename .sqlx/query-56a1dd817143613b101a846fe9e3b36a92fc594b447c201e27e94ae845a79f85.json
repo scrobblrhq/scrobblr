@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT u.id, u.username, u.display_name, u.image_url, n.score, n.shared_artists,\n               COALESCE(s.ids, '{}') AS \"shared_ids!\", COALESCE(s.names, '{}') AS \"shared_names!\"\n        FROM user_neighbours n\n        JOIN users u ON u.id = n.neighbour_user_id\n        LEFT JOIN LATERAL (\n            SELECT array_agg(a.id ORDER BY t.ord) AS ids, array_agg(a.name ORDER BY t.ord) AS names\n            FROM unnest(n.top_shared) WITH ORDINALITY AS t(id, ord)\n            JOIN artists a ON a.id = t.id\n        ) s ON true\n        WHERE n.user_id = $1\n          AND u.similarity = 'listed' AND NOT u.is_private AND u.delete_after IS NULL\n          AND NOT EXISTS (SELECT 1 FROM user_blocks b\n                          WHERE (b.blocker_id = u.id AND b.blocked_id = $1)\n                             OR (b.blocker_id = $1 AND b.blocked_id = u.id))\n          AND ($2::bigint IS NULL OR NOT EXISTS (\n                  SELECT 1 FROM user_blocks b\n                  WHERE (b.blocker_id = u.id AND b.blocked_id = $2)\n                     OR (b.blocker_id = $2 AND b.blocked_id = u.id)))\n        ORDER BY n.position\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "username",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "display_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "image_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "score",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "shared_artists",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "shared_ids!",
+        "type_info": "Int8Array"
+      },
+      {
+        "ordinal": 7,
+        "name": "shared_names!",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "56a1dd817143613b101a846fe9e3b36a92fc594b447c201e27e94ae845a79f85"
+}

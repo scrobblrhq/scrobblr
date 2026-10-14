@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT k.artist_id, a.name AS artist_name, k.skipped_at, k.until\n        FROM recommendation_skips k\n        JOIN artists a ON a.id = k.artist_id\n        WHERE k.user_id = $1\n        ORDER BY k.skipped_at DESC, k.artist_id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "artist_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "artist_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "skipped_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "until",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "ac7f8aea56050b49a8dfd8a0a95db0f924dec2e20ca885a892fbe2164b8f3932"
+}

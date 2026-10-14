@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT user_id, artist_id\n        FROM ranking_daily\n        WHERE day BETWEEN $1 AND $2\n        GROUP BY 1, 2\n        HAVING sum(weight) > 0 AND sum(plays) >= $3\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "artist_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Date",
+        "Date",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "788fac60965764a0ed6390e9f38469537b83d21e946e37c5f3b5310fceb5a143"
+}

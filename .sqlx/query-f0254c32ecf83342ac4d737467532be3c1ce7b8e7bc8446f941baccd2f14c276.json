@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM artist_neighbours",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "f0254c32ecf83342ac4d737467532be3c1ce7b8e7bc8446f941baccd2f14c276"
+}

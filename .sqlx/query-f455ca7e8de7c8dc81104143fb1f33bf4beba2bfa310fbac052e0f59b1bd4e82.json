@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT user_id AS \"user_id!\", artist_id AS \"artist_id!\",\n               sum(play_count * power(0.5, extract(epoch FROM $1::timestamptz - day)\n                                           / 86400.0 / $2::float8))::float8 AS \"plays!\",\n               max(day) AS \"last!\"\n        FROM scrobbles_daily_by_artist\n        WHERE day < $1\n        GROUP BY 1, 2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "artist_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "plays!",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 3,
+        "name": "last!",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Float8"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "f455ca7e8de7c8dc81104143fb1f33bf4beba2bfa310fbac052e0f59b1bd4e82"
+}

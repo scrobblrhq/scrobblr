@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        DELETE FROM similarity_runs\n        WHERE finished_at < NOW() - make_interval(days => $1) AND id <> $2\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "94599cbb088e958dc2b63bc54e72f9dbc8f743809181c4ef82a7b6d05d4a4d4a"
+}
