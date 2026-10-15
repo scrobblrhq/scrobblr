@@ -31,6 +31,11 @@ pub enum AppError {
     #[error("only a login session can do this, not an API token")]
     SessionRequired,
 
+    /// Refused for a reason the message gives (an account too new to edit,
+    /// a locked bio).
+    #[error("{0}")]
+    NotAllowed(String),
+
     #[error("bad request: {0}")]
     BadRequest(String),
 
@@ -57,6 +62,10 @@ pub enum AppError {
 
     #[error("daily scrobble limit reached, try again after midnight UTC")]
     DailyLimit,
+
+    /// A limit the message names.
+    #[error("{0}")]
+    Limited(String),
 
     #[error("{0}")]
     Conflict(String),
@@ -100,6 +109,7 @@ impl IntoResponse for AppError {
             AppError::Forbidden => (StatusCode::FORBIDDEN, self.to_string()),
             AppError::MissingScope(_) => (StatusCode::FORBIDDEN, self.to_string()),
             AppError::SessionRequired => (StatusCode::FORBIDDEN, self.to_string()),
+            AppError::NotAllowed(_) => (StatusCode::FORBIDDEN, self.to_string()),
             AppError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             AppError::PayloadTooLarge(_) => (StatusCode::PAYLOAD_TOO_LARGE, self.to_string()),
             AppError::ScrobbleInvalid(_) => (StatusCode::UNPROCESSABLE_ENTITY, self.to_string()),
@@ -109,6 +119,7 @@ impl IntoResponse for AppError {
             AppError::ProviderAccountTaken => (StatusCode::CONFLICT, self.to_string()),
             AppError::RateLimited => (StatusCode::TOO_MANY_REQUESTS, self.to_string()),
             AppError::DailyLimit => (StatusCode::TOO_MANY_REQUESTS, self.to_string()),
+            AppError::Limited(_) => (StatusCode::TOO_MANY_REQUESTS, self.to_string()),
             AppError::Conflict(_) => (StatusCode::CONFLICT, self.to_string()),
             AppError::ServiceUnavailable(_) => (StatusCode::SERVICE_UNAVAILABLE, self.to_string()),
             AppError::UntrustedClient(reason) => {

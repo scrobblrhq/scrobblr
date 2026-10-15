@@ -1,7 +1,7 @@
 //! Limits counted in Redis: password logins and the scrobbles an account
 //! may submit per UTC day (shared by the native API and the
-//! scrobbler-compatible ones), image uploads, follows, blocks, loves,
-//! account exports and deletion requests. Windows are part of the
+//! scrobbler-compatible ones), image uploads, follows, blocks, loves, bio
+//! edits, account exports and deletion requests. Windows are part of the
 //! keys, so a key that missed its expiry still stops counting when its
 //! window ends.
 
@@ -140,6 +140,23 @@ pub async fn love_attempt(state: &AppState, user_id: i64, ip: &str) -> bool {
         (format!("love:ip:{}:{window}", network(ip)), LOVES_PER_IP),
     ];
     take_or_pass(state, keys, LOVE_WINDOW_SECS, "love").await
+}
+
+const BIO_WINDOW_SECS: i64 = 3600;
+pub const BIO_EDITS_PER_USER: i64 = 30;
+pub const BIO_EDITS_PER_IP: i64 = 60;
+
+/// Counts a bio edit or revert and says whether it may go ahead: at most
+/// [`BIO_EDITS_PER_USER`] per account and [`BIO_EDITS_PER_IP`] per address
+/// an hour, refused ones included. The database caps a day's revisions
+/// whatever Redis says. Fails open.
+pub async fn bio_attempt(state: &AppState, user_id: i64, ip: &str) -> bool {
+    let window = Utc::now().timestamp() / BIO_WINDOW_SECS;
+    let keys = [
+        (format!("bio:user:{user_id}:{window}"), BIO_EDITS_PER_USER),
+        (format!("bio:ip:{}:{window}", network(ip)), BIO_EDITS_PER_IP),
+    ];
+    take_or_pass(state, keys, BIO_WINDOW_SECS, "bio").await
 }
 
 const PAIR_WINDOW_SECS: i64 = 24 * 3600;

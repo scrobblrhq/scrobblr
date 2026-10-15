@@ -144,6 +144,8 @@ pub struct Artist {
     pub mbid: Option<Uuid>,
     #[serde(serialize_with = "crate::media::serialize_opt_url")]
     pub image_url: Option<String>,
+    /// The community bio's current text; `GET /v1/artist/{id}/bio` has its
+    /// revision and author.
     pub bio: Option<String>,
     /// `null` unless at least `RANKING_MIN_LISTENERS` (5) users played it.
     pub scrobble_count: Option<i64>,

@@ -194,6 +194,7 @@
         "description": "Artist",
         "properties": {
           "bio": {
+            "description": "The community bio's current text; `GET /v1/artist/{id}/bio` has its\n revision and author.",
             "type": [
               "string",
               "null"
@@ -489,6 +490,198 @@
         ],
         "type": "object"
       },
+      "Bio": {
+        "description": "An artist's or album's bio as it stands.",
+        "properties": {
+          "author": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserSummary"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who wrote the current revision; `null` for imported text, a\n moderator's revert, and an account deleted or waiting to be, or\n blocking the viewer or blocked by it."
+          },
+          "body": {
+            "description": "Plain text: show it as text, a paragraph at each blank line, and\n `http://` and `https://` URLs as links (`rel=\"nofollow ugc\"`), never\n embedded or previewed.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "entity_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "entity_type": {
+            "$ref": "#/components/schemas/CatalogKind"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RevisionKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "locked": {
+            "description": "Locked by a moderator: nobody may edit or revert it.",
+            "type": "boolean"
+          },
+          "revision_id": {
+            "description": "The current revision; `null` when there is no bio.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "revisions": {
+            "description": "Published revisions in its history.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "entity_type",
+          "entity_id",
+          "locked",
+          "revisions"
+        ],
+        "type": "object"
+      },
+      "BioHistoryPage": {
+        "description": "A page of a bio's history, newest revision first.",
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/BioRevision"
+            },
+            "type": "array"
+          },
+          "next": {
+            "description": "`before` for the next page; `null` on the last one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "entries"
+        ],
+        "type": "object"
+      },
+      "BioRevision": {
+        "description": "A revision of a bio.",
+        "properties": {
+          "author": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserSummary"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "As [`Bio::author`]."
+          },
+          "body": {
+            "description": "The text; `null` in history pages (fetch the revision for it) and\n when a moderator hid the revision.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "current": {
+            "description": "It is the bio's current text.",
+            "type": "boolean"
+          },
+          "entity_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "entity_type": {
+            "$ref": "#/components/schemas/CatalogKind"
+          },
+          "held_reason": {
+            "description": "Why a held edit waits for review: `repeated_link`,\n `link_across_bios` or `duplicate_text`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hidden": {
+            "description": "A moderator hid its text and summary.",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/RevisionKind"
+          },
+          "length": {
+            "description": "Characters in the text.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "parent_id": {
+            "description": "The revision that was current when it was written; `null` for the\n first.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "reverted_to": {
+            "description": "For a revert, the revision whose text it restored.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/RevisionStatus"
+          },
+          "summary": {
+            "description": "The edit summary (maybe empty); `null` when a moderator hid the\n revision.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "entity_type",
+          "entity_id",
+          "kind",
+          "length",
+          "status",
+          "hidden",
+          "current",
+          "created_at"
+        ],
+        "type": "object"
+      },
       "BlockEntry": {
         "description": "An account the user blocks. A private account shows its username only.",
         "properties": {
@@ -544,6 +737,15 @@
           "entries"
         ],
         "type": "object"
+      },
+      "CatalogKind": {
+        "description": "What a bio or a tag is about.",
+        "enum": [
+          "artist",
+          "album",
+          "track"
+        ],
+        "type": "string"
       },
       "ChartPeriod": {
         "description": "A rolling window of UTC days ending today, today included, or all of\n history.",
@@ -1094,6 +1296,31 @@
         ],
         "type": "object"
       },
+      "EditBioRequest": {
+        "properties": {
+          "base_revision_id": {
+            "description": "`revision_id` of the bio the text was written over; `null` when it\n had none. Another revision since is a 409.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "body": {
+            "description": "The new text: plain text, at most 10,000 characters and five links,\n no control, invisible or bidirectional formatting characters.",
+            "type": "string"
+          },
+          "summary": {
+            "default": "",
+            "description": "What changed, for the history: one line, 200 characters at most.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "type": "object"
+      },
       "ErrorBody": {
         "description": "The body of every error the native API answers with.",
         "properties": {
@@ -1412,6 +1639,26 @@
           "followers",
           "following"
         ],
+        "type": "object"
+      },
+      "HistoryQuery": {
+        "properties": {
+          "before": {
+            "description": "The previous page's `next`, for the page after it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "description": "Revisions per page: 50 by default, 200 at most.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
         "type": "object"
       },
       "IdPath": {
@@ -2186,6 +2433,76 @@
           "password"
         ],
         "type": "object"
+      },
+      "RevertBioRequest": {
+        "properties": {
+          "base_revision_id": {
+            "description": "As in an edit: the current revision as read.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "revision_id": {
+            "description": "The earlier revision whose text to restore.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "summary": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "required": [
+          "revision_id"
+        ],
+        "type": "object"
+      },
+      "RevisionKind": {
+        "description": "How a bio revision came to be.",
+        "oneOf": [
+          {
+            "const": "edit",
+            "description": "Written by an account.",
+            "type": "string"
+          },
+          {
+            "const": "revert",
+            "description": "An account restored an earlier revision's text.",
+            "type": "string"
+          },
+          {
+            "const": "import",
+            "description": "Fetched from Last.fm before anyone edited the bio.",
+            "type": "string"
+          },
+          {
+            "const": "moderation",
+            "description": "A moderator's revert.",
+            "type": "string"
+          }
+        ]
+      },
+      "RevisionStatus": {
+        "oneOf": [
+          {
+            "enum": [
+              "published"
+            ],
+            "type": "string"
+          },
+          {
+            "const": "held",
+            "description": "Waiting for a moderator: not shown until approved.",
+            "type": "string"
+          },
+          {
+            "const": "rejected",
+            "description": "A held edit a moderator turned down.",
+            "type": "string"
+          }
+        ]
       },
       "ScrobbleBreakdown": {
         "description": "How a profile's `scrobble_count` divides by what the classifier made of\n it: plays it found plausible, and plays it couldn't vouch for, so a flood\n of botted plays doesn't pass for listening. The duplicates it found (the\n same listen reported again) are in no count but their own.",
@@ -5614,6 +5931,425 @@
         ]
       }
     },
+    "/v1/album/{id}/bio": {
+      "get": {
+        "description": "The bio as it stands: its current revision, written by the community (accounts a week old may edit it) or imported from Last.fm before anyone did. `revision_id` and `body` are `null` when there is none. The text is plain: show it as text, a paragraph at each blank line, `http://` and `https://` URLs as links marked `rel=\"nofollow ugc\"`, never embedded. An author is named unless the account is deleted or waiting to be, or blocks the signed-in viewer or is blocked by it; imported text and moderators' reverts have none.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Bio"
+                }
+              }
+            },
+            "description": "An artist's or album's bio as it stands."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Album not found"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Album bio",
+        "tags": [
+          "Bios"
+        ]
+      },
+      "put": {
+        "description": "Writes a new revision of the bio over `base_revision_id`, the revision the text was written over; if another came since, nothing is written (409: read the bio again and merge). Accounts may edit from 7 days after registering, unless a moderator suspended them, they wait to be deleted, or the anti-botting coordination detection has halved their weight or more over the last 28 days (403, telling them only that they can't edit now); nobody may edit a bio a moderator locked (403). An account writes 50 revisions a day at most, and 3 of one bio, so two accounts can't keep reverting each other. An edit that looks like spam (a link host repeated more than twice; a host its author added to two other bios in a week, or anyone to four in a day; a long text copied from another bio) is held for a moderator: 202, with `status: held` and why in `held_reason`, and the bio unchanged.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditBioRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BioRevision"
+                }
+              }
+            },
+            "description": "A revision of a bio."
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BioRevision"
+                }
+              }
+            },
+            "description": "Held for review: the bio is unchanged"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Text empty, too long, with too many links or unsafe characters, or the current text already"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No credential, or an invalid or expired one"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Needs a session or an API token with the `write` scope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Album not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The bio changed since `base_revision_id`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over 30 edits and reverts an hour for this account or 60 from this address, 50 revisions in 24 hours, or 3 of one bio; or over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Edit an album bio",
+        "tags": [
+          "Bios"
+        ]
+      }
+    },
+    "/v1/album/{id}/bio/history": {
+      "get": {
+        "description": "Every published revision of the bio, newest first, `limit` a page (50 by default, 200 at most): pass `next` as `before` for the following page; `next` is `null` on the last. Entries carry no `body`: `GET /v1/bio/revisions/{id}` has it. A revision a moderator hid stays, with `hidden: true` and neither summary nor text. Edits held for review aren't listed. An author is named unless the account is deleted or waiting to be, or blocks the signed-in viewer or is blocked by it; imported text and moderators' reverts have none.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "The previous page's `next`, for the page after it.",
+            "in": "query",
+            "name": "before",
+            "schema": {
+              "description": "The previous page's `next`, for the page after it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "Revisions per page: 50 by default, 200 at most.",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Revisions per page: 50 by default, 200 at most.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BioHistoryPage"
+                }
+              }
+            },
+            "description": "A page of a bio's history, newest revision first."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Invalid `before` cursor"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Album not found"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Album bio history",
+        "tags": [
+          "Bios"
+        ]
+      }
+    },
+    "/v1/album/{id}/bio/revert": {
+      "post": {
+        "description": "Restores the text of `revision_id`, an earlier published revision of this bio that no moderator hid, as a new revision (`kind: revert`) over `base_revision_id`, as an edit would; a revert is never held for review. Accounts may edit from 7 days after registering, unless a moderator suspended them, they wait to be deleted, or the anti-botting coordination detection has halved their weight or more over the last 28 days (403, telling them only that they can't edit now); nobody may edit a bio a moderator locked (403). An account writes 50 revisions a day at most, and 3 of one bio, so two accounts can't keep reverting each other. Reverts count with edits.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevertBioRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BioRevision"
+                }
+              }
+            },
+            "description": "A revision of a bio."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "`revision_id` isn't a published, visible revision of this bio, or its text is the current one"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No credential, or an invalid or expired one"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Needs a session or an API token with the `write` scope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Album not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The bio changed since `base_revision_id`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over 30 edits and reverts an hour for this account or 60 from this address, 50 revisions in 24 hours, or 3 of one bio; or over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Revert an album bio",
+        "tags": [
+          "Bios"
+        ]
+      }
+    },
     "/v1/album/{id}/image": {
       "post": {
         "description": "Adds a community cover candidate for the album (multipart `image` field). Uploads never replace the current cover directly — the most-liked candidate becomes the displayed cover once it clears the vote threshold. Returns the refreshed candidate list.",
@@ -5965,6 +6701,425 @@
         "summary": "Get an artist",
         "tags": [
           "Catalog"
+        ]
+      }
+    },
+    "/v1/artist/{id}/bio": {
+      "get": {
+        "description": "The bio as it stands: its current revision, written by the community (accounts a week old may edit it) or imported from Last.fm before anyone did. `revision_id` and `body` are `null` when there is none. The text is plain: show it as text, a paragraph at each blank line, `http://` and `https://` URLs as links marked `rel=\"nofollow ugc\"`, never embedded. An author is named unless the account is deleted or waiting to be, or blocks the signed-in viewer or is blocked by it; imported text and moderators' reverts have none.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Bio"
+                }
+              }
+            },
+            "description": "An artist's or album's bio as it stands."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Artist not found"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Artist bio",
+        "tags": [
+          "Bios"
+        ]
+      },
+      "put": {
+        "description": "Writes a new revision of the bio over `base_revision_id`, the revision the text was written over; if another came since, nothing is written (409: read the bio again and merge). Accounts may edit from 7 days after registering, unless a moderator suspended them, they wait to be deleted, or the anti-botting coordination detection has halved their weight or more over the last 28 days (403, telling them only that they can't edit now); nobody may edit a bio a moderator locked (403). An account writes 50 revisions a day at most, and 3 of one bio, so two accounts can't keep reverting each other. An edit that looks like spam (a link host repeated more than twice; a host its author added to two other bios in a week, or anyone to four in a day; a long text copied from another bio) is held for a moderator: 202, with `status: held` and why in `held_reason`, and the bio unchanged.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditBioRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BioRevision"
+                }
+              }
+            },
+            "description": "A revision of a bio."
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BioRevision"
+                }
+              }
+            },
+            "description": "Held for review: the bio is unchanged"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Text empty, too long, with too many links or unsafe characters, or the current text already"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No credential, or an invalid or expired one"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Needs a session or an API token with the `write` scope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Artist not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The bio changed since `base_revision_id`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over 30 edits and reverts an hour for this account or 60 from this address, 50 revisions in 24 hours, or 3 of one bio; or over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Edit an artist bio",
+        "tags": [
+          "Bios"
+        ]
+      }
+    },
+    "/v1/artist/{id}/bio/history": {
+      "get": {
+        "description": "Every published revision of the bio, newest first, `limit` a page (50 by default, 200 at most): pass `next` as `before` for the following page; `next` is `null` on the last. Entries carry no `body`: `GET /v1/bio/revisions/{id}` has it. A revision a moderator hid stays, with `hidden: true` and neither summary nor text. Edits held for review aren't listed. An author is named unless the account is deleted or waiting to be, or blocks the signed-in viewer or is blocked by it; imported text and moderators' reverts have none.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "The previous page's `next`, for the page after it.",
+            "in": "query",
+            "name": "before",
+            "schema": {
+              "description": "The previous page's `next`, for the page after it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "Revisions per page: 50 by default, 200 at most.",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Revisions per page: 50 by default, 200 at most.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BioHistoryPage"
+                }
+              }
+            },
+            "description": "A page of a bio's history, newest revision first."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Invalid `before` cursor"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Artist not found"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Artist bio history",
+        "tags": [
+          "Bios"
+        ]
+      }
+    },
+    "/v1/artist/{id}/bio/revert": {
+      "post": {
+        "description": "Restores the text of `revision_id`, an earlier published revision of this bio that no moderator hid, as a new revision (`kind: revert`) over `base_revision_id`, as an edit would; a revert is never held for review. Accounts may edit from 7 days after registering, unless a moderator suspended them, they wait to be deleted, or the anti-botting coordination detection has halved their weight or more over the last 28 days (403, telling them only that they can't edit now); nobody may edit a bio a moderator locked (403). An account writes 50 revisions a day at most, and 3 of one bio, so two accounts can't keep reverting each other. Reverts count with edits.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevertBioRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BioRevision"
+                }
+              }
+            },
+            "description": "A revision of a bio."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "`revision_id` isn't a published, visible revision of this bio, or its text is the current one"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No credential, or an invalid or expired one"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Needs a session or an API token with the `write` scope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Artist not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The bio changed since `base_revision_id`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over 30 edits and reverts an hour for this account or 60 from this address, 50 revisions in 24 hours, or 3 of one bio; or over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Revert an artist bio",
+        "tags": [
+          "Bios"
         ]
       }
     },
@@ -7183,6 +8338,75 @@
         "summary": "Revoke an API token",
         "tags": [
           "Auth"
+        ]
+      }
+    },
+    "/v1/bio/revisions/{id}": {
+      "get": {
+        "description": "One revision of a bio, with its text (`null` when a moderator hid it). An edit held for review, or one a moderator rejected, is its author's to see only. An author is named unless the account is deleted or waiting to be, or blocks the signed-in viewer or is blocked by it; imported text and moderators' reverts have none.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BioRevision"
+                }
+              }
+            },
+            "description": "A revision of a bio."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such revision, or one held or rejected and not yours"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "A bio revision",
+        "tags": [
+          "Bios"
         ]
       }
     },

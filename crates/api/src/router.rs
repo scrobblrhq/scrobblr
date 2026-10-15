@@ -35,7 +35,7 @@ use crate::{
     compat,
     errors::ErrorJson,
     handlers::{
-        account, auth, blocks, charts, community, connected_accounts, feed, imports, loves,
+        account, auth, bios, blocks, charts, community, connected_accounts, feed, imports, loves,
         rankings, scrobbles, similarity, tracks, uploads, users,
     },
     limits,
@@ -211,6 +211,23 @@ pub fn build(state: AppState) -> Router {
         .api_route(
             "/v1/track/{id}/love",
             delete_with(loves::unlove, loves::_unlove_doc),
+        )
+        // Bios
+        .api_route(
+            "/v1/artist/{id}/bio",
+            put_with(bios::edit_artist_bio, bios::_edit_artist_bio_doc),
+        )
+        .api_route(
+            "/v1/album/{id}/bio",
+            put_with(bios::edit_album_bio, bios::_edit_album_bio_doc),
+        )
+        .api_route(
+            "/v1/artist/{id}/bio/revert",
+            post_with(bios::revert_artist_bio, bios::_revert_artist_bio_doc),
+        )
+        .api_route(
+            "/v1/album/{id}/bio/revert",
+            post_with(bios::revert_album_bio, bios::_revert_album_bio_doc),
         )
         // Recommendations
         .api_route(
@@ -485,6 +502,27 @@ pub fn build(state: AppState) -> Router {
         .api_route(
             "/v1/track/{id}",
             get_with(tracks::get_track, tracks::_get_track_doc),
+        )
+        // Bios, naming their authors
+        .api_route(
+            "/v1/artist/{id}/bio",
+            get_with(bios::artist_bio, bios::_artist_bio_doc),
+        )
+        .api_route(
+            "/v1/album/{id}/bio",
+            get_with(bios::album_bio, bios::_album_bio_doc),
+        )
+        .api_route(
+            "/v1/artist/{id}/bio/history",
+            get_with(bios::artist_bio_history, bios::_artist_bio_history_doc),
+        )
+        .api_route(
+            "/v1/album/{id}/bio/history",
+            get_with(bios::album_bio_history, bios::_album_bio_history_doc),
+        )
+        .api_route(
+            "/v1/bio/revisions/{id}",
+            get_with(bios::get_revision, bios::_get_revision_doc),
         )
         // Lists naming people
         .api_route(

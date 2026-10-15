@@ -3,7 +3,12 @@
 /**
  * Artist
  */
-export type Artist = { id: number, name: string, name_normalized: string, mbid: string | null, image_url: string | null, bio: string | null, 
+export type Artist = { id: number, name: string, name_normalized: string, mbid: string | null, image_url: string | null, 
+/**
+ * The community bio's current text; `GET /v1/artist/{id}/bio` has its
+ * revision and author.
+ */
+bio: string | null, 
 /**
  * `null` unless at least `RANKING_MIN_LISTENERS` (5) users played it.
  */
