@@ -261,38 +261,74 @@ pub async fn user_page(
     before: Option<Cursor>,
     limit: i64,
 ) -> Result<Vec<(UserTag, Cursor)>, sqlx::Error> {
-    let rows = sqlx::query_as!(
-        UserTagRow,
-        r#"
-        SELECT ut.id, t.name AS tag, ut.entity_type, ut.entity_id,
-               COALESCE(a.name, al.title, tr.title) AS name,
-               COALESCE(al.artist_id, tr.artist_id) AS artist_id,
-               COALESCE(ala.name, tra.name) AS artist_name,
-               COALESCE(a.image_url, al.image_url, tal.image_url, tra.image_url) AS image_url,
-               ut.created_at AS tagged_at
-        FROM user_tags ut
-        JOIN tags t ON t.id = ut.tag_id
-        LEFT JOIN artists a  ON ut.entity_type = 'artist' AND a.id = ut.entity_id
-        LEFT JOIN albums al  ON ut.entity_type = 'album' AND al.id = ut.entity_id
-        LEFT JOIN artists ala ON ala.id = al.artist_id
-        LEFT JOIN tracks tr  ON ut.entity_type = 'track' AND tr.id = ut.entity_id
-        LEFT JOIN artists tra ON tra.id = tr.artist_id
-        LEFT JOIN albums tal ON tal.id = tr.album_id
-        WHERE ut.user_id = $1
-          AND ($2::text IS NULL OR (ut.entity_type = $2 AND ut.entity_id = $3))
-          AND ($4::timestamptz IS NULL OR (ut.created_at, ut.id) < ($4, $5))
-        ORDER BY ut.created_at DESC, ut.id DESC
-        LIMIT $6
-        "#,
-        user_id,
-        on.map(|(k, _)| k.as_str()),
-        on.map_or(0, |(_, id)| id),
-        before.map(|c| c.at),
-        before.map_or(0, |c| c.id),
-        limit,
-    )
-    .fetch_all(pool)
-    .await?;
+    // Two statements: a generic plan of one with an optional entity reads
+    // a heavy tagger's whole list to find one entity's few tags.
+    let rows = match on {
+        Some((kind, entity_id)) => {
+            sqlx::query_as!(
+                UserTagRow,
+                r#"
+                SELECT ut.id, t.name AS tag, ut.entity_type, ut.entity_id,
+                       COALESCE(a.name, al.title, tr.title) AS name,
+                       COALESCE(al.artist_id, tr.artist_id) AS artist_id,
+                       COALESCE(ala.name, tra.name) AS artist_name,
+                       COALESCE(a.image_url, al.image_url, tal.image_url, tra.image_url) AS image_url,
+                       ut.created_at AS tagged_at
+                FROM user_tags ut
+                JOIN tags t ON t.id = ut.tag_id
+                LEFT JOIN artists a  ON ut.entity_type = 'artist' AND a.id = ut.entity_id
+                LEFT JOIN albums al  ON ut.entity_type = 'album' AND al.id = ut.entity_id
+                LEFT JOIN artists ala ON ala.id = al.artist_id
+                LEFT JOIN tracks tr  ON ut.entity_type = 'track' AND tr.id = ut.entity_id
+                LEFT JOIN artists tra ON tra.id = tr.artist_id
+                LEFT JOIN albums tal ON tal.id = tr.album_id
+                WHERE ut.user_id = $1 AND ut.entity_type = $2 AND ut.entity_id = $3
+                  AND ($4::timestamptz IS NULL OR (ut.created_at, ut.id) < ($4, $5))
+                ORDER BY ut.created_at DESC, ut.id DESC
+                LIMIT $6
+                "#,
+                user_id,
+                kind.as_str(),
+                entity_id,
+                before.map(|c| c.at),
+                before.map_or(0, |c| c.id),
+                limit,
+            )
+            .fetch_all(pool)
+            .await?
+        }
+        None => {
+            sqlx::query_as!(
+                UserTagRow,
+                r#"
+                SELECT ut.id, t.name AS tag, ut.entity_type, ut.entity_id,
+                       COALESCE(a.name, al.title, tr.title) AS name,
+                       COALESCE(al.artist_id, tr.artist_id) AS artist_id,
+                       COALESCE(ala.name, tra.name) AS artist_name,
+                       COALESCE(a.image_url, al.image_url, tal.image_url, tra.image_url) AS image_url,
+                       ut.created_at AS tagged_at
+                FROM user_tags ut
+                JOIN tags t ON t.id = ut.tag_id
+                LEFT JOIN artists a  ON ut.entity_type = 'artist' AND a.id = ut.entity_id
+                LEFT JOIN albums al  ON ut.entity_type = 'album' AND al.id = ut.entity_id
+                LEFT JOIN artists ala ON ala.id = al.artist_id
+                LEFT JOIN tracks tr  ON ut.entity_type = 'track' AND tr.id = ut.entity_id
+                LEFT JOIN artists tra ON tra.id = tr.artist_id
+                LEFT JOIN albums tal ON tal.id = tr.album_id
+                WHERE ut.user_id = $1
+                  AND ($2::timestamptz IS NULL OR (ut.created_at, ut.id) < ($2, $3))
+                ORDER BY ut.created_at DESC, ut.id DESC
+                LIMIT $4
+                "#,
+                user_id,
+                before.map(|c| c.at),
+                before.map_or(0, |c| c.id),
+                limit,
+            )
+            .fetch_all(pool)
+            .await?
+        }
+    };
     Ok(rows
         .into_iter()
         .filter_map(|r| {
@@ -511,10 +547,11 @@ pub async fn recount(
         JOIN user_tags ut ON ut.entity_type = b.entity_type AND ut.entity_id = b.entity_id
         JOIN users u ON u.id = ut.user_id
         LEFT JOIN editing_suspensions s ON s.user_id = u.id AND (s.until IS NULL OR s.until > NOW())
-        LEFT JOIN LATERAL (
-            SELECT min(d.factor)::bigint AS factor FROM coordination_days d
-            WHERE d.user_id = u.id AND d.day >= $4
-        ) f ON TRUE
+        LEFT JOIN (
+            SELECT d.user_id, min(d.factor)::bigint AS factor FROM coordination_days d
+            WHERE d.day >= $4
+            GROUP BY d.user_id
+        ) f ON f.user_id = u.id
         GROUP BY 1, 2, 3
         "#,
         kinds,
