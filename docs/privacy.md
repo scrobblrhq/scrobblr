@@ -71,7 +71,12 @@ charts include only public accounts; follow lists, listener lists and
 search name only public ones; counts and catalog numbers include private
 ones, unnamed. Loved tracks are shown with the profile under the same
 rules and counted nowhere else: no "loved by" number is published for a
-track ([social.md](social.md#loved-tracks)). An account that blocks a viewer doesn't exist for that
+track ([social.md](social.md#loved-tracks)). The scrobbler APIs follow the
+same rules: Last.fm's `track.getInfo` gives a user's `userloved` and
+`userplaycount` only where their profile may be seen, ListenBrainz's
+feedback reads answer as the profile does (403 private, 404 leaving or
+blocking), and ListenBrainz's lists of who loved a recording aren't
+served. A ListenBrainz "hate" only takes a love back; it is not stored. An account that blocks a viewer doesn't exist for that
 viewer signed in, and neither appears in the other's lists of people;
 nobody is told who blocks them ([social.md](social.md#blocking-and-removing-followers)).
 

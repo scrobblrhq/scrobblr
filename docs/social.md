@@ -486,30 +486,102 @@ their own (account age, coordination), and is not done.
 
 ### From other apps
 
-The Last.fm-compatible API takes `track.love` and `track.unlove` (POST,
-signed and authenticated like `track.scrobble`: a session key or a
-scrobbler token, 120 requests a minute, within the love limits above;
-answered `<lfm status="ok"></lfm>` or `{}`; errors 6 for a missing artist
-or track and at the cap, 9, 13, 29), `user.getLovedTracks` (numbered
-pages, 50 by default, 1,000 at most) and `user.getRecentTracks` with
-`extended=1` (the artist as an object, and `loved`), as Pano Scrobbler
-asks for them. Audioscrobbler 1.2 plays rated `L` love their track. `track.getInfo`
-(by `artist`/`track` or `mbid`, never creating a track) gives `userloved`
-and `userplaycount` for a `username`, or the session's account, only
-where that profile may be seen (left out otherwise, without saying why),
-no `listeners`, and `playcount` only past `RANKING_MIN_LISTENERS`.
-ListenBrainz feedback (`/1/feedback/recording-feedback`, score 1 loves, 0
-unloves, -1 unloves and isn't stored; `get-feedback`,
-`get-feedback-for-recordings`, as visible as the profile) resolves a
-`recording_mbid` to the matched track, else a client's hint, and a
-`recording_msid` the server handed out (a UUID holding the track id); a
-love of a recording the catalog lacks is a 404. ListenBrainz's
-per-recording lists (who loved it, how many) aren't served. Each
-love records its source (`scrobblr`, `lastfm`, `audioscrobbler`,
-`lastfm_import`) and the client. A scrobbler token may love, as a Last.fm
-session may: it is what Last.fm apps do with it, and a leaked one can add
-or take back loves, nothing more. [scrobbler-clients.md](scrobbler-clients.md)
-has what each app does.
+Each love records its source (`scrobblr`, `lastfm`, `audioscrobbler`,
+`listenbrainz`, `lastfm_import`) and, where the protocol names one, the
+client. A scrobbler token may love, as a Last.fm session may: it is what
+those apps do with it, and a leaked one can add or take back loves,
+nothing more. Every love and unlove counts against the same hourly limits
+and the cap as the native routes. [scrobbler-clients.md](scrobbler-clients.md)
+says what each app does.
+
+**Last.fm-compatible API** (`/2.0/`):
+
+- `track.love` and `track.unlove` (POST, signed and authenticated like
+  `track.scrobble`: a session key or a scrobbler token, 120 requests a
+  minute). Answered `<lfm status="ok"></lfm>` or `{}`; errors 6 for a
+  missing artist or track and at the cap, 9, 13, 29. A love of a track the
+  catalog doesn't have creates it, as scrobbling would; an unlove never
+  does.
+- `user.getLovedTracks` (numbered pages, 50 by default, 1,000 at most) and
+  `user.getRecentTracks` with `extended=1` (the artist as an object, and
+  `loved`), as Pano Scrobbler asks for them.
+- `track.getInfo`, by `artist` and `track` (normalized as scrobbling does:
+  case and surrounding spaces aside) or by `mbid`, never creating a track
+  (error 6 when the catalog doesn't have it). With `username`, or with a
+  session and no `username`, it adds `userloved` and `userplaycount` (the
+  profile's count, duplicates left out) where that profile may be seen:
+  anyone's public one, the session's own private one. They are left out,
+  without saying why, for a private account, one waiting to be deleted,
+  one blocking the session's account, or a name that doesn't exist. There
+  is no `listeners` (never kept), and `playcount` only for a track
+  `RANKING_MIN_LISTENERS` accounts played, as on the track page.
+  `autocorrect` is accepted and ignored. pylast reads it; Pano Scrobbler
+  and Web Scrobbler ask last.fm itself for track info.
+
+```xml
+<lfm status="ok"><track><name>Roads</name><mbid>…</mbid><url></url>
+<duration>305000</duration><streamable fulltrack="0">0</streamable>
+<artist><name>Portishead</name><mbid></mbid><url></url></artist>
+<album><artist>Portishead</artist><title>Dummy</title><mbid></mbid><url></url>
+<image size="small">https://…</image>…</album>
+<userplaycount>12</userplaycount><userloved>1</userloved><toptags></toptags></track></lfm>
+```
+
+**Audioscrobbler 1.2**: a submitted play rated `L` loves its track.
+
+**ListenBrainz-compatible API** (`/1/feedback/…`, the scrobbler token as
+`Authorization: Token …`):
+
+- `POST /1/feedback/recording-feedback` with `recording_mbid` or
+  `recording_msid`, and `score`: 1 loves the recording's track, 0 takes
+  the love back. -1 (hate) takes the love back too, since a recording has
+  one score on ListenBrainz, and is not stored: nothing about hates is
+  kept or shown. 400 for any other score, no recording, an invalid UUID
+  or another key; 404 for a love of a recording the catalog doesn't have
+  (scrobble it first; nothing is created); an unlove or hate of one is
+  `ok`; 409 at the cap; 429 past the limits.
+- **Recordings**: an MBID names the track MusicBrainz enrichment matched
+  to it, else the most played track a client sent it for as a hint that
+  enrichment hasn't decided yet nor rejected it for (indexed, migration
+  `0036`). An MSID is one this server handed out: a version-8 UUID holding
+  the track's id (`5c40bb1e-7e57-8001-8000-…`), stored nowhere, so an MSID
+  from listenbrainz.org never names anything here. `submit-listens` with
+  `return_msid` answers a `playing_now` with the track's
+  (`{"status": "ok", "recording_msid": "…"}`), as ListenBrainz does; Pano
+  Scrobbler keeps it on its now-playing notification, whose love button
+  sends it back.
+- `GET /1/feedback/user/{user_name}/get-feedback` (`count` 25 by default,
+  1,000 at most, `offset`, `score`, `metadata=true`): the user's loves,
+  newest first. `score=-1` lists nothing; 0 or anything else is a 400.
+- `GET` or `POST /1/feedback/user/{user_name}/get-feedback-for-recordings`
+  (`recording_msids`, `recording_mbids`, 1,000 at most): the score of each,
+  1 if loved, else 0, unknown recordings included.
+- Both reads are as visible as the profile: 404 for an account that
+  doesn't exist, waits to be deleted or blocks the token's account, 403
+  for a private one but to its owner's token. Like ListenBrainz they take
+  no token; an invalid one is ignored, a valid one counts against its
+  account's request limit.
+- ListenBrainz's per-recording lists (who loved a recording, and how many:
+  `/1/feedback/recording/…`) aren't served: loves have no public count.
+
+```json
+{
+  "feedback": [
+    { "created": 1760352067, "recording_mbid": null,
+      "recording_msid": "5c40bb1e-7e57-8001-8000-000000000729", "score": 1,
+      "track_metadata": { "artist_name": "Portishead", "track_name": "Roads",
+        "release_name": "Dummy",
+        "additional_info": { "duration_ms": 305000,
+          "recording_msid": "5c40bb1e-7e57-8001-8000-000000000729",
+          "recording_mbid": null } },
+      "user_id": "ana" }
+  ],
+  "count": 1, "total_count": 132, "offset": 0
+}
+```
+
+A track with an MBID also carries `recording_mbid` and `mbid_mapping`
+(`recording_mbid`, `release_mbid`, `artist_mbids`).
 
 ### Imported from Last.fm
 
@@ -567,6 +639,31 @@ the 310,414 loves and with the table emptied, twice each in turn: p50
 25.6 and 28.8 ms with, 21.4 and 29.1 ms without, within this desktop's
 run-to-run noise. Deleting 50,000 loves, what they add to an erase,
 takes 63–83 ms.
+
+The scrobbler APIs' reads and loves, on the same data loaded again
+(310,859 loves), against the account with 38 loves and the one at 49,999,
+over HTTP, p50 / p99:
+
+| | p50 | p99 |
+| --- | --- | --- |
+| `track.getInfo` by name, no user (oha, 200 requests) | 1.4 ms | 6.0 ms |
+| the same with `username` / with the account's own session | 3.1 / 3.1 ms | 26.2 / 11.9 ms |
+| by MBID: matched, with `username` / a client's hint, no user | 3.5 / 2.2 ms | 8.6 / 5.2 ms |
+| a track the catalog doesn't have (error 6) | 0.5 ms | 1.5 ms |
+| ListenBrainz love by MSID / unlove / a hate of nothing loved (200 curls) | 7.1 / 5.8 / 3.3 ms | 20.1 / 36.5 / 5.4 ms |
+| a ListenBrainz love at 49,999 loves, then past the cap (409) | 9.2 ms | 18.5 ms |
+| `get-feedback`, 38 loves, plain / with metadata | 1.6 / 2.3 ms | 4.8 / 4.2 ms |
+| `get-feedback`, 49,999 loves, 1,000 with metadata / 25 at offset 49,000 | 22.3 / 6.5 ms | 34.0 / 9.2 ms |
+| `get-feedback-for-recordings`, 100 MSIDs (half loved) | 7.8 ms | 10.0 ms |
+
+The track was the population's most played (92,751 plays), so its
+`playcount` is served (the listener test is a few index probes);
+`userplaycount` is the user's rows of the daily aggregate by (track, user)
+and their duplicate flags by (user, day): 0.6 ms in psql, 0.08 ms for the
+flags with 9,266 of the track's plays flagged as duplicates. One unlove
+took 268 ms (the rest under 37 ms), unexplained. A token's requests count
+against its account's 120 a minute: an oha run past that got 429s, as it
+should.
 
 ```bash
 psql "$SCRATCH_URL" -v users=4000 -v days=60 -f scripts/synthetic/population.sql
