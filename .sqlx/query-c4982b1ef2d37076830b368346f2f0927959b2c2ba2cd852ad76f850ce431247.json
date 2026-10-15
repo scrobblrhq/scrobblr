@@ -1,0 +1,70 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT r.created_at, r.revision_id, t.name AS \"tag?\", r.entity_type, r.entity_id,\n               r.reason, r.note, r.status, r.resolved_at\n        FROM reports r\n        LEFT JOIN tags t ON t.id = r.tag_id\n        WHERE r.reporter_id = $1\n        ORDER BY r.created_at\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 1,
+        "name": "revision_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "tag?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "entity_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "entity_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "note",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "resolved_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "c4982b1ef2d37076830b368346f2f0927959b2c2ba2cd852ad76f850ce431247"
+}

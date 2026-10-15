@@ -406,6 +406,30 @@ mod tests {
                 .unwrap();
             assert_eq!(app.send(req).await.0, StatusCode::OK);
 
+            // A tag, a bio edit (written over by another account, whose
+            // revision isn't the user's) and a report.
+            let (_, _, editor) = app.other_user("editorqz").await;
+            sqlx::query("UPDATE users SET created_at = NOW() - INTERVAL '30 days'")
+                .execute(&app.pool)
+                .await
+                .unwrap();
+            let tags = format!("/v1/artist/{band}/tags");
+            let (status, _) = app.api(Method::POST, &tags, Some(json!({ "tags": ["Noise"] }))).await;
+            assert_eq!(status, StatusCode::OK);
+            let bio = format!("/v1/artist/{band}/bio");
+            let (status, mine) = app
+                .api(Method::PUT, &bio, Some(json!({ "body": "My =text.", "summary": "first", "base_revision_id": null })))
+                .await;
+            assert_eq!(status, StatusCode::OK);
+            let (status, _) = app
+                .api_as(&editor, Method::PUT, &bio, Some(json!({ "body": "Theirs.", "base_revision_id": mine["id"] })))
+                .await;
+            assert_eq!(status, StatusCode::OK);
+            let (status, _) = app
+                .api(Method::POST, "/v1/reports", Some(json!({ "tag": "noise", "reason": "spam" })))
+                .await;
+            assert_eq!(status, StatusCode::NO_CONTENT);
+
             // Not with an API token, even one that may read.
             let (status, _) = export(&app, &token).await;
             assert_eq!(status, StatusCode::FORBIDDEN);
@@ -416,18 +440,20 @@ mod tests {
             let files = unzip(bytes);
             let names: Vec<&str> = files.iter().map(|(n, _)| n.as_str()).collect();
             assert_eq!(
-                names[..6],
+                names[..8],
                 [
                     "README.txt",
                     "account.json",
                     "scrobbles.csv",
                     "scrobbles.json",
                     "loved_tracks.csv",
-                    "loved_tracks.json"
+                    "loved_tracks.json",
+                    "tags.json",
+                    "bio_edits.json"
                 ]
             );
-            assert!(names[6].starts_with("uploads/avatars/"), "{names:?}");
-            assert_eq!(files[6].1[..2], [0xff, 0xd8], "the avatar, a JPEG");
+            assert!(names[8].starts_with("uploads/avatars/"), "{names:?}");
+            assert_eq!(files[8].1[..2], [0xff, 0xd8], "the avatar, a JPEG");
 
             let file = |name: &str| {
                 let (_, content) = files.iter().find(|(n, _)| n == name).unwrap();
@@ -440,7 +466,7 @@ mod tests {
                 account["profile"]["email"],
                 format!("{}@test", app.username)
             );
-            assert_eq!(account["profile"]["image_file"], names[6]);
+            assert_eq!(account["profile"]["image_file"], names[8]);
             assert_eq!(account["api_tokens"][0]["name"], "player");
             assert_eq!(account["scrobbler_credentials"][0]["name"], "pano");
             assert_eq!(account["sessions"][0]["current"], true);
@@ -489,6 +515,17 @@ mod tests {
                 .await
                 .unwrap();
             assert!(!everything.contains(&hash));
+
+            assert_eq!(account["reports"][0]["tag"], "noise");
+            assert_eq!(account["reports"][0]["status"], "open");
+            assert_eq!(account["editing_suspension"], Value::Null);
+            let tags: Vec<Value> = serde_json::from_str(&file("tags.json")).unwrap();
+            assert_eq!(tags.len(), 1);
+            assert_eq!((tags[0]["tag"].as_str(), tags[0]["entity_name"].as_str()), (Some("noise"), Some("Band, \"The\"")));
+            let edits: Vec<Value> = serde_json::from_str(&file("bio_edits.json")).unwrap();
+            assert_eq!(edits.len(), 1, "the other account's revision isn't the user's");
+            assert_eq!(edits[0]["body"], "My =text.");
+            assert_eq!((edits[0]["status"].as_str(), edits[0]["summary"].as_str()), (Some("published"), Some("first")));
 
             let csv = file("scrobbles.csv");
             let lines: Vec<&str> = csv.lines().collect();

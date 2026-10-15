@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT ut.created_at AS tagged_at, t.name AS tag, ut.entity_type, ut.entity_id,\n               COALESCE(a.name, al.title, tr.title) AS entity_name,\n               COALESCE(ala.name, tra.name) AS artist,\n               ut.source, c.name AS \"client_name?\"\n        FROM user_tags ut\n        JOIN tags t ON t.id = ut.tag_id\n        LEFT JOIN artists a  ON ut.entity_type = 'artist' AND a.id = ut.entity_id\n        LEFT JOIN albums al  ON ut.entity_type = 'album' AND al.id = ut.entity_id\n        LEFT JOIN artists ala ON ala.id = al.artist_id\n        LEFT JOIN tracks tr  ON ut.entity_type = 'track' AND tr.id = ut.entity_id\n        LEFT JOIN artists tra ON tra.id = tr.artist_id\n        LEFT JOIN scrobble_clients c ON c.id = ut.client_id\n        WHERE ut.user_id = $1\n        ORDER BY ut.created_at, ut.id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "tagged_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 1,
+        "name": "tag",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "entity_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "entity_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "entity_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "artist",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "source",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "client_name?",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      null,
+      null,
+      false,
+      false
+    ]
+  },
+  "hash": "d047b560578adaef004c7a4a90739a3e1110eb0bbbae913af7ba4e36d3a943dd"
+}

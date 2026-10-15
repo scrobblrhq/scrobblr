@@ -125,6 +125,10 @@ async fn write(
     let written = scrobbles(state, user.id, out, Format::Csv, now).await?;
     scrobbles(state, user.id, out, Format::Json, now).await?;
     loved_tracks(state, user.id, out, now).await?;
+    let tags = export_db::tags(&state.db, user.id).await?;
+    let json = serde_json::to_vec_pretty(&tags).expect("tags serialize");
+    out.file("tags.json", now, &json).await?;
+    bio_edits(state, user.id, out, now).await?;
 
     for (path, key) in uploads {
         match state.media.read(&key).await {
@@ -262,6 +266,36 @@ async fn loved_tracks(
     out.file("loved_tracks.json", now, json.as_bytes()).await
 }
 
+/// Every bio revision the user wrote, a page of them a statement.
+async fn bio_edits(
+    state: &AppState,
+    user_id: i64,
+    out: &mut Out,
+    now: DateTime<Utc>,
+) -> Result<(), Failure> {
+    out.zip.start("bio_edits.json", now);
+    out.zip.write(b"[");
+    let (mut after, mut first) = (0, true);
+    loop {
+        let page = export_db::revisions_page(&state.db, user_id, after, 500).await?;
+        let mut text = String::new();
+        for r in &page {
+            text.push_str(if first { "\n" } else { ",\n" });
+            text.push_str(&serde_json::to_string(r).expect("a revision serializes"));
+            first = false;
+        }
+        out.zip.write(text.as_bytes());
+        out.flush_if_full().await?;
+        match page.last() {
+            Some(r) if page.len() == 500 => after = r.id,
+            _ => break,
+        }
+    }
+    out.zip.write(b"\n]\n");
+    out.zip.finish_entry();
+    out.flush_if_full().await
+}
+
 /// A value a spreadsheet would run as a formula gets a `'` in front.
 fn csv_field(text: &mut String, value: &str) {
     let formula = value.starts_with(['=', '+', '-', '@', '\t', '\r']);
@@ -393,6 +427,8 @@ async fn account(
         "recommended_artists": recommendations,
         "taste_neighbours": neighbours,
         "skipped_recommendations": similarity_db::skips(db, user.id).await?,
+        "reports": export_db::reports(db, user.id).await?,
+        "editing_suspension": export_db::editing_suspension(db, user.id).await?,
         "not_included": NOT_INCLUDED
             .iter()
             .map(|(what, why)| json!({ "what": what, "why": why }))
@@ -427,6 +463,10 @@ pub const NOT_INCLUDED: &[(&str, &str)] = &[
         "Their decisions, about you: the export holds what you did, and nobody is told who blocked or removed them.",
     ),
     (
+        "The weight of your tags in the tag counts, and other people's revisions of the bios you edited",
+        "The weight is computed from your account's age and the anti-abuse factors above; tags.json has every tag you put on something. Other people's revisions are theirs, and public in each bio's history.",
+    ),
+    (
         "Daily aggregates, catalog counters and album votes",
         "Totals computed from your scrobbles, and the album each track's last play naming one named, which counts towards the album the track is filed under: scrobbles.csv has them all.",
     ),
@@ -447,8 +487,9 @@ account.json     your profile and settings, follows, the accounts you block
                  values), linked accounts (never their OAuth tokens), imports,
                  now playing, your similarity setting, the artists
                  recommended to you and your taste neighbours as last
-                 computed, the recommendations you skipped, and what is not
-                 included and why
+                 computed, the recommendations you skipped, your reports
+                 of bio revisions and tags, an editing suspension if a
+                 moderator set one, and what is not included and why
 scrobbles.csv    every scrobble, oldest first: when, artist, track, album,
                  the lengths the client reported, the client (as it called
                  itself, and as the server identified it), the import that
@@ -462,6 +503,13 @@ loved_tracks.csv the tracks you love, oldest love first: when, artist,
                  lastfm_import) with the client or import that sent it
 loved_tracks.json
                  the same loves, as JSON
+tags.json        the tags you put on artists, albums and tracks, oldest
+                 first, with how each came (scrobblr or lastfm)
+bio_edits.json   every revision of an artist's or album's bio you wrote,
+                 oldest first, with its text, whether it was published,
+                 held for review or rejected, and whether a moderator hid
+                 it; published ones stay in the bio's history, without
+                 your name, after your account is deleted
 uploads/         your avatar and the artist and album images you uploaded
 
 Times are UTC. In the CSV files, a value that starts with = + - @ is written

@@ -337,3 +337,143 @@ pub async fn origin_recorded_at(
     .fetch_optional(pool)
     .await
 }
+
+#[derive(Debug, Serialize)]
+pub struct ExportedTag {
+    pub tagged_at: DateTime<Utc>,
+    pub tag: String,
+    pub entity_type: String,
+    pub entity_id: i64,
+    /// The artist's name, or the album's or track's title.
+    pub entity_name: Option<String>,
+    pub artist: Option<String>,
+    /// `scrobblr` or `lastfm`.
+    pub source: String,
+    pub client_name: Option<String>,
+}
+
+/// Every tag the user put on something, oldest first (50,000 at most).
+pub async fn tags(pool: &PgPool, user_id: i64) -> Result<Vec<ExportedTag>, sqlx::Error> {
+    sqlx::query_as!(
+        ExportedTag,
+        r#"
+        SELECT ut.created_at AS tagged_at, t.name AS tag, ut.entity_type, ut.entity_id,
+               COALESCE(a.name, al.title, tr.title) AS entity_name,
+               COALESCE(ala.name, tra.name) AS artist,
+               ut.source, c.name AS "client_name?"
+        FROM user_tags ut
+        JOIN tags t ON t.id = ut.tag_id
+        LEFT JOIN artists a  ON ut.entity_type = 'artist' AND a.id = ut.entity_id
+        LEFT JOIN albums al  ON ut.entity_type = 'album' AND al.id = ut.entity_id
+        LEFT JOIN artists ala ON ala.id = al.artist_id
+        LEFT JOIN tracks tr  ON ut.entity_type = 'track' AND tr.id = ut.entity_id
+        LEFT JOIN artists tra ON tra.id = tr.artist_id
+        LEFT JOIN scrobble_clients c ON c.id = ut.client_id
+        WHERE ut.user_id = $1
+        ORDER BY ut.created_at, ut.id
+        "#,
+        user_id,
+    )
+    .fetch_all(pool)
+    .await
+}
+
+#[derive(Debug, Serialize)]
+pub struct ExportedRevision {
+    pub id: i64,
+    pub entity_type: String,
+    pub entity_id: i64,
+    pub entity_name: Option<String>,
+    /// `edit` or `revert`.
+    pub kind: String,
+    /// `published`, `held` (waiting for review) or `rejected`.
+    pub status: String,
+    pub held_reason: Option<String>,
+    pub parent_id: Option<i64>,
+    pub reverted_to: Option<i64>,
+    pub summary: String,
+    pub body: String,
+    pub created_at: DateTime<Utc>,
+    /// When a moderator hid it from everyone else.
+    pub hidden_at: Option<DateTime<Utc>>,
+}
+
+/// The user's bio revisions after `after`, oldest first.
+pub async fn revisions_page(
+    pool: &PgPool,
+    user_id: i64,
+    after: i64,
+    limit: i64,
+) -> Result<Vec<ExportedRevision>, sqlx::Error> {
+    sqlx::query_as!(
+        ExportedRevision,
+        r#"
+        SELECT r.id, r.entity_type, r.entity_id, COALESCE(a.name, al.title) AS entity_name,
+               r.kind, r.status, r.held_reason, r.parent_id, r.reverted_to, r.summary, r.body,
+               r.created_at, r.hidden_at
+        FROM bio_revisions r
+        LEFT JOIN artists a ON r.entity_type = 'artist' AND a.id = r.entity_id
+        LEFT JOIN albums al ON r.entity_type = 'album' AND al.id = r.entity_id
+        WHERE r.author_id = $1 AND r.id > $2
+        ORDER BY r.id
+        LIMIT $3
+        "#,
+        user_id,
+        after,
+        limit,
+    )
+    .fetch_all(pool)
+    .await
+}
+
+#[derive(Debug, Serialize)]
+pub struct ExportedReport {
+    pub created_at: DateTime<Utc>,
+    pub revision_id: Option<i64>,
+    pub tag: Option<String>,
+    pub entity_type: Option<String>,
+    pub entity_id: Option<i64>,
+    pub reason: String,
+    pub note: String,
+    /// `open`, `resolved` or `dismissed`.
+    pub status: String,
+    pub resolved_at: Option<DateTime<Utc>>,
+}
+
+pub async fn reports(pool: &PgPool, user_id: i64) -> Result<Vec<ExportedReport>, sqlx::Error> {
+    sqlx::query_as!(
+        ExportedReport,
+        r#"
+        SELECT r.created_at, r.revision_id, t.name AS "tag?", r.entity_type, r.entity_id,
+               r.reason, r.note, r.status, r.resolved_at
+        FROM reports r
+        LEFT JOIN tags t ON t.id = r.tag_id
+        WHERE r.reporter_id = $1
+        ORDER BY r.created_at
+        "#,
+        user_id,
+    )
+    .fetch_all(pool)
+    .await
+}
+
+#[derive(Debug, Serialize)]
+pub struct ExportedSuspension {
+    pub since: DateTime<Utc>,
+    /// `null`: until lifted.
+    pub until: Option<DateTime<Utc>>,
+    pub reason: String,
+}
+
+pub async fn editing_suspension(
+    pool: &PgPool,
+    user_id: i64,
+) -> Result<Option<ExportedSuspension>, sqlx::Error> {
+    sqlx::query_as!(
+        ExportedSuspension,
+        "SELECT created_at AS since, until, reason FROM editing_suspensions WHERE user_id = $1",
+        user_id,
+    )
+    .fetch_optional(pool)
+    .await
+}

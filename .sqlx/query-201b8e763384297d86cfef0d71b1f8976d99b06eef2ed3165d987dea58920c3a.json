@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT created_at AS since, until, reason FROM editing_suspensions WHERE user_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "since",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 1,
+        "name": "until",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "reason",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "201b8e763384297d86cfef0d71b1f8976d99b06eef2ed3165d987dea58920c3a"
+}
