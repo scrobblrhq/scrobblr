@@ -262,7 +262,7 @@ mod tests {
 
     #[test]
     fn accepts_ordinary_usernames() {
-        for name in ["ab", "chewawi", "user_name", "a-b.c", "  padded  ", "X9"] {
+        for name in ["ab", "alice", "user_name", "a-b.c", "  padded  ", "X9"] {
             assert!(validate_username(name, RESERVED).is_ok(), "{name}");
         }
     }
@@ -343,8 +343,8 @@ mod tests {
 
     #[test]
     fn accepts_strong_passwords() {
-        assert!(validate_password("Tr0ub4dor&3xyz", "chewawi", "c@x.com").is_ok());
-        assert!(validate_password("correct horse Battery 9", "chewawi", "c@x.com").is_ok());
+        assert!(validate_password("Tr0ub4dor&3xyz", "alice", "alice@example.com").is_ok());
+        assert!(validate_password("correct horse Battery 9", "alice", "alice@example.com").is_ok());
     }
 
     #[test]
@@ -358,27 +358,31 @@ mod tests {
         ];
         for (input, expected) in cases {
             assert_eq!(
-                validate_password(input, "chewawi", "c@x.com").unwrap_err(),
+                validate_password(input, "alice", "alice@example.com").unwrap_err(),
                 expected,
                 "{input}"
             );
         }
 
         assert_eq!(
-            validate_password(&format!("Aa1!{}", "x".repeat(200)), "chewawi", "c@x.com")
-                .unwrap_err(),
+            validate_password(
+                &format!("Aa1!{}", "x".repeat(200)),
+                "alice",
+                "alice@example.com"
+            )
+            .unwrap_err(),
             ValidationError::PasswordTooLong
         );
         assert_eq!(
-            validate_password("Passw0rd", "chewawi", "c@x.com").unwrap_err(),
+            validate_password("Passw0rd", "alice", "alice@example.com").unwrap_err(),
             ValidationError::PasswordTooShort
         );
         assert_eq!(
-            validate_password("Chewawi_2026!", "chewawi", "c@x.com").unwrap_err(),
+            validate_password("Alice_2026!xy", "alice", "user@example.com").unwrap_err(),
             ValidationError::PasswordContainsIdentity
         );
         assert_eq!(
-            validate_password("Rafael_2026!x", "user", "rafael@x.com").unwrap_err(),
+            validate_password("Alice_2026!xy", "user", "alice@example.com").unwrap_err(),
             ValidationError::PasswordContainsIdentity
         );
         assert_eq!(
@@ -392,8 +396,8 @@ mod tests {
         assert_eq!(sanitize_display_name(None).unwrap(), None);
         assert_eq!(sanitize_display_name(Some("   ")).unwrap(), None);
         assert_eq!(
-            sanitize_display_name(Some("  Chewawi  ")).unwrap(),
-            Some("Chewawi".into())
+            sanitize_display_name(Some("  Alice  ")).unwrap(),
+            Some("Alice".into())
         );
         // Unicode is fine in a display name; only unrenderable input is not.
         assert!(sanitize_display_name(Some("Sébastien 🎵")).is_ok());

@@ -76,10 +76,10 @@ mod tests {
                 assert_eq!(status, StatusCode::BAD_REQUEST, "{name}");
             }
             let (status, profile) = app
-                .api(Method::PATCH, "/v1/user/me", Some(rename("  Chewawi ")))
+                .api(Method::PATCH, "/v1/user/me", Some(rename("  Alice ")))
                 .await;
             assert_eq!(status, StatusCode::OK);
-            assert_eq!(profile["display_name"], "Chewawi");
+            assert_eq!(profile["display_name"], "Alice");
 
             let (status, _) = app
                 .api(Method::POST, "/v1/auth/tokens", Some(json!({ "name": " " })))
