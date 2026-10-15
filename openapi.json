@@ -19,6 +19,21 @@
         ],
         "type": "object"
       },
+      "AddTagsRequest": {
+        "properties": {
+          "tags": {
+            "description": "Up to 10 tags, each 1 to 40 letters, digits, spaces and `- & ' . + ! _`\n (normalized: lowercase, NFKC, single spaces).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "tags"
+        ],
+        "type": "object"
+      },
       "Album": {
         "description": "Album. Its tracks are those the catalog files under it (each track has\n one album, the one the accounts playing it named, decided as\n docs/social.md says), and their plays are its plays.",
         "properties": {
@@ -1321,6 +1336,30 @@
         ],
         "type": "object"
       },
+      "EntityTags": {
+        "description": "The signed-in user's tags on one artist, album or track.",
+        "properties": {
+          "entity_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "entity_type": {
+            "$ref": "#/components/schemas/CatalogKind"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "entity_type",
+          "entity_id",
+          "tags"
+        ],
+        "type": "object"
+      },
       "ErrorBody": {
         "description": "The body of every error the native API answers with.",
         "properties": {
@@ -1674,6 +1713,22 @@
         ],
         "type": "object"
       },
+      "IdTagPath": {
+        "properties": {
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "tag": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tag"
+        ],
+        "type": "object"
+      },
       "ImageCandidate": {
         "description": "A community-uploaded image candidate for an artist or album. Uploads add\n candidates rather than replacing the image; the most-liked candidate\n (once it clears the vote threshold) becomes the entity's displayed image.",
         "properties": {
@@ -1854,6 +1909,48 @@
           "entries",
           "total"
         ],
+        "type": "object"
+      },
+      "MyTagsQuery": {
+        "properties": {
+          "album": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "artist": {
+            "description": "Only the tags on this artist (or album, or track: one of the three).",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "before": {
+            "description": "The previous page's `next`, for the page after it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "description": "Entries per page: 50 by default, 200 at most.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "track": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
         "type": "object"
       },
       "NewCommentRequest": {
@@ -3307,6 +3404,119 @@
         },
         "type": "object"
       },
+      "TagPath": {
+        "description": "A tag in a path: normalized as tags are, so case and spacing don't\n matter.",
+        "properties": {
+          "tag": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tag"
+        ],
+        "type": "object"
+      },
+      "TaggedEntity": {
+        "description": "An artist, album or track carrying a tag.",
+        "properties": {
+          "artist_id": {
+            "description": "An album's or track's artist; `null` for an artist.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "artist_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "entity_type": {
+            "$ref": "#/components/schemas/CatalogKind"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "image_url": {
+            "description": "The artist's image or the album's cover (a track's album's).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "description": "The artist's name, or the album's or track's title.",
+            "type": "string"
+          },
+          "position": {
+            "description": "1 for the most tagged.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "taggers": {
+            "description": "As [`TopTag::taggers`].",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "position",
+          "entity_type",
+          "id",
+          "name",
+          "taggers"
+        ],
+        "type": "object"
+      },
+      "TaggedEntityPage": {
+        "description": "A page of the artists, albums or tracks a tag is on, most taggers\n first.",
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/TaggedEntity"
+            },
+            "type": "array"
+          },
+          "tag": {
+            "type": "string"
+          },
+          "total": {
+            "description": "Entries in every page.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tag",
+          "entries",
+          "total"
+        ],
+        "type": "object"
+      },
+      "TaggedQuery": {
+        "properties": {
+          "limit": {
+            "description": "Entries per page: 50 by default, 200 at most.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "offset": {
+            "description": "Positions to skip, 0 by default.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "TokenPath": {
         "properties": {
           "token": {
@@ -3426,6 +3636,48 @@
           "user_id",
           "username",
           "play_count"
+        ],
+        "type": "object"
+      },
+      "TopTag": {
+        "description": "A tag as many accounts put it on an artist, album or track.",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "taggers": {
+            "description": "The accounts that put it there, weighed as the rankings weigh\n listeners (a week-old account in full, one the anti-botting\n coordination detection flagged at its factor), to the nearest whole;\n at least `RANKING_MIN_LISTENERS` (5).",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "taggers"
+        ],
+        "type": "object"
+      },
+      "TopTags": {
+        "description": "An artist's, album's or track's tags, most taggers first.",
+        "properties": {
+          "entity_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "entity_type": {
+            "$ref": "#/components/schemas/CatalogKind"
+          },
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/TopTag"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "entity_type",
+          "entity_id",
+          "tags"
         ],
         "type": "object"
       },
@@ -3889,6 +4141,111 @@
         "required": [
           "id",
           "username"
+        ],
+        "type": "object"
+      },
+      "UserTag": {
+        "description": "A tag a user put on an artist, album or track.",
+        "properties": {
+          "artist_id": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "artist_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "entity_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "entity_type": {
+            "$ref": "#/components/schemas/CatalogKind"
+          },
+          "image_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "description": "As [`TaggedEntity::name`].",
+            "type": "string"
+          },
+          "tag": {
+            "type": "string"
+          },
+          "tagged_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tag",
+          "entity_type",
+          "entity_id",
+          "name",
+          "tagged_at"
+        ],
+        "type": "object"
+      },
+      "UserTagCount": {
+        "description": "A tag in a user's vocabulary.",
+        "properties": {
+          "count": {
+            "description": "The artists, albums and tracks the user put it on.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "count"
+        ],
+        "type": "object"
+      },
+      "UserTagPage": {
+        "description": "A page of the signed-in user's tags, newest first.",
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/UserTag"
+            },
+            "type": "array"
+          },
+          "next": {
+            "description": "`before` for the next page; `null` on the last one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "entries"
+        ],
+        "type": "object"
+      },
+      "UserTags": {
+        "description": "The tags a user uses, most used first.",
+        "properties": {
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/UserTagCount"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "tags"
         ],
         "type": "object"
       },
@@ -6641,6 +6998,333 @@
         ]
       }
     },
+    "/v1/album/{id}/tags": {
+      "get": {
+        "description": "The album's tags, most taggers first (100 at most). Each account counts once, weighed as the rankings weigh listeners: in full from a week after registering, at its factor when the anti-botting coordination detection flagged it, not at all while suspended or waiting to be deleted; private accounts count, unnamed. A tag is shown on an entity from the server's minimum of weighted accounts (`RANKING_MIN_LISTENERS`, 5 unless configured), so nobody can put one there alone. The worker recounts an entity within a minute of a change, and every entity every 6 hours. Tags feed nothing else: rankings, recommendations and similar artists don't read them. Cacheable for 5 minutes, with an `ETag`.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "The `ETag` of a response fetched before: 304 if it hasn't changed since",
+            "in": "header",
+            "name": "If-None-Match",
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TopTags"
+                }
+              }
+            },
+            "description": "An artist's, album's or track's tags, most taggers first.",
+            "headers": {
+              "Cache-Control": {
+                "description": "`public, max-age=300`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              },
+              "ETag": {
+                "description": "A tag of the body, for `If-None-Match`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified since the `ETag` in `If-None-Match`",
+            "headers": {
+              "Cache-Control": {
+                "description": "`public, max-age=300`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              },
+              "ETag": {
+                "description": "A tag of the body",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such album"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "summary": "An album's tags",
+        "tags": [
+          "Tags"
+        ]
+      },
+      "post": {
+        "description": "Adds tags to the user's own on the album and returns them all; tags already there change nothing. Tags are normalized (lowercase, NFKC, single spaces), 1 to 40 letters, digits, spaces and `- & ' . + ! _`; a term the operator blocked refuses the request. An account puts at most 10 tags on one artist, album or track and holds 50000 in all, and an entity carries 500 different tags at most (409). A suspended account can't tag (403); a new one may, its tags weighing nothing in the counts for a week. Adding and removing count together against 120 changes an hour per account, 300 per address, through this API and the Last.fm-compatible one.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddTagsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityTags"
+                }
+              }
+            },
+            "description": "The signed-in user's tags on one artist, album or track."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No tags or more than 10, an invalid tag, or a blocked one"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No credential, or an invalid or expired one"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Needs a session or an API token with the `write` scope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such album"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Past a cap"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over 120 tag changes an hour for this account or 300 from this address, or over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Tag the album",
+        "tags": [
+          "Tags"
+        ]
+      }
+    },
+    "/v1/album/{id}/tags/{tag}": {
+      "delete": {
+        "description": "Takes the tag off the user's own on the album; removing one not there changes nothing. Counts against the same hourly limits as adding.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          },
+          {
+            "in": "path",
+            "name": "tag",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Not among the user's tags any more"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not a valid tag"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No credential, or an invalid or expired one"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Needs a session or an API token with the `write` scope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such album"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over 120 tag changes an hour for this account or 300 from this address, or over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Untag the album",
+        "tags": [
+          "Tags"
+        ]
+      }
+    },
     "/v1/artist/{id}": {
       "get": {
         "description": "Returns catalog metadata for a single artist by its internal ID. `scrobble_count` is `null` for an artist fewer than the minimum of listeners played; `listener_count` is always `null` (it was never kept). Catalog-wide counts include every user's plays, private profiles' too, so they are served only for entities at least `RANKING_MIN_LISTENERS` (5 by default) distinct users have played, counted from the daily aggregates (a new listener counts from their next refresh, within the hour; today's plays from tomorrow): a count is never one or two people's listening.",
@@ -7822,6 +8506,333 @@
         "summary": "Similar artists",
         "tags": [
           "Recommendations"
+        ]
+      }
+    },
+    "/v1/artist/{id}/tags": {
+      "get": {
+        "description": "The artist's tags, most taggers first (100 at most). Each account counts once, weighed as the rankings weigh listeners: in full from a week after registering, at its factor when the anti-botting coordination detection flagged it, not at all while suspended or waiting to be deleted; private accounts count, unnamed. A tag is shown on an entity from the server's minimum of weighted accounts (`RANKING_MIN_LISTENERS`, 5 unless configured), so nobody can put one there alone. The worker recounts an entity within a minute of a change, and every entity every 6 hours. Tags feed nothing else: rankings, recommendations and similar artists don't read them. Cacheable for 5 minutes, with an `ETag`.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "The `ETag` of a response fetched before: 304 if it hasn't changed since",
+            "in": "header",
+            "name": "If-None-Match",
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TopTags"
+                }
+              }
+            },
+            "description": "An artist's, album's or track's tags, most taggers first.",
+            "headers": {
+              "Cache-Control": {
+                "description": "`public, max-age=300`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              },
+              "ETag": {
+                "description": "A tag of the body, for `If-None-Match`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified since the `ETag` in `If-None-Match`",
+            "headers": {
+              "Cache-Control": {
+                "description": "`public, max-age=300`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              },
+              "ETag": {
+                "description": "A tag of the body",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such artist"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "summary": "An artist's tags",
+        "tags": [
+          "Tags"
+        ]
+      },
+      "post": {
+        "description": "Adds tags to the user's own on the artist and returns them all; tags already there change nothing. Tags are normalized (lowercase, NFKC, single spaces), 1 to 40 letters, digits, spaces and `- & ' . + ! _`; a term the operator blocked refuses the request. An account puts at most 10 tags on one artist, album or track and holds 50000 in all, and an entity carries 500 different tags at most (409). A suspended account can't tag (403); a new one may, its tags weighing nothing in the counts for a week. Adding and removing count together against 120 changes an hour per account, 300 per address, through this API and the Last.fm-compatible one.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddTagsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityTags"
+                }
+              }
+            },
+            "description": "The signed-in user's tags on one artist, album or track."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No tags or more than 10, an invalid tag, or a blocked one"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No credential, or an invalid or expired one"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Needs a session or an API token with the `write` scope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such artist"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Past a cap"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over 120 tag changes an hour for this account or 300 from this address, or over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Tag the artist",
+        "tags": [
+          "Tags"
+        ]
+      }
+    },
+    "/v1/artist/{id}/tags/{tag}": {
+      "delete": {
+        "description": "Takes the tag off the user's own on the artist; removing one not there changes nothing. Counts against the same hourly limits as adding.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          },
+          {
+            "in": "path",
+            "name": "tag",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Not among the user's tags any more"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not a valid tag"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No credential, or an invalid or expired one"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Needs a session or an API token with the `write` scope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such artist"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over 120 tag changes an hour for this account or 300 from this address, or over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Untag the artist",
+        "tags": [
+          "Tags"
         ]
       }
     },
@@ -10519,6 +11530,450 @@
         ]
       }
     },
+    "/v1/tag/{tag}/albums": {
+      "get": {
+        "description": "The albums the tag is shown on, most taggers first, `limit` a page (50 by default, 200 at most) from `offset`; `total` counts them all. The tag is normalized as tags are (case, spacing and Unicode forms don't matter). Each account counts once, weighed as the rankings weigh listeners: in full from a week after registering, at its factor when the anti-botting coordination detection flagged it, not at all while suspended or waiting to be deleted; private accounts count, unnamed. A tag is shown on an entity from the server's minimum of weighted accounts (`RANKING_MIN_LISTENERS`, 5 unless configured), so nobody can put one there alone. The worker recounts an entity within a minute of a change, and every entity every 6 hours. Tags feed nothing else: rankings, recommendations and similar artists don't read them. Cacheable for 5 minutes, with an `ETag`.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tag",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "Entries per page: 50 by default, 200 at most.",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Entries per page: 50 by default, 200 at most.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "Positions to skip, 0 by default.",
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "description": "Positions to skip, 0 by default.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "The `ETag` of a response fetched before: 304 if it hasn't changed since",
+            "in": "header",
+            "name": "If-None-Match",
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaggedEntityPage"
+                }
+              }
+            },
+            "description": "A page of the artists, albums or tracks a tag is on, most taggers\n first.",
+            "headers": {
+              "Cache-Control": {
+                "description": "`public, max-age=300`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              },
+              "ETag": {
+                "description": "A tag of the body, for `If-None-Match`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified since the `ETag` in `If-None-Match`",
+            "headers": {
+              "Cache-Control": {
+                "description": "`public, max-age=300`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              },
+              "ETag": {
+                "description": "A tag of the body",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not a valid tag, or a negative offset"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Nobody uses that tag"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "summary": "The albums a tag is on",
+        "tags": [
+          "Tags"
+        ]
+      }
+    },
+    "/v1/tag/{tag}/artists": {
+      "get": {
+        "description": "The artists the tag is shown on, most taggers first, `limit` a page (50 by default, 200 at most) from `offset`; `total` counts them all. The tag is normalized as tags are (case, spacing and Unicode forms don't matter). Each account counts once, weighed as the rankings weigh listeners: in full from a week after registering, at its factor when the anti-botting coordination detection flagged it, not at all while suspended or waiting to be deleted; private accounts count, unnamed. A tag is shown on an entity from the server's minimum of weighted accounts (`RANKING_MIN_LISTENERS`, 5 unless configured), so nobody can put one there alone. The worker recounts an entity within a minute of a change, and every entity every 6 hours. Tags feed nothing else: rankings, recommendations and similar artists don't read them. Cacheable for 5 minutes, with an `ETag`.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tag",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "Entries per page: 50 by default, 200 at most.",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Entries per page: 50 by default, 200 at most.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "Positions to skip, 0 by default.",
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "description": "Positions to skip, 0 by default.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "The `ETag` of a response fetched before: 304 if it hasn't changed since",
+            "in": "header",
+            "name": "If-None-Match",
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaggedEntityPage"
+                }
+              }
+            },
+            "description": "A page of the artists, albums or tracks a tag is on, most taggers\n first.",
+            "headers": {
+              "Cache-Control": {
+                "description": "`public, max-age=300`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              },
+              "ETag": {
+                "description": "A tag of the body, for `If-None-Match`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified since the `ETag` in `If-None-Match`",
+            "headers": {
+              "Cache-Control": {
+                "description": "`public, max-age=300`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              },
+              "ETag": {
+                "description": "A tag of the body",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not a valid tag, or a negative offset"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Nobody uses that tag"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "summary": "The artists a tag is on",
+        "tags": [
+          "Tags"
+        ]
+      }
+    },
+    "/v1/tag/{tag}/tracks": {
+      "get": {
+        "description": "The tracks the tag is shown on, most taggers first, `limit` a page (50 by default, 200 at most) from `offset`; `total` counts them all. The tag is normalized as tags are (case, spacing and Unicode forms don't matter). Each account counts once, weighed as the rankings weigh listeners: in full from a week after registering, at its factor when the anti-botting coordination detection flagged it, not at all while suspended or waiting to be deleted; private accounts count, unnamed. A tag is shown on an entity from the server's minimum of weighted accounts (`RANKING_MIN_LISTENERS`, 5 unless configured), so nobody can put one there alone. The worker recounts an entity within a minute of a change, and every entity every 6 hours. Tags feed nothing else: rankings, recommendations and similar artists don't read them. Cacheable for 5 minutes, with an `ETag`.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tag",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "Entries per page: 50 by default, 200 at most.",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Entries per page: 50 by default, 200 at most.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "Positions to skip, 0 by default.",
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "description": "Positions to skip, 0 by default.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "The `ETag` of a response fetched before: 304 if it hasn't changed since",
+            "in": "header",
+            "name": "If-None-Match",
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaggedEntityPage"
+                }
+              }
+            },
+            "description": "A page of the artists, albums or tracks a tag is on, most taggers\n first.",
+            "headers": {
+              "Cache-Control": {
+                "description": "`public, max-age=300`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              },
+              "ETag": {
+                "description": "A tag of the body, for `If-None-Match`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified since the `ETag` in `If-None-Match`",
+            "headers": {
+              "Cache-Control": {
+                "description": "`public, max-age=300`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              },
+              "ETag": {
+                "description": "A tag of the body",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not a valid tag, or a negative offset"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Nobody uses that tag"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "summary": "The tracks a tag is on",
+        "tags": [
+          "Tags"
+        ]
+      }
+    },
     "/v1/track/{id}": {
       "get": {
         "description": "Returns catalog metadata for a single track by its internal ID, including title, album, duration and the full artist credit list (primary artist first, then featured collaborators in billing order), and for a signed-in viewer whether it loves the track (`loved`, `null` signed out). `scrobble_count` is `null` for a track fewer than the minimum of listeners played. Catalog-wide counts include every user's plays, private profiles' too, so they are served only for entities at least `RANKING_MIN_LISTENERS` (5 by default) distinct users have played, counted from the daily aggregates (a new listener counts from their next refresh, within the hour; today's plays from tomorrow): a count is never one or two people's listening.",
@@ -11105,6 +12560,333 @@
         "summary": "Refresh track metadata",
         "tags": [
           "Catalog"
+        ]
+      }
+    },
+    "/v1/track/{id}/tags": {
+      "get": {
+        "description": "The track's tags, most taggers first (100 at most). Each account counts once, weighed as the rankings weigh listeners: in full from a week after registering, at its factor when the anti-botting coordination detection flagged it, not at all while suspended or waiting to be deleted; private accounts count, unnamed. A tag is shown on an entity from the server's minimum of weighted accounts (`RANKING_MIN_LISTENERS`, 5 unless configured), so nobody can put one there alone. The worker recounts an entity within a minute of a change, and every entity every 6 hours. Tags feed nothing else: rankings, recommendations and similar artists don't read them. Cacheable for 5 minutes, with an `ETag`.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          },
+          {
+            "description": "The `ETag` of a response fetched before: 304 if it hasn't changed since",
+            "in": "header",
+            "name": "If-None-Match",
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TopTags"
+                }
+              }
+            },
+            "description": "An artist's, album's or track's tags, most taggers first.",
+            "headers": {
+              "Cache-Control": {
+                "description": "`public, max-age=300`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              },
+              "ETag": {
+                "description": "A tag of the body, for `If-None-Match`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified since the `ETag` in `If-None-Match`",
+            "headers": {
+              "Cache-Control": {
+                "description": "`public, max-age=300`",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              },
+              "ETag": {
+                "description": "A tag of the body",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                },
+                "style": "simple"
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such track"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "summary": "A track's tags",
+        "tags": [
+          "Tags"
+        ]
+      },
+      "post": {
+        "description": "Adds tags to the user's own on the track and returns them all; tags already there change nothing. Tags are normalized (lowercase, NFKC, single spaces), 1 to 40 letters, digits, spaces and `- & ' . + ! _`; a term the operator blocked refuses the request. An account puts at most 10 tags on one artist, album or track and holds 50000 in all, and an entity carries 500 different tags at most (409). A suspended account can't tag (403); a new one may, its tags weighing nothing in the counts for a week. Adding and removing count together against 120 changes an hour per account, 300 per address, through this API and the Last.fm-compatible one.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddTagsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityTags"
+                }
+              }
+            },
+            "description": "The signed-in user's tags on one artist, album or track."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No tags or more than 10, an invalid tag, or a blocked one"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No credential, or an invalid or expired one"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Needs a session or an API token with the `write` scope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such track"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Past a cap"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over 120 tag changes an hour for this account or 300 from this address, or over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Tag the track",
+        "tags": [
+          "Tags"
+        ]
+      }
+    },
+    "/v1/track/{id}/tags/{tag}": {
+      "delete": {
+        "description": "Takes the tag off the user's own on the track; removing one not there changes nothing. Counts against the same hourly limits as adding.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "simple"
+          },
+          {
+            "in": "path",
+            "name": "tag",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Not among the user's tags any more"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not a valid tag"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No credential, or an invalid or expired one"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Needs a session or an API token with the `write` scope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such track"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over 120 tag changes an hour for this account or 300 from this address, or over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Untag the track",
+        "tags": [
+          "Tags"
         ]
       }
     },
@@ -12994,6 +14776,149 @@
         ]
       }
     },
+    "/v1/user/me/tags": {
+      "get": {
+        "description": "The signed-in user's tags, newest first, each with what it is on: `limit` a page (50 by default, 200 at most), `next` as `before` for the following page (`null` on the last). `artist`, `album` or `track` keeps those on one entity, as its page shows them.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "album",
+            "schema": {
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "Only the tags on this artist (or album, or track: one of the three).",
+            "in": "query",
+            "name": "artist",
+            "schema": {
+              "description": "Only the tags on this artist (or album, or track: one of the three).",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "The previous page's `next`, for the page after it.",
+            "in": "query",
+            "name": "before",
+            "schema": {
+              "description": "The previous page's `next`, for the page after it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "description": "Entries per page: 50 by default, 200 at most.",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Entries per page: 50 by default, 200 at most.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "track",
+            "schema": {
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserTagPage"
+                }
+              }
+            },
+            "description": "A page of the signed-in user's tags, newest first."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Invalid `before` cursor, or more than one entity named"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No credential, or an invalid or expired one"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Needs a session or an API token with the `read` scope"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "My tags",
+        "tags": [
+          "Tags"
+        ]
+      }
+    },
     "/v1/user/{username}": {
       "get": {
         "description": "Returns the public profile for a user, with how many accounts follow it and it follows (`followers_count`, `following_count`: every follow, private accounts' included). A signed-in viewer also gets `is_following` (the viewer follows this account), `follows_you` (it follows the viewer) and `blocking` (the viewer blocks it); all three are `null` otherwise. An account that blocks the signed-in viewer is not found (404), as one that doesn't exist. `scrobble_count` leaves out the scrobbles the classifier found to be the same listen reported again (duplicates); `scrobble_breakdown` divides it into verified plays and unverified ones (over the listening time real time allows, of tracks with no known length, or not classified yet). Private profiles return 403 to everyone but their owner, followers included (following takes no approval).",
@@ -14858,6 +16783,84 @@
         "summary": "A user's taste neighbours",
         "tags": [
           "Recommendations"
+        ]
+      }
+    },
+    "/v1/user/{username}/tags": {
+      "get": {
+        "description": "The tags the user uses, with how many artists, albums and tracks each is on, most used first (200 at most). As visible as the profile: a private profile answers 403 to everyone but its owner, and an account waiting to be deleted or blocking the signed-in viewer 404, as one that doesn't exist.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "username",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserTags"
+                }
+              }
+            },
+            "description": "The tags a user uses, most used first."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Profile is private"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "User not found, waiting to be deleted, or blocking the viewer"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "A user's tags",
+        "tags": [
+          "Tags"
         ]
       }
     },

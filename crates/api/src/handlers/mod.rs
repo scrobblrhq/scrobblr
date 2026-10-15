@@ -12,6 +12,7 @@ pub mod loves;
 pub mod rankings;
 pub mod scrobbles;
 pub mod similarity;
+pub mod tags;
 pub mod tracks;
 pub mod uploads;
 pub mod users;
@@ -39,6 +40,19 @@ pub struct UsernamePath {
 pub struct ProviderPath {
     /// `spotify` or `lastfm`.
     pub provider: String,
+}
+
+/// A tag in a path: normalized as tags are, so case and spacing don't
+/// matter.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct TagPath {
+    pub tag: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct IdTagPath {
+    pub id: i64,
+    pub tag: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]

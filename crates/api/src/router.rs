@@ -36,7 +36,7 @@ use crate::{
     errors::ErrorJson,
     handlers::{
         account, auth, bios, blocks, charts, community, connected_accounts, feed, imports, loves,
-        rankings, scrobbles, similarity, tracks, uploads, users,
+        rankings, scrobbles, similarity, tags, tracks, uploads, users,
     },
     limits,
     middleware::{
@@ -165,6 +165,10 @@ pub fn build(state: AppState) -> Router {
         .api_route(
             "/v1/user/me/similarity",
             get_with(similarity::get_settings, similarity::_get_settings_doc),
+        )
+        .api_route(
+            "/v1/user/me/tags",
+            get_with(tags::my_tags, tags::_my_tags_doc),
         );
 
     // Changing the account and posting as it.
@@ -228,6 +232,31 @@ pub fn build(state: AppState) -> Router {
         .api_route(
             "/v1/album/{id}/bio/revert",
             post_with(bios::revert_album_bio, bios::_revert_album_bio_doc),
+        )
+        // Tags
+        .api_route(
+            "/v1/artist/{id}/tags",
+            post_with(tags::tag_artist, tags::_tag_artist_doc),
+        )
+        .api_route(
+            "/v1/album/{id}/tags",
+            post_with(tags::tag_album, tags::_tag_album_doc),
+        )
+        .api_route(
+            "/v1/track/{id}/tags",
+            post_with(tags::tag_track, tags::_tag_track_doc),
+        )
+        .api_route(
+            "/v1/artist/{id}/tags/{tag}",
+            delete_with(tags::untag_artist, tags::_untag_artist_doc),
+        )
+        .api_route(
+            "/v1/album/{id}/tags/{tag}",
+            delete_with(tags::untag_album, tags::_untag_album_doc),
+        )
+        .api_route(
+            "/v1/track/{id}/tags/{tag}",
+            delete_with(tags::untag_track, tags::_untag_track_doc),
         )
         // Recommendations
         .api_route(
@@ -485,6 +514,31 @@ pub fn build(state: AppState) -> Router {
                 similarity::_similar_artists_doc,
             ),
         )
+        // Tags as counted for everyone: no account named, cacheable.
+        .api_route(
+            "/v1/artist/{id}/tags",
+            get_with(tags::artist_tags, tags::_artist_tags_doc),
+        )
+        .api_route(
+            "/v1/album/{id}/tags",
+            get_with(tags::album_tags, tags::_album_tags_doc),
+        )
+        .api_route(
+            "/v1/track/{id}/tags",
+            get_with(tags::track_tags, tags::_track_tags_doc),
+        )
+        .api_route(
+            "/v1/tag/{tag}/artists",
+            get_with(tags::tagged_artists, tags::_tagged_artists_doc),
+        )
+        .api_route(
+            "/v1/tag/{tag}/albums",
+            get_with(tags::tagged_albums, tags::_tagged_albums_doc),
+        )
+        .api_route(
+            "/v1/tag/{tag}/tracks",
+            get_with(tags::tagged_tracks, tags::_tagged_tracks_doc),
+        )
         // Global rankings: the same for everyone, cacheable by any proxy.
         .api_route(
             "/v1/rankings/artists",
@@ -602,6 +656,10 @@ pub fn build(state: AppState) -> Router {
         .api_route(
             "/v1/user/{username}/loved",
             get_with(loves::user_loved, loves::_user_loved_doc),
+        )
+        .api_route(
+            "/v1/user/{username}/tags",
+            get_with(tags::user_tags, tags::_user_tags_doc),
         )
         .api_route(
             "/v1/user/{username}/top-artists",

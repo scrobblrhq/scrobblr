@@ -1,7 +1,7 @@
 //! Limits counted in Redis: password logins and the scrobbles an account
 //! may submit per UTC day (shared by the native API and the
 //! scrobbler-compatible ones), image uploads, follows, blocks, loves, bio
-//! edits, account exports and deletion requests. Windows are part of the
+//! edits, tags, account exports and deletion requests. Windows are part of the
 //! keys, so a key that missed its expiry still stops counting when its
 //! window ends.
 
@@ -157,6 +157,26 @@ pub async fn bio_attempt(state: &AppState, user_id: i64, ip: &str) -> bool {
         (format!("bio:ip:{}:{window}", network(ip)), BIO_EDITS_PER_IP),
     ];
     take_or_pass(state, keys, BIO_WINDOW_SECS, "bio").await
+}
+
+const TAG_WINDOW_SECS: i64 = 3600;
+pub const TAG_CHANGES_PER_USER: i64 = 120;
+pub const TAG_CHANGES_PER_IP: i64 = 300;
+
+/// Counts a request adding or removing tags, from any API, and says
+/// whether it may go ahead: at most [`TAG_CHANGES_PER_USER`] per account
+/// and [`TAG_CHANGES_PER_IP`] per address an hour, refused ones included.
+/// Fails open.
+pub async fn tag_attempt(state: &AppState, user_id: i64, ip: &str) -> bool {
+    let window = Utc::now().timestamp() / TAG_WINDOW_SECS;
+    let keys = [
+        (format!("tag:user:{user_id}:{window}"), TAG_CHANGES_PER_USER),
+        (
+            format!("tag:ip:{}:{window}", network(ip)),
+            TAG_CHANGES_PER_IP,
+        ),
+    ];
+    take_or_pass(state, keys, TAG_WINDOW_SECS, "tag").await
 }
 
 const PAIR_WINDOW_SECS: i64 = 24 * 3600;

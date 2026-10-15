@@ -3,7 +3,10 @@
 
 use aide::openapi::{Header, ParameterSchemaOrContent, ReferenceOr, SchemaObject};
 use aide::transform::{TransformOperation, TransformResponse};
-use axum::http::HeaderValue;
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
+use axum::response::{IntoResponse, Response};
+use serde::Serialize;
+use sha2::{Digest, Sha256};
 
 /// `If-None-Match` holds `*` or a list of tags, compared weakly.
 pub fn matches(tags: &HeaderValue, etag: &str) -> bool {
@@ -12,6 +15,30 @@ pub fn matches(tags: &HeaderValue, etag: &str) -> bool {
     };
     let opaque = |tag: &str| tag.trim().trim_start_matches("W/").to_owned();
     tags.trim() == "*" || tags.split(',').any(|tag| opaque(tag) == opaque(etag))
+}
+
+/// `body` as JSON with `cache_control` and a weak `ETag` of its bytes, or a
+/// 304 when `If-None-Match` names that tag: for bodies that are cheap to
+/// make, where the tag saves the transfer.
+pub fn json_tagged<T: Serialize>(
+    request: &HeaderMap,
+    body: &T,
+    cache_control: &'static str,
+) -> Response {
+    let bytes = serde_json::to_vec(body).expect("a response body serializes");
+    let digest = Sha256::digest(&bytes);
+    let etag = format!("W/\"{}\"", hex::encode(&digest[..12]));
+    let mut response = match request.get(header::IF_NONE_MATCH) {
+        Some(tags) if matches(tags, &etag) => StatusCode::NOT_MODIFIED.into_response(),
+        _ => ([(header::CONTENT_TYPE, "application/json")], bytes).into_response(),
+    };
+    let headers = response.headers_mut();
+    headers.insert(header::ETAG, HeaderValue::from_str(&etag).expect("hex"));
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static(cache_control),
+    );
+    response
 }
 
 /// Documents the `If-None-Match` request header.
