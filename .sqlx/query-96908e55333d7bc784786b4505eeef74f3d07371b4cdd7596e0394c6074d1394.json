@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        DELETE FROM tags t\n        WHERE t.created_at < NOW() - INTERVAL '1 day'\n          AND NOT EXISTS (SELECT 1 FROM user_tags ut WHERE ut.tag_id = t.id)\n          AND NOT EXISTS (SELECT 1 FROM tag_counts c WHERE c.tag_id = t.id)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "96908e55333d7bc784786b4505eeef74f3d07371b4cdd7596e0394c6074d1394"
+}

@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        DELETE FROM user_tags\n        WHERE user_id = $1 AND entity_type = $2 AND entity_id = $3\n          AND tag_id = (SELECT id FROM tags WHERE name = $4)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "895ba6ac0e0a8ddd8cabc2b642c109a44cf4906d24a78377163a43e91b71e2cb"
+}

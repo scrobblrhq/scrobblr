@@ -1,0 +1,56 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT c.entity_id, c.weight,\n               COALESCE(a.name, al.title, tr.title) AS name,\n               COALESCE(al.artist_id, tr.artist_id) AS artist_id,\n               COALESCE(ala.name, tra.name) AS artist_name,\n               COALESCE(a.image_url, al.image_url, tal.image_url, tra.image_url) AS image_url\n        FROM (\n            SELECT entity_id, weight FROM tag_counts\n            WHERE tag_id = $1 AND entity_type = $2 AND weight >= $3\n            ORDER BY weight DESC, entity_id\n            LIMIT $4 OFFSET $5\n        ) c\n        LEFT JOIN artists a  ON $2 = 'artist' AND a.id = c.entity_id\n        LEFT JOIN albums al  ON $2 = 'album' AND al.id = c.entity_id\n        LEFT JOIN artists ala ON ala.id = al.artist_id\n        LEFT JOIN tracks tr  ON $2 = 'track' AND tr.id = c.entity_id\n        LEFT JOIN artists tra ON tra.id = tr.artist_id\n        LEFT JOIN albums tal ON tal.id = tr.album_id\n        ORDER BY c.weight DESC, c.entity_id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "entity_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "weight",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "artist_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "artist_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "image_url",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "fea9e9c98a25240e6888c54206be44f127f823447ce2c3de300b8307ef69730e"
+}

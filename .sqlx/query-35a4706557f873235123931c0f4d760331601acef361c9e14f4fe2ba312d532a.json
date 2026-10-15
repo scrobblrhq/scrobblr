@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO tag_queue (entity_type, entity_id)\n        SELECT entity_type, entity_id FROM user_tags\n        UNION\n        SELECT entity_type, entity_id FROM tag_counts\n        ON CONFLICT (entity_type, entity_id) DO UPDATE SET due_at = LEAST(tag_queue.due_at, NOW())\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "35a4706557f873235123931c0f4d760331601acef361c9e14f4fe2ba312d532a"
+}

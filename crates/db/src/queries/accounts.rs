@@ -74,6 +74,7 @@ pub async fn schedule_deletion(
     .execute(&mut *tx)
     .await?;
     crate::queries::albums::enqueue_voted(&mut *tx, user_id).await?;
+    crate::queries::tags::enqueue_user(&mut *tx, user_id).await?;
     tx.commit().await?;
     Ok(DeletionScheduled {
         delete_after,
@@ -97,6 +98,7 @@ pub async fn restore(pool: &PgPool, user_id: i64) -> Result<bool, sqlx::Error> {
         > 0;
     if restored {
         crate::queries::albums::enqueue_voted(&mut *tx, user_id).await?;
+        crate::queries::tags::enqueue_user(&mut *tx, user_id).await?;
     }
     tx.commit().await?;
     Ok(restored)
@@ -463,6 +465,7 @@ async fn delete_user_row(
     .fetch_all(&mut **tx)
     .await?;
     crate::queries::albums::enqueue_voted(&mut **tx, user_id).await?;
+    crate::queries::tags::enqueue_user(&mut **tx, user_id).await?;
     // Published revisions are the catalog's and stay, without their author.
     sqlx::query!(
         "DELETE FROM bio_revisions WHERE author_id = $1 AND status <> 'published'",

@@ -5,6 +5,7 @@ use common::with_db;
 use db::queries::accounts as accounts_db;
 use db::queries::classification as cdb;
 use db::queries::rankings::{self as rdb, Period};
+use db::queries::tags::{self as tags_db, Weighing};
 use db::queries::{scrobbles as scrobbles_db, tracks as tracks_db};
 use shared::classification::BudgetParams;
 use shared::media::{UploadKey, UploadKind};
@@ -27,8 +28,8 @@ async fn exec(pool: &PgPool, sql: &str, id: i64) {
 /// (live, imported, on an old compressed chunk), its labels, weights and
 /// coordination factor, credentials of every kind, a linked account, an
 /// import, follows, a comment, uploads and likes, now playing, its
-/// recommendations and a skip, loved tracks, bio edits and an editing
-/// suspension.
+/// recommendations and a skip, loved tracks, bio edits, an editing
+/// suspension and a tag.
 async fn populate(pool: &PgPool, name: &str, artwork_artist: i64) -> i64 {
     let user_id: i64 = sqlx::query_scalar(
         "INSERT INTO users (username, email, password_hash, created_at, image_url)
@@ -145,6 +146,10 @@ async fn populate(pool: &PgPool, name: &str, artwork_artist: i64) -> i64 {
          SELECT 'album', id, $1, 'edit', 'Copied text', 'held', 'duplicate_text'
          FROM albums ORDER BY id LIMIT 1",
         "INSERT INTO editing_suspensions (user_id, reason) VALUES ($1, 'test')",
+        "WITH t AS (INSERT INTO tags (name) VALUES ('shoegaze')
+                    ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id)
+         INSERT INTO user_tags (user_id, entity_type, entity_id, tag_id, source)
+         SELECT $1, 'artist', (SELECT id FROM artists ORDER BY id LIMIT 1), id, 'scrobblr' FROM t",
     ] {
         exec(pool, sql, user_id).await;
     }
@@ -472,6 +477,7 @@ async fn an_erase_leaves_no_row_about_the_user_and_corrects_shared_numbers() {
             "public.loved_tracks.user_id",
             "public.bio_revisions.author_id",
             "public.editing_suspensions.user_id",
+            "public.user_tags.user_id",
         ] {
             let n = about_gone.iter().find(|(t, _)| t == table).map(|(_, n)| *n);
             assert!(n.is_some_and(|n| n > 0), "the fixture puts rows in {table}");
@@ -507,6 +513,15 @@ async fn an_erase_leaves_no_row_about_the_user_and_corrects_shared_numbers() {
         .fetch_all(&pool)
         .await
         .unwrap();
+        // Both accounts tagged the artist, counted while neither had a
+        // weight yet (the tag counts' own test checks the weights).
+        tags_db::enqueue_all(&pool).await.unwrap();
+        tags_db::recount_due(&pool, Weighing::at(Utc::now()), 100).await.unwrap();
+        let taggers: i32 = sqlx::query_scalar("SELECT taggers FROM tag_counts")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(taggers, 2);
         let gone_edits: Vec<i64> = sqlx::query_scalar(
             "SELECT id FROM bio_revisions WHERE author_id = $1 AND status = 'published'",
         )
@@ -627,6 +642,14 @@ async fn an_erase_leaves_no_row_about_the_user_and_corrects_shared_numbers() {
         // The tracks it had a say on are decided again without it.
         assert!(!gone_voted.is_empty());
         assert_eq!(after_erase_queue, gone_voted);
+
+        // The tag is counted again without it.
+        tags_db::recount_due(&pool, Weighing::at(Utc::now()), 100).await.unwrap();
+        let taggers: i32 = sqlx::query_scalar("SELECT taggers FROM tag_counts")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(taggers, 1);
 
         // An erase runs again harmlessly (one that died is retried).
         let again = accounts_db::erase(&pool, gone).await.unwrap();

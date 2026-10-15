@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT term FROM tag_blocklist ORDER BY term",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "term",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "862af87ffd30d26cf37d944d9860203bcc136c0e1b81dc5c68cc3045ea16e753"
+}

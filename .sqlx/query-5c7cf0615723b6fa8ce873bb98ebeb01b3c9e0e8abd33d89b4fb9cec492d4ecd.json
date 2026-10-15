@@ -1,0 +1,75 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT ut.id, t.name AS tag, ut.entity_type, ut.entity_id,\n               COALESCE(a.name, al.title, tr.title) AS name,\n               COALESCE(al.artist_id, tr.artist_id) AS artist_id,\n               COALESCE(ala.name, tra.name) AS artist_name,\n               COALESCE(a.image_url, al.image_url, tal.image_url, tra.image_url) AS image_url,\n               ut.created_at AS tagged_at\n        FROM user_tags ut\n        JOIN tags t ON t.id = ut.tag_id\n        LEFT JOIN artists a  ON ut.entity_type = 'artist' AND a.id = ut.entity_id\n        LEFT JOIN albums al  ON ut.entity_type = 'album' AND al.id = ut.entity_id\n        LEFT JOIN artists ala ON ala.id = al.artist_id\n        LEFT JOIN tracks tr  ON ut.entity_type = 'track' AND tr.id = ut.entity_id\n        LEFT JOIN artists tra ON tra.id = tr.artist_id\n        LEFT JOIN albums tal ON tal.id = tr.album_id\n        WHERE ut.user_id = $1\n          AND ($2::text IS NULL OR (ut.entity_type = $2 AND ut.entity_id = $3))\n          AND ($4::timestamptz IS NULL OR (ut.created_at, ut.id) < ($4, $5))\n        ORDER BY ut.created_at DESC, ut.id DESC\n        LIMIT $6\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "tag",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "entity_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "entity_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "artist_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "artist_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "image_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "tagged_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Int8",
+        "Timestamptz",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      null,
+      null,
+      null,
+      null,
+      false
+    ]
+  },
+  "hash": "5c7cf0615723b6fa8ce873bb98ebeb01b3c9e0e8abd33d89b4fb9cec492d4ecd"
+}

@@ -1,0 +1,37 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT (SELECT count(*) FROM user_tags WHERE user_id = $1) AS \"held!\",\n               (SELECT count(DISTINCT tag_id) FROM user_tags\n                WHERE entity_type = $2 AND entity_id = $3) AS \"on_entity!\",\n               (SELECT count(*) FROM UNNEST($4::text[]) AS n(name)\n                WHERE NOT EXISTS (SELECT 1 FROM user_tags ut JOIN tags t ON t.id = ut.tag_id\n                                  WHERE ut.entity_type = $2 AND ut.entity_id = $3\n                                    AND t.name = n.name)) AS \"new_here!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "held!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "on_entity!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "new_here!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Int8",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "639f1a9f5ee86715e9216c08c592be72897569d994c690b10d134fca5a4d45b7"
+}

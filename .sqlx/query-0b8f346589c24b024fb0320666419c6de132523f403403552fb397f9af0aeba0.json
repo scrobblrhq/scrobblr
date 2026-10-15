@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO tag_queue (entity_type, entity_id, due_at)\n        VALUES ($1, $2, NOW() + make_interval(secs => $3))\n        ON CONFLICT (entity_type, entity_id) DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Float8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0b8f346589c24b024fb0320666419c6de132523f403403552fb397f9af0aeba0"
+}

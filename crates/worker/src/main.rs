@@ -10,6 +10,7 @@ mod lastfm_import;
 mod rankings;
 mod similarity;
 mod status;
+mod tags;
 #[cfg(test)]
 mod test_support;
 mod tracks;
@@ -34,7 +35,7 @@ async fn main() -> anyhow::Result<()> {
         Some("help" | "--help" | "-h")
     ) {
         println!(
-            "{USAGE}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+            "{USAGE}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
             status::USAGE,
             classification::cli::USAGE,
             rankings::cli::USAGE,
@@ -42,6 +43,7 @@ async fn main() -> anyhow::Result<()> {
             lastfm_import::cli::USAGE,
             tracks::USAGE,
             albums::USAGE,
+            tags::USAGE,
             uploads::USAGE,
             accounts::USAGE
         );
@@ -96,6 +98,10 @@ async fn main() -> anyhow::Result<()> {
         Some("albums") => {
             db::migrate::ensure_current(&db).await?;
             return albums::run(&db, &args[1..]).await;
+        }
+        Some("tags") => {
+            db::migrate::ensure_current(&db).await?;
+            return tags::run(&db, &args[1..]).await;
         }
         Some("uploads") => {
             db::migrate::ensure_current(&db).await?;
@@ -269,6 +275,10 @@ async fn main() -> anyhow::Result<()> {
         attributor.clone().run(beat)
     });
 
+    // Recounts tags whose taggers changed, and all of them now and then.
+    let counter = Arc::new(tags::Counter::new(db.clone()));
+    let tags_handle = supervise(&db, "tag counts", move |beat| counter.clone().run(beat));
+
     let eraser = Arc::new(accounts::Eraser::from_env(db.clone()));
     let accounts_handle = supervise(&db, "account erasure", move |beat| eraser.clone().run(beat));
 
@@ -291,6 +301,7 @@ async fn main() -> anyhow::Result<()> {
         _ = coordination_handle => "coordination",
         _ = similarity_handle => "similarity",
         _ = albums_handle => "album attribution",
+        _ = tags_handle => "tag counts",
         _ = accounts_handle => "account erasure",
         _ = tokio::signal::ctrl_c() => {
             tracing::info!("received Ctrl-C, shutting down");

@@ -1016,6 +1016,108 @@ pub struct BioHistoryPage {
     pub next: Option<String>,
 }
 
+/// A tag as many accounts put it on an artist, album or track.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct TopTag {
+    pub name: String,
+    /// The accounts that put it there, weighed as the rankings weigh
+    /// listeners (a week-old account in full, one the anti-botting
+    /// coordination detection flagged at its factor), to the nearest whole;
+    /// at least `RANKING_MIN_LISTENERS` (5).
+    pub taggers: i64,
+}
+
+/// An artist's, album's or track's tags, most taggers first.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct TopTags {
+    pub entity_type: CatalogKind,
+    pub entity_id: i64,
+    pub tags: Vec<TopTag>,
+}
+
+/// An artist, album or track carrying a tag.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct TaggedEntity {
+    /// 1 for the most tagged.
+    pub position: i64,
+    pub entity_type: CatalogKind,
+    pub id: i64,
+    /// The artist's name, or the album's or track's title.
+    pub name: String,
+    /// An album's or track's artist; `null` for an artist.
+    pub artist_id: Option<i64>,
+    pub artist_name: Option<String>,
+    /// The artist's image or the album's cover (a track's album's).
+    #[serde(serialize_with = "crate::media::serialize_opt_url")]
+    pub image_url: Option<String>,
+    /// As [`TopTag::taggers`].
+    pub taggers: i64,
+}
+
+/// A page of the artists, albums or tracks a tag is on, most taggers
+/// first.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct TaggedEntityPage {
+    pub tag: String,
+    pub entries: Vec<TaggedEntity>,
+    /// Entries in every page.
+    pub total: i64,
+}
+
+/// A tag a user put on an artist, album or track.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct UserTag {
+    pub tag: String,
+    pub entity_type: CatalogKind,
+    pub entity_id: i64,
+    /// As [`TaggedEntity::name`].
+    pub name: String,
+    pub artist_id: Option<i64>,
+    pub artist_name: Option<String>,
+    #[serde(serialize_with = "crate::media::serialize_opt_url")]
+    pub image_url: Option<String>,
+    pub tagged_at: DateTime<Utc>,
+}
+
+/// A page of the signed-in user's tags, newest first.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct UserTagPage {
+    pub entries: Vec<UserTag>,
+    /// `before` for the next page; `null` on the last one.
+    pub next: Option<String>,
+}
+
+/// A tag in a user's vocabulary.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct UserTagCount {
+    pub name: String,
+    /// The artists, albums and tracks the user put it on.
+    pub count: i64,
+}
+
+/// The tags a user uses, most used first.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct UserTags {
+    pub tags: Vec<UserTagCount>,
+}
+
+/// The signed-in user's tags on one artist, album or track.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct EntityTags {
+    pub entity_type: CatalogKind,
+    pub entity_id: i64,
+    pub tags: Vec<String>,
+}
+
 /// A user's OAuth connection to an external streaming service (currently
 /// Spotify only), polled by the worker to auto-scrobble listening activity
 /// reported by the provider's own official API.

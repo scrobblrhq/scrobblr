@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT t.name FROM user_tags ut JOIN tags t ON t.id = ut.tag_id\n        WHERE ut.user_id = $1 AND ut.entity_type = $2 AND ut.entity_id = $3\n        ORDER BY t.name\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "8eded793f884b6ef78d3ae4a2ef991967e7d29773ff12ba645ae4e8006bf8048"
+}

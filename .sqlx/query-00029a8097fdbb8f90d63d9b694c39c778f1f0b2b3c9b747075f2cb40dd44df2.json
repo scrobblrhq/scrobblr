@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        DELETE FROM tag_counts c\n        USING UNNEST($1::text[], $2::bigint[]) AS b(entity_type, entity_id)\n        WHERE c.entity_type = b.entity_type AND c.entity_id = b.entity_id\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "00029a8097fdbb8f90d63d9b694c39c778f1f0b2b3c9b747075f2cb40dd44df2"
+}
