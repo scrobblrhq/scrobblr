@@ -36,9 +36,16 @@ fn lastfm() -> Value {
         `track.updateNowPlaying` (POST), `track.love` and `track.unlove` (POST), `track.getInfo` \
         (by `artist` and `track` or `mbid`; with `username` or a session, `userloved` and \
         `userplaycount` where that user's profile may be seen; no `listeners`, and `playcount` \
-        only past `RANKING_MIN_LISTENERS`), `user.getInfo`, \
+        only past `RANKING_MIN_LISTENERS`; `toptags` as shown), `artist.getInfo` (the \
+        community bio, `summary` its first paragraph; tags; `playcount` past the minimum; \
+        `userplaycount` as for tracks; no `listeners` or similar artists), \
+        `artist.addTags`, `album.addTags` and `track.addTags` (POST, `tags` comma-separated, \
+        10 at most), `.removeTag` (POST, `tag`), `.getTags` (the tags `user`, or the session's \
+        user, put on it, as visible as the profile) and `.getTopTags` (the tags shown on it, \
+        `count` its weighted taggers) of each, `user.getTopTags`, `user.getInfo`, \
         `user.getRecentTracks` (with `extended=1`, the artist as an object and `loved`) and \
-        `user.getLovedTracks`. Parameters come as a query string or a form body. Authenticated with a Scrobblr scrobbler \
+        `user.getLovedTracks`. Tagging an artist, album or track the server doesn't know is \
+        error 6: tags create nothing. Parameters come as a query string or a form body. Authenticated with a Scrobblr scrobbler \
         credential as `sk` (a session key, or a scrobbler token given as the password to \
         `auth.getMobileSession`), never with native API tokens. `api_sig` is checked for API \
         keys the server knows the secret of. Answers in Last.fm's XML, or JSON with \
@@ -50,15 +57,17 @@ fn lastfm() -> Value {
         "sk": string("Session key (a scrobbler credential)"),
         "format": string("`json` for JSON answers; XML otherwise"),
         "artist": string("Artist; `artist[i]` in batches"),
+        "tags": string("artist/album/track.addTags: up to 10 tags, comma-separated"),
+        "tag": string("artist/album/track.removeTag: the tag"),
         "track": string("Track; `track[i]` in batches"),
         "album": string("Album; `album[i]` in batches"),
         "timestamp": string("Unix seconds the play started; `timestamp[i]` in batches"),
         "duration": string("Track length in seconds"),
-        "mbid": string("MusicBrainz recording id: an enrichment hint when scrobbling, the track to look up in track.getInfo"),
-        "username": string("track.getInfo: whose `userloved` and `userplaycount` to show; also auth.getMobileSession's Scrobblr username"),
-        "autocorrect": string("track.getInfo: accepted and ignored; names match as scrobbling matches them (case and surrounding spaces aside)"),
-        "user": string("user.getInfo, user.getRecentTracks, user.getLovedTracks: the Scrobblr username; the session's when absent"),
-        "limit": string("user.getRecentTracks (200 at most), user.getLovedTracks (1000 at most): entries a page, 50 by default"),
+        "mbid": string("MusicBrainz id: an enrichment hint when scrobbling, the track (or artist) to look up in track.getInfo, artist.getInfo and the tag methods"),
+        "username": string("track.getInfo, artist.getInfo: whose `userplaycount` (and `userloved`) to show; also auth.getMobileSession's Scrobblr username"),
+        "autocorrect": string("track.getInfo, artist.getInfo: accepted and ignored; names match as scrobbling matches them (case and surrounding spaces aside)"),
+        "user": string("user.getInfo, user.getRecentTracks, user.getLovedTracks, user.getTopTags, the getTags methods: the Scrobblr username; the session's when absent"),
+        "limit": string("user.getRecentTracks (200 at most), user.getLovedTracks (1000 at most), user.getTopTags (200 at most): entries a page, 50 by default"),
         "page": string("Page number, from 1"),
         "extended": string("user.getRecentTracks: `1` for the artist as an object and `loved`"),
         "password": string("auth.getMobileSession: a scrobbler token, or the account password when allowed"),
@@ -72,9 +81,9 @@ fn lastfm() -> Value {
                 "application/json": { "schema": { "type": "object" } }
             }
         },
-        "400": { "description": "Invalid parameters (Last.fm error 6, also a love past 50,000 loved tracks) or method (3)" },
-        "403": { "description": "Invalid API key (10), session (9), signature (13) or authentication (4)" },
-        "429": { "description": "Rate limit exceeded (29): requests, logins, loves or the daily scrobble limit" },
+        "400": { "description": "Invalid parameters (Last.fm error 6, also a love past 50,000 loved tracks, a tag past a cap, an invalid or blocked tag, or an unknown artist, album or track) or method (3)" },
+        "403": { "description": "Invalid API key (10), session (9), signature (13) or authentication (4, also an account suspended from tagging)" },
+        "429": { "description": "Rate limit exceeded (29): requests, logins, loves, tag changes or the daily scrobble limit" },
         "503": { "description": "Temporarily unavailable (16)" }
     });
     json!({

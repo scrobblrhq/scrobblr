@@ -27,10 +27,13 @@ use crate::state::AppState;
 use db::queries::loves::{self as loves_db, MAX_LOVED_TRACKS, SOURCE_LASTFM};
 use db::queries::scrobble_clients::{ClientIdentity, PROTOCOL_LASTFM};
 use db::queries::scrobblers::{self as scrobblers_db, Credential, KIND_SESSION, KIND_TOKEN};
+use db::queries::tags::{self as tags_db, Added, TagSource};
 use db::queries::{
-    blocks as blocks_db, scrobbles as scrobbles_db, tracks as tracks_db, users as users_db,
+    bios as bios_db, blocks as blocks_db, scrobbles as scrobbles_db, tracks as tracks_db,
+    users as users_db,
 };
 use shared::lastfm::signature;
+use shared::models::CatalogKind;
 use shared::models::User;
 use shared::scrobble::MAX_NAME_LEN;
 
@@ -105,8 +108,10 @@ impl LfmError {
 impl From<AppError> for LfmError {
     fn from(e: AppError) -> Self {
         match e {
-            AppError::RateLimited => Self::rate_limited(),
+            AppError::RateLimited | AppError::Limited(_) => Self::rate_limited(),
             AppError::BadRequest(detail) => Self::invalid_parameters(&detail),
+            AppError::Conflict(detail) => Self::invalid_parameters(&detail),
+            AppError::NotAllowed(detail) => Self::new(4, &detail),
             AppError::Database(_) | AppError::Redis(_) | AppError::Internal(_) => {
                 tracing::error!("Last.fm API: {e}");
                 Self::new(
@@ -241,6 +246,22 @@ async fn dispatch(state: &AppState, http_method: &Method, params: &Params, ip: &
             love(state, params, ip, false).await
         }
         "track.getinfo" => track_info(state, params).await,
+        "artist.getinfo" => artist_info(state, params).await,
+        "artist.addtags" | "album.addtags" | "track.addtags" => {
+            posted()?;
+            change_tags(state, params, ip, entity_kind(&method), true).await
+        }
+        "artist.removetag" | "album.removetag" | "track.removetag" => {
+            posted()?;
+            change_tags(state, params, ip, entity_kind(&method), false).await
+        }
+        "artist.gettags" | "album.gettags" | "track.gettags" => {
+            user_entity_tags(state, params, entity_kind(&method)).await
+        }
+        "artist.gettoptags" | "album.gettoptags" | "track.gettoptags" => {
+            top_tags(state, params, entity_kind(&method)).await
+        }
+        "user.gettoptags" => user_top_tags(state, params).await,
         "user.getinfo" => user_info(state, params).await,
         "user.getrecenttracks" => recent_tracks(state, params).await,
         "user.getlovedtracks" => loved_tracks(state, params).await,
@@ -809,8 +830,9 @@ async fn track_info(state: &AppState, params: &Params) -> LfmResult {
         "duration": duration,
         "streamable": { "#text": "0", "fulltrack": "0" },
         "artist": { "name": t.artist_name, "mbid": mbid(t.artist_mbid), "url": "" },
-        "toptags": { "tag": [] },
     });
+    let (tags_xml, tags_json) = shown_tags(state, CatalogKind::Track, id, 5).await?;
+    json["toptags"] = json!({ "tag": tags_json });
     if let Some(plays) = t.scrobble_count {
         xml.push_str(&format!("<playcount>{plays}</playcount>"));
         json["playcount"] = json!(plays.to_string());
@@ -845,10 +867,294 @@ async fn track_info(state: &AppState, params: &Params) -> LfmResult {
         json["userplaycount"] = json!(plays.to_string());
         json["userloved"] = json!(loved.to_string());
     }
-    xml.push_str("<toptags></toptags></track>");
+    xml.push_str(&format!("<toptags>{tags_xml}</toptags></track>"));
     Ok(Body {
         xml,
         json: json!({ "track": json }),
+    })
+}
+
+fn entity_kind(method: &str) -> CatalogKind {
+    match method.split('.').next() {
+        Some("artist") => CatalogKind::Artist,
+        Some("album") => CatalogKind::Album,
+        _ => CatalogKind::Track,
+    }
+}
+
+fn not_found(kind: CatalogKind) -> LfmError {
+    LfmError::new(
+        6,
+        match kind {
+            CatalogKind::Artist => "The artist you supplied could not be found",
+            CatalogKind::Album => "Album not found",
+            CatalogKind::Track => "Track not found",
+        },
+    )
+}
+
+/// The artist, album or track `params` names, by `artist` and `album` or
+/// `track` (or `mbid`, for artists and tracks). Creates nothing.
+async fn find_entity(
+    state: &AppState,
+    params: &Params,
+    kind: CatalogKind,
+) -> Result<i64, LfmError> {
+    let found = match kind {
+        CatalogKind::Track => find_track(state, params).await?,
+        CatalogKind::Artist => {
+            let mbid = super::mbid(params.get("mbid"));
+            let name = params.text("artist");
+            if name.is_none() && mbid.is_none() {
+                return Err(LfmError::invalid_parameters("artist or mbid is required"));
+            }
+            tracks_db::find_artist_id(&state.db, name, mbid).await?
+        }
+        CatalogKind::Album => match (params.text("artist"), params.text("album")) {
+            (Some(artist), Some(album)) => {
+                tracks_db::find_album_id(&state.db, artist, album).await?
+            }
+            _ => {
+                return Err(LfmError::invalid_parameters(
+                    "artist and album are required",
+                ));
+            }
+        },
+    };
+    found.ok_or_else(|| not_found(kind))
+}
+
+/// The tags the server shows on the entity, as Last.fm's `<tag>` list.
+async fn shown_tags(
+    state: &AppState,
+    kind: CatalogKind,
+    id: i64,
+    limit: i64,
+) -> Result<(String, Value), LfmError> {
+    let min = i64::from(state.rankings.min_listeners) * shared::ranking::FULL;
+    let tags = tags_db::top_tags(&state.db, kind, id, min, limit).await?;
+    Ok((
+        tags.iter()
+            .map(|(name, weight)| {
+                format!(
+                    "<tag><name>{}</name><count>{}</count><url></url></tag>",
+                    xml_escape(name),
+                    shared::ranking::whole(*weight)
+                )
+            })
+            .collect(),
+        Value::Array(
+            tags.iter()
+                .map(|(name, weight)| {
+                    json!({ "name": name, "count": shared::ranking::whole(*weight), "url": "" })
+                })
+                .collect(),
+        ),
+    ))
+}
+
+fn entity_attr(params: &Params, kind: CatalogKind) -> (String, Value) {
+    let text = |name: &str| params.text(name).unwrap_or_default().to_string();
+    let mut attr = vec![("artist", text("artist"))];
+    match kind {
+        CatalogKind::Album => attr.push(("album", text("album"))),
+        CatalogKind::Track => attr.push(("track", text("track"))),
+        CatalogKind::Artist => {}
+    }
+    (
+        attr.iter()
+            .map(|(k, v)| format!(" {k}=\"{}\"", xml_escape(v)))
+            .collect(),
+        Value::Object(
+            attr.into_iter()
+                .map(|(k, v)| (k.to_string(), json!(v)))
+                .collect(),
+        ),
+    )
+}
+
+/// `{artist,album,track}.addTags` (`tags`, comma-separated) and
+/// `.removeTag` (`tag`): signed and authenticated like `track.love`,
+/// within the tag limits shared with the native API. Tagging creates no
+/// catalog entry.
+async fn change_tags(
+    state: &AppState,
+    params: &Params,
+    ip: &str,
+    kind: CatalogKind,
+    add: bool,
+) -> LfmResult {
+    let (api_key, signed) = check_api_key(&state.compat, params, true)?;
+    let credential = session(state, params, &api_key).await?;
+    let id = find_entity(state, params, kind).await?;
+    let done = Body {
+        xml: String::new(),
+        json: json!({}),
+    };
+    if !add {
+        if !crate::limits::tag_attempt(state, credential.user_id, ip).await {
+            return Err(LfmError::rate_limited());
+        }
+        let tag = community_tag(params.text("tag").unwrap_or_default())?;
+        tags_db::remove(&state.db, credential.user_id, kind, id, &tag).await?;
+        return Ok(done);
+    }
+    crate::handlers::tags::may_tag(state, credential.user_id, ip).await?;
+    let raw: Vec<String> = params
+        .text("tags")
+        .unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .map(str::to_string)
+        .collect();
+    let names = crate::handlers::tags::tag_names(state, &raw).await?;
+    let client = ClientIdentity::new(PROTOCOL_LASTFM, &api_key, signed == Signed::Verified);
+    let from = TagSource {
+        source: tags_db::SOURCE_LASTFM,
+        client_id: state.clients.id(&state.db, &client).await,
+    };
+    match tags_db::add(&state.db, credential.user_id, kind, id, &names, from).await? {
+        Added::Tags(_) => Ok(done),
+        refused => Err(crate::handlers::tags::added_error(refused).into()),
+    }
+}
+
+fn community_tag(raw: &str) -> Result<String, LfmError> {
+    shared::community::tag_name(raw).map_err(|e| LfmError::invalid_parameters(&e.to_string()))
+}
+
+/// `{artist,album,track}.getTags`: the tags `user` (else the session's
+/// user) put on the entity, under the profile's visibility.
+async fn user_entity_tags(state: &AppState, params: &Params, kind: CatalogKind) -> LfmResult {
+    let user = visible_user(state, params).await?;
+    let id = find_entity(state, params, kind).await?;
+    let tags = tags_db::of_entity(&state.db, user.id, kind, id).await?;
+    let (attr_xml, attr_json) = entity_attr(params, kind);
+    let xml: String = tags
+        .iter()
+        .map(|t| format!("<tag><name>{}</name><url></url></tag>", xml_escape(t)))
+        .collect();
+    let mut tags_json = json!({
+        "tag": tags.iter().map(|t| json!({ "name": t, "url": "" })).collect::<Vec<_>>(),
+    });
+    tags_json["@attr"] = attr_json;
+    Ok(Body {
+        xml: format!("<tags{attr_xml}>{xml}</tags>"),
+        json: json!({ "tags": tags_json }),
+    })
+}
+
+/// `{artist,album,track}.getTopTags`: the tags shown on the entity, with
+/// their weighted taggers as `count`.
+async fn top_tags(state: &AppState, params: &Params, kind: CatalogKind) -> LfmResult {
+    check_api_key(&state.compat, params, false)?;
+    let id = find_entity(state, params, kind).await?;
+    let (xml, tags) = shown_tags(state, kind, id, 100).await?;
+    let (attr_xml, attr_json) = entity_attr(params, kind);
+    Ok(Body {
+        xml: format!("<toptags{attr_xml}>{xml}</toptags>"),
+        json: json!({ "toptags": { "tag": tags, "@attr": attr_json } }),
+    })
+}
+
+/// `user.getTopTags`: the tags a user uses, under the profile's visibility.
+async fn user_top_tags(state: &AppState, params: &Params) -> LfmResult {
+    let user = visible_user(state, params).await?;
+    let (limit, _) = page_params(params, 200);
+    let tags = tags_db::user_counts(&state.db, user.id, limit).await?;
+    Ok(Body {
+        xml: format!(
+            "<toptags user=\"{}\">{}</toptags>",
+            xml_escape(&user.username),
+            tags.iter()
+                .map(|t| format!(
+                    "<tag><name>{}</name><count>{}</count><url></url></tag>",
+                    xml_escape(&t.name),
+                    t.count
+                ))
+                .collect::<String>()
+        ),
+        json: json!({
+            "toptags": {
+                "tag": tags.iter()
+                    .map(|t| json!({ "name": t.name, "count": t.count.to_string(), "url": "" }))
+                    .collect::<Vec<_>>(),
+                "@attr": { "user": user.username },
+            }
+        }),
+    })
+}
+
+/// `artist.getInfo`: the artist with its community bio (`summary` its
+/// first paragraph, `content` all of it), tags and, past the listener
+/// minimum, `playcount`; with `username` or a session, `userplaycount`
+/// where that profile may be seen. No `listeners`, which isn't kept, and
+/// no similar artists.
+async fn artist_info(state: &AppState, params: &Params) -> LfmResult {
+    let (api_key, _) = check_api_key(&state.compat, params, false)?;
+    let viewer = match params.text("sk") {
+        Some(_) => Some(session(state, params, &api_key).await?),
+        None => None,
+    };
+    let id = find_entity(state, params, CatalogKind::Artist).await?;
+    let min_listeners = i32::try_from(state.rankings.min_listeners).unwrap_or(i32::MAX);
+    let artist = tracks_db::public_artist(&state.db, id, min_listeners)
+        .await?
+        .ok_or_else(|| not_found(CatalogKind::Artist))?;
+    let user = match params.text("username") {
+        Some(name) => seen_user(state, name, viewer.as_ref()).await?,
+        None => viewer.as_ref().map(|v| v.user_id),
+    };
+    let user_plays = match user {
+        Some(user_id) => Some(scrobbles_db::user_artist_plays(&state.db, user_id, id).await?),
+        None => None,
+    };
+    let bio = bios_db::current(&state.db, CatalogKind::Artist, id, None).await?;
+    let (tags_xml, tags_json) = shown_tags(state, CatalogKind::Artist, id, 5).await?;
+    let (image_xml, image_json) = images(artist.image_url.as_deref());
+    let mbid = artist.mbid.map(|m| m.to_string()).unwrap_or_default();
+
+    let mut stats_xml = String::new();
+    let mut stats = serde_json::Map::new();
+    if let Some(plays) = artist.scrobble_count {
+        stats_xml.push_str(&format!("<playcount>{plays}</playcount>"));
+        stats.insert("playcount".into(), json!(plays.to_string()));
+    }
+    if let Some(plays) = user_plays {
+        stats_xml.push_str(&format!("<userplaycount>{plays}</userplaycount>"));
+        stats.insert("userplaycount".into(), json!(plays.to_string()));
+    }
+    let content = bio.body.clone().unwrap_or_default();
+    let summary = content.split("\n\n").next().unwrap_or_default().to_string();
+    let published = bio
+        .updated_at
+        .map(|at| at.format("%d %b %Y, %H:%M").to_string())
+        .unwrap_or_default();
+    Ok(Body {
+        xml: format!(
+            "<artist><name>{name}</name><mbid>{mbid}</mbid><url></url>{image_xml}\
+             <streamable>0</streamable><ontour>0</ontour><stats>{stats_xml}</stats>\
+             <similar></similar><tags>{tags_xml}</tags><bio><published>{published}</published>\
+             <summary>{summary}</summary><content>{content}</content></bio></artist>",
+            name = xml_escape(&artist.name),
+            summary = xml_escape(&summary),
+            content = xml_escape(&content),
+        ),
+        json: json!({
+            "artist": {
+                "name": artist.name,
+                "mbid": mbid,
+                "url": "",
+                "image": image_json,
+                "streamable": "0",
+                "ontour": "0",
+                "stats": stats,
+                "similar": { "artist": [] },
+                "tags": { "tag": tags_json },
+                "bio": { "published": published, "summary": summary, "content": content },
+            }
+        }),
     })
 }
 

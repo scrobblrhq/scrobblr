@@ -356,6 +356,28 @@ pub async fn user_track_plays(
     .await
 }
 
+/// A user's plays of an artist's tracks, duplicates left out.
+pub async fn user_artist_plays(
+    pool: &PgPool,
+    user_id: i64,
+    artist_id: i64,
+) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar!(
+        r#"
+        SELECT GREATEST(
+            (SELECT COALESCE(sum(play_count), 0) FROM scrobbles_daily_by_artist
+             WHERE artist_id = $2 AND user_id = $1)
+          - (SELECT count(*) FROM scrobble_flags f JOIN tracks t ON t.id = f.track_id
+             WHERE f.user_id = $1 AND t.artist_id = $2 AND f.status = 'duplicate'),
+            0)::bigint AS "plays!"
+        "#,
+        user_id,
+        artist_id,
+    )
+    .fetch_one(pool)
+    .await
+}
+
 /// A user's scrobbles in `[from, to]`, duplicates left out.
 pub async fn count_scrobbles(
     pool: &PgPool,

@@ -2049,3 +2049,212 @@ async fn listenbrainz_feedback_follows_the_profile_rules() {
     })
     .await;
 }
+
+/// Pano Scrobbler's tag screens on a GNU FM account, as its `LastFm`
+/// class sends them: `artist.addTags` and `track.addTags` (signed POSTs,
+/// tags comma-separated), `artist.getTags` (a GET with the session key),
+/// `artist.removeTag`, and `user.getTopTags` for its tag history. Tagging
+/// what the server doesn't know creates nothing.
+#[tokio::test]
+#[ignore = "needs Postgres and Redis: just test-db"]
+async fn pano_scrobbler_tags_and_reads_them_back() {
+    with_app(CompatConfig::default(), |app| async move {
+        let sk = app.new_token("pano").await;
+        scrobble_and_love(&app, ("Slowdive", "Alison", "Souvlaki"), TimeDelta::minutes(10)).await;
+        let post = |method: &'static str, extra: Vec<(&'static str, String)>| {
+            let sk = sk.clone();
+            let app = &app;
+            async move {
+                let mut params: Vec<(&str, String)> = vec![
+                    ("format", "json".into()),
+                    ("api_key", "panoScrobbler".into()),
+                    ("sk", sk),
+                    ("method", method.into()),
+                ];
+                params.extend(extra);
+                let borrowed: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
+                let signed = pano_signed(&borrowed, "panoScrobbler");
+                app.post_form("/2.0/", &pairs(&signed)).await
+            }
+        };
+        let (status, body) = post(
+            "artist.addTags",
+            vec![("tags", "Shoegaze, Dream  Pop,shoegaze".into()), ("artist", "Slowdive".into())],
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let (status, body) = post(
+            "track.addTags",
+            vec![("tags", "90s".into()), ("artist", "slowdive".into()), ("track", "Alison".into())],
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let (status, body) = post(
+            "artist.addTags",
+            vec![("tags", "rock".into()), ("artist", "Nobody Knows Them".into())],
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["error"], 6);
+        let artists: i64 = sqlx::query_scalar("SELECT count(*) FROM artists")
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+        assert_eq!(artists, 1, "tagging created nothing");
+        let (status, body) = post(
+            "artist.addTags",
+            vec![("tags", "a/b".into()), ("artist", "Slowdive".into())],
+        )
+        .await;
+        assert_eq!((status, serde_json::from_str::<Value>(&body).unwrap()["error"].clone()), (StatusCode::BAD_REQUEST, json!(6)));
+
+        let get = |query: String| {
+            let app = &app;
+            async move {
+                let (status, _, body) = app.get(&format!("/2.0/?{query}")).await;
+                (status, serde_json::from_str::<Value>(&body).unwrap_or(Value::Null))
+            }
+        };
+        let (status, tags) = get(form(&[
+            ("method", "artist.getTags"),
+            ("artist", "Slowdive"),
+            ("format", "json"),
+            ("api_key", "panoScrobbler"),
+            ("sk", &sk),
+        ]))
+        .await;
+        assert_eq!(status, StatusCode::OK, "{tags}");
+        assert_eq!(
+            tags["tags"]["tag"],
+            json!([{ "name": "dream pop", "url": "" }, { "name": "shoegaze", "url": "" }])
+        );
+        assert_eq!(tags["tags"]["@attr"]["artist"], "Slowdive");
+
+        let (status, body) = post(
+            "artist.removeTag",
+            vec![("tag", "Dream Pop".into()), ("artist", "Slowdive".into())],
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let (_, top) = get(form(&[
+            ("method", "user.getTopTags"),
+            ("user", &app.username),
+            ("limit", "20"),
+            ("format", "json"),
+            ("api_key", "panoScrobbler"),
+            ("sk", &sk),
+        ]))
+        .await;
+        assert_eq!(
+            top["toptags"]["tag"],
+            json!([{ "name": "90s", "count": "1", "url": "" }, { "name": "shoegaze", "count": "1", "url": "" }])
+        );
+
+        // Somebody else's tags follow their profile.
+        sqlx::query("UPDATE users SET is_private = TRUE WHERE id = $1")
+            .bind(app.user_id)
+            .execute(&app.pool)
+            .await
+            .unwrap();
+        let (status, err) = get(form(&[
+            ("method", "artist.getTags"),
+            ("artist", "Slowdive"),
+            ("user", &app.username),
+            ("format", "json"),
+            ("api_key", "k"),
+        ]))
+        .await;
+        assert_eq!((status, err["error"].clone()), (StatusCode::FORBIDDEN, json!(17)));
+    })
+    .await;
+}
+
+/// What pylast reads: `artist.getTopTags` (`<tag><name>` and `<count>`),
+/// `artist.getInfo`'s bio and `userplaycount`, and `track.getInfo`'s
+/// `toptags`; a tag shows once five week-old accounts put it there.
+#[tokio::test]
+#[ignore = "needs Postgres and Redis: just test-db"]
+async fn pylast_reads_top_tags_and_the_bio() {
+    with_app(CompatConfig::default(), |app| async move {
+        scrobble_and_love(&app, ("Slowdive", "Alison", "Souvlaki"), TimeDelta::minutes(10)).await;
+        let band: i64 = sqlx::query_scalar("SELECT id FROM artists")
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+        let track: i64 = sqlx::query_scalar("SELECT id FROM tracks")
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+        for i in 0..5 {
+            let (id, _, session) = app.other_user(&format!("fan{i}")).await;
+            sqlx::query("UPDATE users SET created_at = NOW() - INTERVAL '30 days' WHERE id = $1")
+                .bind(id)
+                .execute(&app.pool)
+                .await
+                .unwrap();
+            for path in [format!("/v1/artist/{band}/tags"), format!("/v1/track/{track}/tags")] {
+                let (status, _) = app
+                    .api_as(&session, Method::POST, &path, Some(json!({ "tags": ["shoegaze"] })))
+                    .await;
+                assert_eq!(status, StatusCode::OK);
+            }
+            if i == 0 {
+                let (status, _) = app
+                    .api_as(
+                        &session,
+                        Method::PUT,
+                        &format!("/v1/artist/{band}/bio"),
+                        Some(json!({ "body": "An English band.\n\nFormed in 1989 & named after a dream.", "base_revision_id": null })),
+                    )
+                    .await;
+                assert_eq!(status, StatusCode::OK);
+            }
+        }
+        sqlx::query("UPDATE tag_queue SET due_at = NOW()")
+            .execute(&app.pool)
+            .await
+            .unwrap();
+        db::queries::tags::recount_due(&app.pool, db::queries::tags::Weighing::at(Utc::now()), 100)
+            .await
+            .unwrap();
+
+        let (status, _, body) = app
+            .get("/2.0/?method=artist.getTopTags&artist=slowdive&api_key=k")
+            .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(
+            body.contains("<toptags artist=\"slowdive\"><tag><name>shoegaze</name><count>5</count>"),
+            "{body}"
+        );
+        let sk = app.new_token("pylast").await;
+        let (status, body) = pylast(
+            &app,
+            &[
+                ("method", "artist.getInfo"),
+                ("artist", "Slowdive"),
+                ("username", &app.username),
+                ("api_key", "pylast-key"),
+                ("sk", &sk),
+            ],
+            "pylast-secret",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(xml_text(&body, "summary"), Some("An English band."));
+        assert_eq!(
+            xml_text(&body, "content"),
+            Some("An English band.\n\nFormed in 1989 &amp; named after a dream.")
+        );
+        assert_eq!(xml_text(&body, "userplaycount"), Some("1"));
+        assert!(!body.contains("<listeners>") && !body.contains("<playcount>"), "{body}");
+
+        let (_, _, body) = app
+            .get("/2.0/?method=track.getInfo&artist=Slowdive&track=Alison&api_key=k&format=json")
+            .await;
+        let info: Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(info["track"]["toptags"]["tag"][0]["name"], "shoegaze");
+        let (status, _, _) = app.get("/2.0/?method=artist.getInfo&artist=Nobody&api_key=k").await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    })
+    .await;
+}

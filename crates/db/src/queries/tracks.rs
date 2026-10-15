@@ -125,6 +125,47 @@ pub async fn find_or_create_artist(pool: &PgPool, name: &str) -> Result<Artist, 
     Err(sqlx::Error::RowNotFound)
 }
 
+/// The artist `name` names, normalized as ingest normalizes it, or the
+/// MusicBrainz id, if the catalog has it. Creates nothing.
+pub async fn find_artist_id(
+    pool: &PgPool,
+    name: Option<&str>,
+    mbid: Option<Uuid>,
+) -> Result<Option<i64>, sqlx::Error> {
+    sqlx::query_scalar!(
+        r#"
+        SELECT id FROM artists
+        WHERE mbid = $2 OR name_normalized = $1
+        ORDER BY mbid = $2 DESC NULLS LAST
+        LIMIT 1
+        "#,
+        name.map(|n| n.trim().to_lowercase()),
+        mbid,
+    )
+    .fetch_optional(pool)
+    .await
+}
+
+/// The album `title` by `artist` names, normalized as ingest normalizes
+/// them, if the catalog has it. Creates nothing.
+pub async fn find_album_id(
+    pool: &PgPool,
+    artist: &str,
+    title: &str,
+) -> Result<Option<i64>, sqlx::Error> {
+    sqlx::query_scalar!(
+        r#"
+        SELECT al.id FROM albums al
+        JOIN artists a ON a.id = al.artist_id
+        WHERE a.name_normalized = $1 AND al.title_normalized = $2
+        "#,
+        artist.trim().to_lowercase(),
+        title.trim().to_lowercase(),
+    )
+    .fetch_optional(pool)
+    .await
+}
+
 /// The track `artist` and `title` name, normalized as ingest normalizes
 /// them, if the catalog has it. Creates nothing.
 pub async fn find_track_id(

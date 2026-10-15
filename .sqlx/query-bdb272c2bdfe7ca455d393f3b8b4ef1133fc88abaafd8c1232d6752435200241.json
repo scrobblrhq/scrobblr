@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT GREATEST(\n            (SELECT COALESCE(sum(play_count), 0) FROM scrobbles_daily_by_artist\n             WHERE artist_id = $2 AND user_id = $1)\n          - (SELECT count(*) FROM scrobble_flags f JOIN tracks t ON t.id = f.track_id\n             WHERE f.user_id = $1 AND t.artist_id = $2 AND f.status = 'duplicate'),\n            0)::bigint AS \"plays!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "plays!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "bdb272c2bdfe7ca455d393f3b8b4ef1133fc88abaafd8c1232d6752435200241"
+}
