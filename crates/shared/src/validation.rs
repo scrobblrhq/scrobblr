@@ -70,7 +70,7 @@ pub enum ValidationError {
 /// Rejects anything that renders ambiguously or can break a client: C0/C1
 /// controls, zero-width joiners and the bidirectional overrides that let a
 /// name display as something other than what is stored.
-fn is_unsafe_text_char(c: char) -> bool {
+pub(crate) fn is_unsafe_text_char(c: char) -> bool {
     c.is_control()
         || matches!(c,
             '\u{200B}'..='\u{200F}'

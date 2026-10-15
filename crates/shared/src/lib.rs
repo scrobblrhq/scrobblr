@@ -1,6 +1,7 @@
 pub mod albums;
 pub mod charts;
 pub mod classification;
+pub mod community;
 pub mod coordination;
 pub mod crypto;
 pub mod cursor;
