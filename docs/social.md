@@ -2,8 +2,9 @@
 
 What users see of each other: follows, a user's own charts, the charts of
 the accounts a user follows (community charts), a feed of what those
-accounts play, loved tracks, and what listening says about artists and
-people (similar artists, taste neighbours, recommendations). Global rankings are in
+accounts play, loved tracks, what listening says about artists and
+people (similar artists, taste neighbours, recommendations), and what
+the community writes about the catalog (bios and tags). Global rankings are in
 [rankings.md](rankings.md); what is stored and erased about an account, in
 [privacy.md](privacy.md).
 
@@ -30,8 +31,10 @@ and it is public, or it is the viewer's own.
   following a private account adds nothing to either.
 - **Counts** (`followers_count`, `following_count`, catalog counts, global
   rankings) include private accounts, unnamed, as every aggregate does.
-- Comments and uploaded images keep their author's name whatever the
-  privacy setting: they were posted for others to see.
+- Comments, uploaded images and bio revisions keep their author's name
+  whatever the privacy setting: they were posted for others to see. A
+  user's tags are the profile's, as visible as it; tag counts name
+  nobody.
 - **Blocks** ([below](#blocking-and-removing-followers)): an account that
   blocks the viewer doesn't exist for it, and neither account appears in
   the other's lists of people.
@@ -671,6 +674,300 @@ psql "$SCRATCH_URL" -f scripts/synthetic/follows.sql
 psql "$SCRATCH_URL" -f scripts/synthetic/loves.sql
 ```
 
+## Bios
+
+Artists and albums have a bio, written by the community as a wiki is:
+every edit is a revision, kept for good and shown with its author, time
+and summary, and anyone allowed to edit can restore an earlier one.
+Tracks have none: few have anything to say that their album's bio
+doesn't, and every bio is one more page to watch for spam.
+
+| route | access | |
+| --- | --- | --- |
+| `GET /v1/{artist,album}/{id}/bio` | public (a session hides authors as below) | the current text (`Bio`) |
+| `GET /v1/{artist,album}/{id}/bio/history` | public (likewise) | published revisions, newest first (`BioHistoryPage`) |
+| `GET /v1/bio/revisions/{id}` | public (likewise; a held or rejected edit is its author's) | one revision with its text (`BioRevision`) |
+| `PUT /v1/{artist,album}/{id}/bio` | `write` | 200 published, 202 held; 400, 403, 404, 409, 429 |
+| `POST /v1/{artist,album}/{id}/bio/revert` | `write` | 200; 400, 403, 404, 409, 429 |
+| `POST /v1/reports` | `write` | 204; 400, 404, 429 |
+
+```json
+{
+  "entity_type": "artist", "entity_id": 97, "revision_id": 5012,
+  "body": "Massive Attack are a trip hop group from Bristol.\n\nFormed in 1988 …",
+  "kind": "edit",
+  "author": { "id": 812, "username": "alice", "display_name": "Alice", "image_url": null },
+  "updated_at": "2026-10-15T14:02:11.408211Z", "locked": false, "revisions": 7
+}
+```
+
+A history entry (`BioRevision`) carries `id`, `entity_type`, `entity_id`,
+`parent_id` (the revision current when it was written; `null` for the
+first), `kind` (`edit`, `revert`, `import` from Last.fm, `moderation`),
+`author` (nullable, as below), `summary` (`null` when hidden), `body`
+(`null` in history pages and when hidden; the revision route has it),
+`length` (characters), `reverted_to`, `status` (`published`, `held`,
+`rejected`), `held_reason`, `hidden`, `current` and `created_at`. Pages:
+`limit` (50, at most 200) and `before`, the previous page's `next` (a
+revision id); `next` is `null` on the last page.
+
+**Editing.** `PUT` takes `body`, `summary` (optional, one line of 200
+characters) and `base_revision_id`, the `revision_id` of the bio the text
+was written over (`null` when it had none). If another revision came
+since, nothing is written: 409, saying which revision is current, and
+the client reads the bio again and merges. Writing the current text
+again is a 400. A revert (`revision_id`, `base_revision_id`, `summary`)
+restores the text of an earlier revision of the same bio, published and
+not hidden, as a new revision; reverts are never held. Both answer the
+new `BioRevision`.
+
+**Who may edit:** an account 7 days old (as for the rankings' weights:
+fresh accounts are what farms are made of, and the server sets
+`created_at`), not suspended by the operator, not waiting to be deleted,
+and whose lowest coordination factor over the last 28 days is at least
+0.5: the midpoint of the detection's scale, where it is more sure than
+not that the account is part of a farm ([rankings.md](rankings.md#coordination)).
+A refusal is a 403: a new account is told from when it may edit; the
+others only that they can't edit now, so a farm learns nothing about the
+detection. Nobody edits a bio the operator locked (403, `locked: true`).
+
+**The text** is plain: no HTML, no Markdown. Clients show it as text, a
+paragraph at each blank line, `http://` and `https://` URLs as links
+marked `rel="nofollow ugc noopener"`, never embedded, previewed or
+unfurled. The server normalizes line breaks (`\n`), tabs (spaces),
+trailing spaces and runs of blank lines, and refuses (400) an empty text,
+more than 10,000 characters (Last.fm's longest biographies run to a few
+thousand), more than 5 links (`http://`, `https://` or `www.`), and
+control, invisible or bidirectional formatting characters (embeddings,
+overrides, isolates, marks, zero-width spaces, word joiners, byte-order
+marks, line and paragraph separators); zero-width joiners and
+non-joiners stay, since Persian, Indic scripts and emoji need them. The
+summary follows the same rules on one line.
+
+**Held for review.** An edit is held, unpublished, with `202` and
+`held_reason`, when:
+
+- a link host it adds appears more than twice in the text
+  (`repeated_link`);
+- its author added that host to 2 other bios in the last 7 days, or
+  anyone to 4 other bios in the last 24 hours (`link_across_bios`): link
+  spam pasted across the catalog;
+- its text, 200 characters or more, is the text of another bio's
+  revision, whatever the case and spacing (`duplicate_text`).
+
+A held edit leaves the bio as it was, isn't in the history, and only its
+author can read it (`GET /v1/bio/revisions/{id}`) until the operator
+approves or rejects it ([operations.md](operations.md#moderation)).
+
+**Limits:** 30 edits and reverts an hour per account and 60 per address
+(Redis, failing open, as for loves), and, in the database whatever Redis
+says, 50 revisions in 24 hours per account and 3 of one bio: two accounts
+reverting each other stop after three rounds a day each, and the
+operator can lock the bio. A 429 says which limit.
+
+**Authors** are named whatever the privacy of their profile: an edit is
+published for everyone, like a comment. An author waiting to be deleted,
+or blocking the signed-in viewer or blocked by it, shows as `author:
+null`; the text stays, being the catalog's. After an erase the
+revision stays without its author ([privacy.md](privacy.md#deletion)).
+
+**From Last.fm.** Enrichment's Last.fm bios are `import` revisions:
+migration `0037` made the bios fetched before it each artist's first
+revision, and enrichment adds one when an artist has no bio, or over an
+earlier import on a forced refresh, and never once a person has edited
+the bio, even if the text was later reverted to the import. `Artist.bio`
+(`GET /v1/artist/{id}` and everything serving an artist) is the current
+text; `Album` has no `bio`: read the bio route.
+
+**Reports.** `POST /v1/reports` takes a `revision_id`, or a `tag` (on
+the entity one of `artist_id`, `album_id`, `track_id` names, or
+anywhere), a `reason` (`spam`, `vandalism`, `offensive`,
+`personal_data`, `copyright`, `other`) and a `note` (one line, 500
+characters). A second report of the same target by the same account
+while the first is open changes nothing (204 either way). 20 reports an
+hour per account, 60 per address. The reporter is never told what came
+of it; nobody is told who reported. The queue is the operator's
+(`worker moderation reports`).
+
+## Tags
+
+Users tag artists, albums and tracks, as on Last.fm. What a user tagged is
+theirs, shown with their profile; what everyone sees on an entity is the
+tags enough accounts put there, counted as the rankings count listeners.
+Tags **feed nothing** else: rankings, recommendations, similar artists,
+taste neighbours and album attribution don't read them.
+
+| route | access | |
+| --- | --- | --- |
+| `GET /v1/{artist,album,track}/{id}/tags` | public, cacheable | the tags shown on it (`TopTags`) |
+| `GET /v1/tag/{tag}/{artists,albums,tracks}` | public, cacheable | the entities a tag is shown on (`TaggedEntityPage`) |
+| `POST /v1/{artist,album,track}/{id}/tags` | `write` | add up to 10 of mine; the user's tags on it after (`EntityTags`); 400, 403, 404, 409, 429 |
+| `DELETE /v1/{artist,album,track}/{id}/tags/{tag}` | `write` | 204 (also when not there); 400, 404, 429 |
+| `GET /v1/user/me/tags` | `read` | my tags, newest first (`UserTagPage`), `?artist=`, `album=` or `track=` for one entity |
+| `GET /v1/user/{username}/tags` | public (a session sees its own private profile) | the tags a user uses and on how many entities (`UserTags`) |
+
+```json
+{ "entity_type": "artist", "entity_id": 97,
+  "tags": [ { "name": "trip-hop", "taggers": 41 }, { "name": "electronic", "taggers": 12 } ] }
+```
+
+```json
+{ "tag": "trip-hop", "total": 37,
+  "entries": [ { "position": 1, "entity_type": "artist", "id": 97, "name": "Massive Attack",
+                 "artist_id": null, "artist_name": null, "image_url": "https://…", "taggers": 41 } ] }
+```
+
+**Normalization.** A tag is stored and shown in one form: compatibility
+normalization (NFKC: full-width letters, ligatures and composed accents
+become their plain forms), lowercase, whitespace collapsed to single
+spaces, trimmed. 1 to 40 characters of letters (any script, with their
+combining marks), digits, spaces and `- & ' . + ! _`, at least one a
+letter or digit; anything else (commas, slashes, angle brackets, emoji,
+control and formatting characters) is a 400. `POST` takes 1 to 10;
+duplicates count once. Paths take any spelling: `/v1/tag/Trip%20%20Hop/…`
+is `trip hop`.
+
+**Caps:** 10 of an account's tags on one artist, album or track, 500
+different tags on one entity (past them a new tag is refused, an existing
+one may still be added), 50,000 taggings per account (409); 120 tag
+changes (adds and removes, through this API and the Last.fm-compatible
+one) an hour per account and 300 per address (429, Redis, fails open).
+The caps are counted under per-account and per-entity locks. A suspended
+account can't tag (403); a new one can, its tags weighing nothing in the
+counts for a week, as its plays in the rankings.
+
+**Counts.** The worker keeps `tag_counts`: per entity and tag, every
+account that put it there and their weight: an account counts in full
+from 7 days after registering, at its lowest coordination factor of the
+last 28 days if the detection flagged it, and not at all while suspended
+or waiting to be deleted. Private accounts count, unnamed, as in every
+catalog number. An entity shows a tag from `RANKING_MIN_LISTENERS` (5)
+weighted accounts, `taggers` being that weight to the nearest whole. The
+same minimum as every catalog count: it keeps one account (or four) from
+putting a tag on anything, and a private account's tag from showing
+alone. On a small server few tags reach it; each user still sees their own
+tags on an entity (`GET /v1/user/me/tags?artist=…`).
+
+The `tag counts` worker loop recounts an entity 30 seconds after its tags
+change (a burst costs one pass), and every entity every 6 hours, since
+weights change on their own (accounts coming of age, coordination runs,
+suspensions ending); deletion requests, restores, erases and suspensions
+queue the account's entities at once. It deletes tags that no account
+uses and no report names, a day after they were made.
+
+**Caching.** Both public reads send `Cache-Control: public,
+max-age=300` and a weak `ETag` of the body; `If-None-Match` with it gets
+a 304. `GET /v1/tag/{tag}/…` pages by `limit` (50, at most 200) and
+`offset`, with `total`; an unknown tag is a 404, an invalid one a 400.
+
+**Visibility.** `GET /v1/user/{username}/tags` is the profile's: 403 for
+someone else's private profile, 404 for an account waiting to be deleted
+or blocking the signed-in viewer. Tag counts name nobody.
+
+**Blocklist.** The operator blocks terms (`worker moderation
+block-tag`): a tag holding the term's words in a row is refused (400)
+and taken off everything at once.
+
+**Not imported from Last.fm.** Last.fm has no call listing a user's
+tags: `user.getTopTags` gives the tag names, and `user.getPersonalTags`
+the items under one tag and one kind (artist, album or track), 50 a page,
+without dates. An import would cost three calls or more per tag (a user
+with 500 tags: 1,500 calls, about 12 minutes of the 2 a second the import
+gets), as a new resumable phase of the import job, and would land tens of
+thousands of taggings at once, past the hourly limits that pace a farm.
+Left for later; the loved tracks are imported, which take one call per
+1,000.
+
+### From other apps
+
+The Last.fm-compatible API (`/2.0/`) serves what scrobblers call, read
+from their sources ([scrobbler-clients.md](scrobbler-clients.md)):
+
+- `artist.addTags`, `album.addTags`, `track.addTags` (`tags`,
+  comma-separated, 10 at most) and `.removeTag` (`tag`): POST, signed and
+  authenticated like `track.love` (a session key or a scrobbler token), the
+  same normalization, blocklist, caps and hourly limits as the native
+  routes (error 6 for an invalid or blocked tag or a cap, 29 for a limit, 4
+  for a suspended account). They create nothing: an artist, album or track
+  the catalog doesn't know is error 6. Pano Scrobbler's GNU FM account
+  tags this way from its info screen.
+- `.getTags`: the tags `user` (else the session's user) put on the
+  entity, as visible as the profile (17 private, 6 leaving or blocking).
+  Pano reads them back after tagging.
+- `.getTopTags`: the tags shown on the entity, `count` its weighted
+  taggers, past the minimum; `track.getInfo` fills `toptags` the same way.
+- `user.getTopTags`: the tags a user uses, with how many entities; Pano
+  fills its tag suggestions from it.
+- `artist.getInfo`: the artist with its community bio (`summary` the first
+  paragraph, `content` all of it, `published` the current revision's
+  time), its five top tags, `playcount` past the minimum and, with
+  `username` or a session, `userplaycount` where that profile may be seen;
+  no `listeners` (not kept) or similar artists. pylast reads its bio.
+
+Left out: `tag.getInfo`, `tag.getTopArtists` and the other tag pages,
+and `album.getInfo`. Pano
+Scrobbler sends `artist.getInfo`, `album.getInfo`, the `getTopTags`
+methods and the tag pages to last.fm itself whatever server is set, so a
+GNU FM account shows last.fm's tags and bios there; nothing seen in the
+clients' sources calls the tag pages on a configurable server.
+
+### Bios and tags measured
+
+On a synthetic population (`population.sql` with 4,000 accounts and 3
+days of plays, 199,464 scrobbles: tags and bios read accounts and the
+catalog, not plays) with `community.sql`: 727,521 taggings on 50,072
+entities (the most tagged artist has 30,442), 3,000 tags, one account at
+49,999 taggings; 32,740 bio revisions (imports of 5,000 artists, a third
+edited since, one artist with 10,001 revisions and a 10,000-character
+text). `user_tags` takes 174 MB with its indexes (about 240 bytes a
+tagging), `bio_revisions` 49 MB, `tag_counts` 72 MB for 181,585 rows
+(20,414 shown past the minimum). TimescaleDB 2.29.2 / Postgres 18 in a
+container (`shared_buffers=512MB`), the release API and Redis on the same
+8-core desktop, one client at a time: oha for reads (200 requests on one
+connection), curl for writes; p50 / p99.
+
+| | p50 | p99 |
+| --- | --- | --- |
+| a bio, typical / of the artist with 10,001 revisions | 1.7 / 7.7 ms | 5.9 / 31.8 ms |
+| a bio, signed in (blocks checked) | 3.0 ms | 9.2 ms |
+| history, first page of 50 (10,001 revisions) / signed in | 4.4 / 5.9 ms | 11.5 / 11.4 ms |
+| history, a page of 200, 9,000 deep | 10.5 ms | 17.4 ms |
+| a revision with 10,000 characters | 1.3 ms | 5.5 ms |
+| an entity's tags: the most tagged artist / a typical one / a track | 2.2 / 1.9 / 2.3 ms | 7.5 / 6.1 / 6.8 ms |
+| a tag's artists: first 50 / 200 / a rare tag | 3.6 / 4.0 / 2.1 ms | 19.7 / 18.3 / 7.4 ms |
+| my tags, 49,999 taggings: first 50 / 200 / 200 at 24,000 deep | 2.6 / 8.2 / 26.5 ms | 27.9 / 15.9 / 36.1 ms |
+| my tags on one entity, 49,999 taggings / typical | 1.5 / 1.7 ms | 24.9 / 4.2 ms |
+| a user's tags, 49,999 taggings / typical | 19.5 / 3.0 ms | 35.6 / 7.2 ms |
+| `artist.getInfo` (most tagged, 10,001 revisions) / `artist.getTopTags` / `user.getTopTags` at 49,999 | 9.7 / 2.7 / 18.4 ms | 13.8 / 8.5 / 28.0 ms |
+| a bio edit (40, each a new bio's revision, duplicate check included) | 8.8 ms | 12.8 ms |
+| a revert on the 10,001-revision bio (20) | 11.4 ms | 13.5 ms |
+| add 2 tags / remove one (100 each) | 7.6 / 4.6 ms | 15.0 / 10.5 ms |
+| add a tag to the most tagged artist (the entity cap's count, 19) | 7.6 ms | 11.6 ms |
+| a report (20) | 12.6 ms | 27.0 ms |
+
+My tags on one entity first took 40.6 ms for the heaviest tagger: one
+statement with an optional entity got a generic plan that read the whole
+list; two statements fixed it. The worker recounts all 50,072 entities in
+14–18 s (batches of 500), the most tagged artist alone in 0.73 s
+(1.1 s while each tagger's factor was a lateral lookup instead of one
+grouped scan of `coordination_days`). An entity's count is at most a
+minute late after a change, or 6 hours for weights changing on their own.
+
+The undo, measured: six aged accounts holding the current revision of 300
+bios and a tag on 600 popular artists (each showing it, past the
+minimum). `worker moderation suspend farm1 … farm6 --undo` put the 300
+bios back and took the tag off all 600 in 4.4 s, 3.3 s of it the recount
+of those artists; `block-tag spam` over the same 600 took 3.6 s.
+
+Scrobbling is untouched: no trigger or function on `scrobbles` reads the
+new tables, and ingest calls none of their queries (not measured).
+
+```bash
+psql "$SCRATCH_URL" -v users=4000 -v days=3 -f scripts/synthetic/population.sql
+psql "$SCRATCH_URL" -f scripts/synthetic/community.sql
+DATABASE_URL="$SCRATCH_URL" worker tags refresh
+```
+
 ## Similar artists, taste neighbours and recommendations
 
 What listening says about artists and people: an artist's similar artists
@@ -879,6 +1176,13 @@ beyond the ETags. The daily run that makes them: [rankings.md](rankings.md#cost-
 | `POST`, `DELETE /v1/user/me/recommendations/artists/{id}/skip` | `write` |
 | `GET /v1/user/me/similarity` | `read` |
 | `PUT /v1/user/me/similarity` | session |
+| `GET /v1/{artist,album}/{id}/bio`, `/bio/history`, `GET /v1/bio/revisions/{id}` | public (a session hides blocked and blocking authors) |
+| `PUT /v1/{artist,album}/{id}/bio`, `POST …/bio/revert` | `write` |
+| `POST /v1/reports` | `write` |
+| `GET /v1/{artist,album,track}/{id}/tags`, `GET /v1/tag/{tag}/{artists,albums,tracks}` | public |
+| `POST /v1/{artist,album,track}/{id}/tags`, `DELETE …/tags/{tag}` | `write` |
+| `GET /v1/user/me/tags` | `read` |
+| `GET /v1/user/{username}/tags` | public (a session sees its own private profile) |
 
 Public routes take an optional session (`optional_auth`); an API token,
 even with `read`, is ignored there, as on every profile route. Search, the
@@ -927,6 +1231,34 @@ setting, which can put the account on display. `router/tests.rs` lists each.
   and can't follow you), or remove it from your followers (30 days without
   following you again). A follow farm can be removed or blocked at 200
   accounts an hour.
+
+- **A vandal** needs an account 7 days old; then each edit is visible at
+  once (there is no review but the spam heuristics), 30 an hour, 50 bios
+  a day, 3 revisions of one bio a day. Anyone eligible reverts it; one
+  `worker moderation suspend NAME --undo` puts back every bio showing its
+  text and stops it.
+- **A farm of aged accounts** writes 3 revisions of a bio a day per
+  account, outlasting honest reverters only by numbers; with 5 accounts it
+  puts a tag on any entity's visible list, 120 entities an hour per
+  account (300 tag changes an hour per address, so 60 entities an hour
+  from one address with 5 accounts). Its links across bios are held from
+  the third bio per account. The operator's undo doesn't grow with what the
+  farm did: one `suspend NAME... --undo` naming every account puts back
+  every bio and takes their weight out of every tag count in one command
+  ([measured](#bios-and-tags-measured): 4.4 seconds for six accounts, 300
+  bios and 600 tagged artists), and `block-tag` takes a spam term off
+  everything.
+- **What an attacker needs** to stay ahead: accounts 7 days old (cheap to
+  age in bulk: registration isn't limited beyond the per-address request
+  rate), several addresses to pass the per-address limits, and listening
+  that doesn't trip the coordination detection, which only judges
+  listening: accounts that edit and tag but don't scrobble are never
+  flagged, so they keep full weight until someone reports them. Then it is
+  their rate against the operator's attention: nothing detects an edit or
+  tag farm on its own.
+- **Probing the counts:** a tag's weighted count says how much a farm's
+  accounts weigh, as the rankings do; it needs five of them to read any
+  number.
 
 Open: no approval for follows (private accounts can't share with chosen
 people); no muting (hiding an account without ending its follow); a
@@ -1035,6 +1367,12 @@ DATABASE_URL="$SCRATCH_URL" worker rank refresh
 - **No follow approval, no muting, no notifications.**
 - **Loves are tracks only** (no loved artists or albums), are never
   counted per track, and steer nothing.
+- **Bios** are artists' and albums' only, plain text, published without
+  review unless a spam heuristic holds them; there is no diff route
+  (clients compare two revisions' texts), no watchlist or notification
+  of changes, and no moderator role but the operator's commands.
+- **Tags** show only past the minimum of weighted accounts, are not
+  imported from Last.fm ([Tags](#tags)), and steer nothing.
 - **Similarity is a day old at most**, plays and skips since aside; a new
   account's listening counts for others after a week (the weights), a
   user with fewer than 5 artists gets no recommendations, and an artist

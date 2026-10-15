@@ -48,10 +48,21 @@ page is on the Scrobblr website: sign in there and approve the app.
 - Limits: 3,000 scrobbles a day per account (the server can change this), 50
   per request (1,000 for a ListenBrainz import), 120 requests a minute.
 - Supported: scrobbling, now playing, and in Last.fm apps loving and
-  unloving tracks, your profile, recent scrobbles (with whether you love
-  each track) and loved tracks. Audioscrobbler 1.2 players that rate a
-  play as loved love its track too. Other Last.fm features (tags, track and
-  artist info, charts, friends) are not.
+  unloving tracks, tagging artists, albums and tracks and reading your
+  tags back, your profile, recent scrobbles (with whether you love each
+  track), loved tracks, your most used tags, track and artist info (with
+  the community bio and tags). Audioscrobbler 1.2 players that rate a play
+  as loved love its track too. Other Last.fm features (tag pages, album
+  info, charts, friends) are not.
+- Tags: Pano Scrobbler's GNU FM account adds and removes your tags from
+  its info screen and reads them back; they are your Scrobblr tags, shown
+  on your profile. Tagging something the server has never seen scrobbled
+  is refused (error 6) rather than adding it to the catalog. Tags count
+  against 120 tag changes an hour per account (300 per address), shared
+  with Scrobblr's own apps. Pano shows artist and album info, bios and top
+  tags from last.fm itself whatever server you set; the tags and bios
+  Scrobblr shows are on its own pages, and in `artist.getInfo` and
+  `getTopTags` for apps that ask the server (pylast-based tools).
 - Loving a track the server hasn't seen yet adds it to the catalog, as
   scrobbling it would. Loves count against 300 loves and unloves an hour
   per account (1,000 per address), shared with Scrobblr's own apps, and an

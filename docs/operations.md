@@ -302,6 +302,72 @@ Backups keep erased accounts until they rotate out. After a restore, the
 accounts erased since that backup are back: erase them again (the database
 keeps no list of them; keep your own record of requests if you need one).
 
+## Moderation
+
+Artists' and albums' bios are edited by the community, and users tag
+artists, albums and tracks ([social.md](social.md#bios)). Users report a
+bio revision or a tag (`POST /v1/reports`); the reports wait in a queue
+for the operator. There is no moderator role in the API: whoever can run
+the worker's commands moderates. Every command acts at once; those
+changing tags recount what they touched before returning.
+
+```bash
+docker compose exec worker worker moderation reports            # open reports, oldest first
+docker compose exec worker worker moderation resolve 12 13 --note "reverted"
+docker compose exec worker worker moderation resolve 14 --dismiss
+docker compose exec worker worker moderation held               # edits held as possible spam
+docker compose exec worker worker moderation approve 5012       # publish one (--force over a newer text)
+docker compose exec worker worker moderation reject 5012
+docker compose exec worker worker moderation revert artist 97 --to 4810
+docker compose exec worker worker moderation lock artist 97 --reason "edit war"
+docker compose exec worker worker moderation unlock artist 97
+docker compose exec worker worker moderation hide 5013          # personal data, abuse: hide the text
+docker compose exec worker worker moderation unhide 5013
+docker compose exec worker worker moderation suspend NAME... --undo [--days 30] [--reason "spam"]
+docker compose exec worker worker moderation unsuspend NAME...
+docker compose exec worker worker moderation untag "buy pills"            # everywhere
+docker compose exec worker worker moderation untag rock --artist 97       # on one artist
+docker compose exec worker worker moderation block-tag "pills"            # refuse its words in tags
+docker compose exec worker worker moderation unblock-tag "pills"
+docker compose exec worker worker moderation blocklist
+docker compose exec worker worker tags report                   # most used tags, raw against weighted
+docker compose exec worker worker tags refresh                  # recount every tag now
+```
+
+- **A revision** is never deleted. `hide` hides its text and summary from
+  everyone, with every copy of that text in the bio's history (a revert
+  copies it), and a bio showing it goes back to its latest visible
+  revision; `revert` writes a moderator's revision with an earlier text,
+  over a lock. Hide what must not be read (someone's personal data,
+  abuse); revert what is merely wrong.
+- **Held edits** are those the spam heuristics stopped (a link host
+  repeated in the text, a host pasted into other bios, a long text copied
+  from another bio). `approve` refuses one written over a revision that is
+  no longer current: reject it, or `--force` it over the newer text.
+- **`suspend`** stops accounts editing bios and tagging (for `--days`, or
+  until `unsuspend`); their tags stop counting at once and their own
+  profile keeps them. With `--undo`, every bio showing a revision by any
+  suspended account goes back to its latest revision by an account in good
+  standing, and their held edits are rejected. Name a whole farm in one
+  command. The account is told only that it can't edit or tag now.
+- **`block-tag`** refuses tags holding the term's words in a row (`pills`
+  blocks `buy pills` and `pills-online`, not `pillsbury`) and takes those
+  already there off everything. Tags are normalized first (case, Unicode
+  forms, spacing), so one spelling covers them all.
+- **Locks** stop everyone but the operator; nothing unlocks on its own.
+
+The coordination detection's factors also stop accounts from editing (below
+half weight over 28 days) and weigh their tags ([rankings.md](rankings.md#coordination));
+`worker rank cohorts` lists the accounts it flagged, which `suspend` can
+take in one go.
+
+A moderator role in the API (moderators who aren't operators) would need:
+a role on accounts and who grants it, routes for the queue and each action
+behind it (sessions only, as for blocks), an audit log of who did what
+(the CLI's actions leave a moderator's revision or a timestamp, not a
+name), limits on moderators themselves, and the web screens. None of that
+exists.
+
 ## Behind a reverse proxy
 
 The API serves plain HTTP on port 8080. Whatever proxy terminates TLS in

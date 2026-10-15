@@ -64,6 +64,16 @@ and the app or import each came from; ListenBrainz hates are not
 stored), comments, uploaded artist and album
 images (as candidates, with their likes), likes given.
 
+**Contributions to the catalog** ([social.md](social.md#bios)): bio
+revisions (the text, the edit summary, when, on which artist or album,
+over which revision, whether published, held for review or rejected, and
+whether the operator hid it), kept for good as the bio's history; the
+user's tags (which tag on which artist, album or track, when, and the app
+it came through); reports the user made (what, why, a note, whether
+resolved); an editing suspension the operator set (until when, and why).
+The worker's tag counts hold no account, only how many accounts and their
+weight per entity and tag.
+
 **Who sees it** ([social.md](social.md#who-sees-whom)): a public profile's
 listening is shown to anyone, a private one's only to its owner, followers
 included (following takes no approval). Followers' feeds and community
@@ -79,6 +89,13 @@ blocking), and ListenBrainz's lists of who loved a recording aren't
 served. A ListenBrainz "hate" only takes a love back; it is not stored. An account that blocks a viewer doesn't exist for that
 viewer signed in, and neither appears in the other's lists of people;
 nobody is told who blocks them ([social.md](social.md#blocking-and-removing-followers)).
+Bio revisions are public with their author's name whatever the profile's
+privacy, as comments are, except while the author waits to be deleted and
+to an account blocking it or blocked by it; held and rejected edits are
+their author's and the operator's. A user's tags follow the profile; tag
+counts include private accounts, unnamed, from the same minimum as
+catalog counts (5 accounts). Reports are seen by the operator only, and
+nobody is told who reported them.
 
 **Uploaded images**: files under `UPLOAD_DIR`, re-encoded as JPEG (no
 metadata survives), served at `/uploads` with a one-year immutable cache
@@ -170,8 +187,11 @@ setting, the recommendations and taste neighbours as served and the
 skipped recommendations),
 `scrobbles.csv` and `scrobbles.json` (every scrobble with its source,
 client, import and label), `loved_tracks.csv` and `loved_tracks.json`
-(every loved track with when and how it was loved), and the uploaded
-images. Nothing is written to
+(every loved track with when and how it was loved), `tags.json` (every
+tag the user put on something), `bio_edits.json` (every bio revision the
+user wrote, with its text and status, hidden ones included: the text is
+theirs), the reports and an editing suspension in `account.json`, and the
+uploaded images. Nothing is written to
 the server's disk: there is no copy to expire.
 
 Left out, and said so in `account.json`: the password hash; credentials'
@@ -181,8 +201,10 @@ up); linked accounts' OAuth tokens; the registration origin's hashes
 everyone's); ranking weights, coordination factors and cohort membership
 (anti-abuse scores computed from the scrobbles, which are included); who
 blocks the user or removed them from their followers (their decisions); daily
-totals, album says and counters (computed from the scrobbles); logs, Redis
-and backups.
+totals, album says and counters (computed from the scrobbles); the weight
+of the user's tags in the counts (computed from the account's age and the
+anti-abuse factors); other accounts' revisions of the bios the user
+edited (theirs, and public in the history); logs, Redis and backups.
 
 ## Deletion
 
@@ -195,7 +217,8 @@ account (with its OAuth tokens) is deleted, imports in progress are
 cancelled, now playing is cleared. The account disappears from profiles,
 the Last.fm-compatible API, search, listener lists, follower lists,
 followers' feeds and community charts, comments, image candidates and
-taste neighbour lists. Its history and the totals made from it
+taste neighbour lists, and its name from bio histories (its revisions show
+`author: null`); its tags stop weighing in tag counts within a minute. Its history and the totals made from it
 stay, and still count in catalog numbers and rankings.
 
 **Grace period**: `ACCOUNT_DELETION_GRACE_DAYS` (7 by default, 0 to 30).
@@ -214,7 +237,15 @@ checked by a test that looks for any column holding a user id, and fails
 when its fixture leaves one empty): sessions and tokens left, origins,
 imports, follows, blocks and removals either way, loved tracks, comments, likes (taken
 off the candidates' counts), its recommendations, skips and taste
-neighbours (its list and its place in others'), uploads, queued work. The
+neighbours (its list and its place in others'), uploads, queued work,
+its tags (the tag counts recounted within a minute), its reports and an
+editing suspension. **Bio revisions are the exception:** the published
+ones are the catalog's history, so they stay, their text and summary
+included, with no author (`author_id` set to NULL, the one foreign key to
+`users` that doesn't cascade, which the erasure test allows by name and
+checks); nothing left in them links to the account, but the text is
+whatever its author wrote. Its held and rejected edits, never published,
+are deleted. Reports others made about its revisions stay, as theirs. The
 global rankings and similar artists are recomputed on the worker's next
 pass (within minutes). The uploaded files are deleted; one that
 became an artist's or album's image stays as the catalog's, no longer tied
@@ -268,13 +299,38 @@ erase NAME` erases one now, for a request made outside the app.
   covers the accounts), but one already fetched stays with the client.
 - **An export is a snapshot read page by page**: a play arriving while it
   streams may or may not be in it.
+- **Bio text outlives its author.** An erased account's published
+  revisions stay without its name; if a text says who wrote it, or holds
+  someone's personal data, the operator hides it (`worker moderation
+  hide`, which hides every copy in that bio's history). Hidden text stays
+  in the database and its backups, unshown; nothing deletes a revision.
+  An author can't take an edit back but by asking the operator.
+- **Tag counts** of an entity are served from five weighted accounts; a
+  viewer who knows four of them (from their public profiles) learns that
+  some fifth account, maybe private, used the tag there.
+
+## Licence of contributed text
+
+> **Placeholder, a question for a lawyer, not a decision.** Bio
+> revisions (and edit summaries and tags) are text users publish for the
+> server to show and keep. Under which licence? For example **CC BY-SA
+> 4.0**, as Wikipedia, with attribution through the revision history;
+> **CC0**; or a **custom licence** granting the operator a perpetual right
+> to keep, show, adapt and hand over the text. Questions to settle:
+> whether attribution survives the erase, which removes the author's name
+> from the history; whether bios imported from Last.fm (Last.fm users'
+> contributions under Last.fm's terms) may be stored, shown and edited
+> here, and with what attribution; what a contributor agrees to when
+> editing (the edit screen needs to say it); notice and takedown for text
+> copied from elsewhere. Until then this server states no licence.
 
 ## Before opening to strangers
 
 A lawyer, or a template written for your jurisdiction, should cover:
 
-- Terms of service: who may register (age), acceptable use, uploads and
-  comments (copyright, takedown, moderation), ending accounts.
+- Terms of service: who may register (age), acceptable use, uploads,
+  comments, bios and tags (copyright, takedown, moderation, the licence
+  above), ending accounts.
 - A privacy policy: who the controller is, purposes and legal bases (the
   anti-abuse scoring included), the retention periods above, recipients
   (hosting, backup storage, the providers the worker asks about tracks),
