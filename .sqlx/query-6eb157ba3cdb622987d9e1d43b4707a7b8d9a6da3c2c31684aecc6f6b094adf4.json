@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT b.revision_id, r.body AS \"body?\",\n               EXISTS (SELECT 1 FROM bio_revisions p\n                       WHERE p.entity_type = 'artist' AND p.entity_id = $1\n                         AND p.kind <> 'import' AND p.status = 'published') AS \"edited!\"\n        FROM entity_bios b\n        LEFT JOIN bio_revisions r ON r.id = b.revision_id\n        WHERE b.entity_type = 'artist' AND b.entity_id = $1\n        FOR UPDATE OF b\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "revision_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "body?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "edited!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      false,
+      null
+    ]
+  },
+  "hash": "6eb157ba3cdb622987d9e1d43b4707a7b8d9a6da3c2c31684aecc6f6b094adf4"
+}

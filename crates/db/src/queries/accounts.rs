@@ -463,6 +463,13 @@ async fn delete_user_row(
     .fetch_all(&mut **tx)
     .await?;
     crate::queries::albums::enqueue_voted(&mut **tx, user_id).await?;
+    // Published revisions are the catalog's and stay, without their author.
+    sqlx::query!(
+        "DELETE FROM bio_revisions WHERE author_id = $1 AND status <> 'published'",
+        user_id
+    )
+    .execute(&mut **tx)
+    .await?;
     sqlx::query!("DELETE FROM users WHERE id = $1", user_id)
         .execute(&mut **tx)
         .await?;

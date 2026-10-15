@@ -1,6 +1,7 @@
 //! Community bios and tags: who may contribute, and the rules their text
 //! follows (docs/social.md, Bios and Tags). Pure.
 
+use chrono::{DateTime, TimeDelta, Utc};
 use thiserror::Error;
 use unicode_normalization::UnicodeNormalization;
 use unicode_normalization::char::is_combining_mark;
@@ -26,6 +27,11 @@ pub const MAX_LINKS: usize = 5;
 pub const MAX_SAME_HOST: usize = 2;
 /// Shorter texts are too often alike (one-line stubs) to call a copy spam.
 pub const DUPLICATE_MIN_CHARS: usize = 200;
+/// An edit adding a link to a host its author added to this many other
+/// bios in the last 7 days, or anyone to [`LINK_BIOS_PER_DAY`] in the last
+/// 24 hours, is held: link spam pasted across the catalog.
+pub const LINK_BIOS_PER_AUTHOR: i64 = 2;
+pub const LINK_BIOS_PER_DAY: i64 = 4;
 
 /// Revisions an account may write in 24 hours, and on one bio.
 pub const EDITS_PER_DAY: i64 = 50;
@@ -38,6 +44,40 @@ pub const MAX_TAGS_PER_ENTITY: i64 = 10;
 pub const MAX_ENTITY_TAGS: i64 = 500;
 /// Taggings an account may hold.
 pub const MAX_TAGGINGS: i64 = 50_000;
+
+/// Why an account may not edit bios now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Refusal {
+    /// It may from this time on.
+    TooNew(DateTime<Utc>),
+    /// Suspended by a moderator, flagged by the coordination detection, or
+    /// waiting to be deleted; it isn't told which.
+    NotNow,
+}
+
+/// What decides whether an account may edit bios.
+#[derive(Debug, Clone, Copy)]
+pub struct Editor {
+    pub created_at: DateTime<Utc>,
+    pub leaving: bool,
+    pub suspended: bool,
+    /// Its lowest coordination factor over [`FACTOR_WINDOW_DAYS`], in
+    /// thousandths; `None` when it has none below 1.
+    pub lowest_factor: Option<i64>,
+}
+
+impl Editor {
+    pub fn refusal(&self, now: DateTime<Utc>) -> Option<Refusal> {
+        if self.leaving
+            || self.suspended
+            || self.lowest_factor.is_some_and(|f| f < MIN_EDITOR_FACTOR)
+        {
+            return Some(Refusal::NotNow);
+        }
+        let from = self.created_at + TimeDelta::days(MIN_ACCOUNT_DAYS);
+        (now < from).then_some(Refusal::TooNew(from))
+    }
+}
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum TextError {
@@ -200,6 +240,47 @@ pub fn is_blocked(tag: &str, terms: &[String]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn editors_are_old_enough_unflagged_and_not_suspended() {
+        let now = Utc::now();
+        let editor = Editor {
+            created_at: now - TimeDelta::days(MIN_ACCOUNT_DAYS),
+            leaving: false,
+            suspended: false,
+            lowest_factor: None,
+        };
+        assert_eq!(editor.refusal(now), None);
+        let young = Editor {
+            created_at: now - TimeDelta::days(2),
+            ..editor
+        };
+        assert_eq!(
+            young.refusal(now),
+            Some(Refusal::TooNew(now + TimeDelta::days(MIN_ACCOUNT_DAYS - 2)))
+        );
+        for refused in [
+            Editor {
+                suspended: true,
+                ..editor
+            },
+            Editor {
+                leaving: true,
+                ..editor
+            },
+            Editor {
+                lowest_factor: Some(MIN_EDITOR_FACTOR - 1),
+                ..editor
+            },
+        ] {
+            assert_eq!(refused.refusal(now), Some(Refusal::NotNow));
+        }
+        let dented = Editor {
+            lowest_factor: Some(MIN_EDITOR_FACTOR),
+            ..editor
+        };
+        assert_eq!(dented.refusal(now), None);
+    }
 
     #[test]
     fn bio_text_is_tidied() {

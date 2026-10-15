@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT count(*) AS \"day!\",\n               count(*) FILTER (WHERE entity_type = $2 AND entity_id = $3) AS \"bio!\"\n        FROM bio_revisions\n        WHERE author_id = $1 AND created_at > NOW() - INTERVAL '1 day'\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "day!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "bio!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "e19f4ac27a0f7387f9eca765c6ea719769d1e0dfd97207fb23ee56513e6b7e66"
+}

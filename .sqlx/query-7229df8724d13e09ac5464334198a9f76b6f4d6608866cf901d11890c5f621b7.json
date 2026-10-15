@@ -1,0 +1,128 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT r.id, r.entity_type, r.entity_id, r.parent_id, r.kind,\n               u.id AS \"author_id?\", u.username AS \"author_username?\",\n               u.display_name AS \"author_display_name?\", u.image_url AS \"author_image?\",\n               CASE WHEN r.hidden_at IS NULL THEN r.summary END AS summary,\n               NULL::text AS body, char_length(r.body)::bigint AS \"length!\", r.reverted_to,\n               r.status, r.held_reason, r.hidden_at IS NOT NULL AS \"hidden!\",\n               COALESCE(r.id = b.revision_id, FALSE) AS \"current!\", r.created_at\n        FROM bio_revisions r\n        LEFT JOIN entity_bios b ON b.entity_type = r.entity_type AND b.entity_id = r.entity_id\n        LEFT JOIN users u ON u.id = r.author_id AND u.delete_after IS NULL\n              AND ($5::bigint IS NULL OR NOT EXISTS (\n                      SELECT 1 FROM user_blocks k\n                      WHERE (k.blocker_id = u.id AND k.blocked_id = $5)\n                         OR (k.blocker_id = $5 AND k.blocked_id = u.id)))\n        WHERE r.entity_type = $1 AND r.entity_id = $2 AND r.status = 'published'\n          AND ($3::bigint IS NULL OR r.id < $3)\n        ORDER BY r.id DESC\n        LIMIT $4\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "entity_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "entity_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "parent_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "author_id?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "author_username?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "author_display_name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "author_image?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "summary",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "body",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "length!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "reverted_to",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 13,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "held_reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 15,
+        "name": "hidden!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 16,
+        "name": "current!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 17,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      null,
+      null,
+      null,
+      true,
+      false,
+      true,
+      null,
+      null,
+      false
+    ]
+  },
+  "hash": "7229df8724d13e09ac5464334198a9f76b6f4d6608866cf901d11890c5f621b7"
+}

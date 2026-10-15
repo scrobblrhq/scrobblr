@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT EXISTS (\n                SELECT 1 FROM bio_revisions\n                WHERE body_hash = bio_text_hash($3) AND status <> 'rejected'\n                  AND NOT (entity_type = $1 AND entity_id = $2)\n            ) AS \"copied!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "copied!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "88c2e2e6d0c12e512b537b04fc1a3d3a0ebb491f1ed73a653131f4b29c315fe5"
+}

@@ -1,0 +1,78 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT b.revision_id AS \"revision_id?\", r.body AS \"body?\", r.kind AS \"kind?\",\n               r.created_at AS \"updated_at?\", COALESCE(b.locked_at IS NOT NULL, FALSE) AS \"locked!\",\n               u.id AS \"author_id?\", u.username AS \"author_username?\",\n               u.display_name AS \"author_display_name?\", u.image_url AS \"author_image?\",\n               (SELECT count(*) FROM bio_revisions c\n                WHERE c.entity_type = $1 AND c.entity_id = $2 AND c.status = 'published')\n                   AS \"revisions!\"\n        FROM (SELECT 1) one\n        LEFT JOIN entity_bios b ON b.entity_type = $1 AND b.entity_id = $2\n        LEFT JOIN bio_revisions r ON r.id = b.revision_id\n        LEFT JOIN users u ON u.id = r.author_id AND u.delete_after IS NULL\n              AND ($3::bigint IS NULL OR NOT EXISTS (\n                      SELECT 1 FROM user_blocks k\n                      WHERE (k.blocker_id = u.id AND k.blocked_id = $3)\n                         OR (k.blocker_id = $3 AND k.blocked_id = u.id)))\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "revision_id?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "body?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "kind?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "updated_at?",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "locked!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "author_id?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "author_username?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "author_display_name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "author_image?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "revisions!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true,
+      null,
+      true,
+      true,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "546e5a3279265e2ea382f24599793355995c745f796c1b95518389b97df5b96a"
+}

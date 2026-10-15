@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM bio_revisions WHERE author_id = $1 AND status <> 'published'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "717658c2b6c5b354898e2f4e4c230723f0ad636d6ca4af8ad781cf162540c7ef"
+}

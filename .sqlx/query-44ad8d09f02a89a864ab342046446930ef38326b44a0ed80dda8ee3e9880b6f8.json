@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO bio_revisions (entity_type, entity_id, parent_id, kind, body, status)\n        VALUES ('artist', $1, $2, 'import', $3, 'published')\n        RETURNING id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "44ad8d09f02a89a864ab342046446930ef38326b44a0ed80dda8ee3e9880b6f8"
+}

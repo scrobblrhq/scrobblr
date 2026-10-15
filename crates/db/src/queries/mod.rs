@@ -1,6 +1,7 @@
 pub mod accounts;
 pub mod albums;
 pub mod auth;
+pub mod bios;
 pub mod blocks;
 pub mod charts;
 pub mod classification;

@@ -27,7 +27,8 @@ async fn exec(pool: &PgPool, sql: &str, id: i64) {
 /// (live, imported, on an old compressed chunk), its labels, weights and
 /// coordination factor, credentials of every kind, a linked account, an
 /// import, follows, a comment, uploads and likes, now playing, its
-/// recommendations and a skip, and loved tracks.
+/// recommendations and a skip, loved tracks, bio edits and an editing
+/// suspension.
 async fn populate(pool: &PgPool, name: &str, artwork_artist: i64) -> i64 {
     let user_id: i64 = sqlx::query_scalar(
         "INSERT INTO users (username, email, password_hash, created_at, image_url)
@@ -136,6 +137,14 @@ async fn populate(pool: &PgPool, name: &str, artwork_artist: i64) -> i64 {
         "INSERT INTO loved_tracks (user_id, track_id, source)
          SELECT $1, id, (ARRAY['scrobblr', 'listenbrainz'])[row_number() OVER (ORDER BY id)]
          FROM tracks ORDER BY id LIMIT 2",
+        // A bio edit that was published and one held for review.
+        "INSERT INTO bio_revisions (entity_type, entity_id, author_id, kind, body, summary, status)
+         SELECT 'artist', id, $1, 'edit', 'A band from ' || $1, 'first draft', 'published'
+         FROM artists ORDER BY id LIMIT 1",
+        "INSERT INTO bio_revisions (entity_type, entity_id, author_id, kind, body, status, held_reason)
+         SELECT 'album', id, $1, 'edit', 'Copied text', 'held', 'duplicate_text'
+         FROM albums ORDER BY id LIMIT 1",
+        "INSERT INTO editing_suspensions (user_id, reason) VALUES ($1, 'test')",
     ] {
         exec(pool, sql, user_id).await;
     }
@@ -316,6 +325,10 @@ async fn invalidations(pool: &PgPool) -> i64 {
     .unwrap()
 }
 
+/// Foreign keys to `users` that keep their rows when the user is erased,
+/// setting the column to NULL: content published for everyone.
+const ANONYMISED: &[&str] = &["bio_revisions bio_revisions_author_id_fkey"];
+
 /// After an erase, no table, view or aggregate has a row about the user,
 /// found generically: a table added later with a `user_id` and no cascade
 /// fails here instead of keeping personal data. The other user keeps
@@ -457,6 +470,8 @@ async fn an_erase_leaves_no_row_about_the_user_and_corrects_shared_numbers() {
             "public.user_recommendations.user_id",
             "public.recommendation_skips.user_id",
             "public.loved_tracks.user_id",
+            "public.bio_revisions.author_id",
+            "public.editing_suspensions.user_id",
         ] {
             let n = about_gone.iter().find(|(t, _)| t == table).map(|(_, n)| *n);
             assert!(n.is_some_and(|n| n > 0), "the fixture puts rows in {table}");
@@ -492,6 +507,14 @@ async fn an_erase_leaves_no_row_about_the_user_and_corrects_shared_numbers() {
         .fetch_all(&pool)
         .await
         .unwrap();
+        let gone_edits: Vec<i64> = sqlx::query_scalar(
+            "SELECT id FROM bio_revisions WHERE author_id = $1 AND status = 'published'",
+        )
+        .bind(gone)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(gone_edits.len(), 1);
         accounts_db::schedule_deletion(&pool, gone, TimeDelta::zero())
             .await
             .unwrap();
@@ -514,15 +537,27 @@ async fn an_erase_leaves_no_row_about_the_user_and_corrects_shared_numbers() {
             assert_eq!(n, 0, "{table} still has rows about the erased user");
         }
         assert_eq!(text_mentions(&pool, "erasable_qx").await, Vec::<String>::new());
-        // Every foreign key to users cascades (chunks of `scrobbles` included).
+        // Every foreign key to users cascades (chunks of `scrobbles` included),
+        // but community content's, whose rows stay without their author.
         let not_cascading: Vec<String> = sqlx::query_scalar(
             "SELECT conrelid::regclass::text || ' ' || conname FROM pg_constraint
-             WHERE contype = 'f' AND confrelid = 'public.users'::regclass AND confdeltype <> 'c'",
+             WHERE contype = 'f' AND confrelid = 'public.users'::regclass AND confdeltype <> 'c'
+               AND NOT (confdeltype = 'n' AND conrelid::regclass::text || ' ' || conname = ANY($1))",
         )
+        .bind(ANONYMISED)
         .fetch_all(&pool)
         .await
         .unwrap();
         assert_eq!(not_cascading, Vec::<String>::new());
+        // The published edit is still there, nobody's now; the held one went.
+        let kept: Vec<(i64, Option<i64>)> = sqlx::query_as(
+            "SELECT id, author_id FROM bio_revisions WHERE body = 'A band from ' || $1",
+        )
+        .bind(gone)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(kept, gone_edits.iter().map(|id| (*id, None)).collect::<Vec<_>>());
 
         // The other user keeps their own rows; only rows relating them to
         // the erased one (follows, blocks and removals either way, a like of

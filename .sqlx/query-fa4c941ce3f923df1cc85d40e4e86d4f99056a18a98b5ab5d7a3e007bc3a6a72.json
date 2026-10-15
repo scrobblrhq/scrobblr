@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO entity_bios (entity_type, entity_id) VALUES ('artist', $1) ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fa4c941ce3f923df1cc85d40e4e86d4f99056a18a98b5ab5d7a3e007bc3a6a72"
+}

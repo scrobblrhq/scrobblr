@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT count(DISTINCT (entity_type, entity_id))\n                       FILTER (WHERE author_id = $3 AND created_at > NOW() - INTERVAL '7 days')\n                       AS \"by_author!\",\n                   count(DISTINCT (entity_type, entity_id))\n                       FILTER (WHERE created_at > NOW() - INTERVAL '1 day') AS \"by_anyone!\"\n            FROM bio_revisions\n            WHERE added_hosts <> '{}' AND added_hosts && $4::text[] AND status <> 'rejected'\n              AND NOT (entity_type = $1 AND entity_id = $2)\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "by_author!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "by_anyone!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "7614cdfd896d893b183dcb0399666ed636c8eff20cd9cae810ad6ee09de08dac"
+}

@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE artists SET\n                mbid      = COALESCE(artists.mbid, $2),\n                image_url = CASE WHEN artists.image_locked THEN artists.image_url\n                                 WHEN $4 THEN COALESCE($3, artists.image_url)\n                                 ELSE COALESCE(artists.image_url, $3) END\n            WHERE id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2b09fb3808b04a73371ece4e8605b827570da3d7f809ce2255d8e7919cfd3ea2"
+}

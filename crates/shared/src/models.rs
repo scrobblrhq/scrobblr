@@ -869,6 +869,151 @@ pub struct Comment {
     pub created_at: DateTime<Utc>,
 }
 
+/// What a bio or a tag is about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export)]
+pub enum CatalogKind {
+    Artist,
+    Album,
+    Track,
+}
+
+impl CatalogKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Artist => "artist",
+            Self::Album => "album",
+            Self::Track => "track",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "artist" => Self::Artist,
+            "album" => Self::Album,
+            "track" => Self::Track,
+            _ => return None,
+        })
+    }
+}
+
+/// How a bio revision came to be.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export)]
+pub enum RevisionKind {
+    /// Written by an account.
+    Edit,
+    /// An account restored an earlier revision's text.
+    Revert,
+    /// Fetched from Last.fm before anyone edited the bio.
+    Import,
+    /// A moderator's revert.
+    Moderation,
+}
+
+impl RevisionKind {
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "edit" => Self::Edit,
+            "revert" => Self::Revert,
+            "import" => Self::Import,
+            "moderation" => Self::Moderation,
+            _ => return None,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export)]
+pub enum RevisionStatus {
+    Published,
+    /// Waiting for a moderator: not shown until approved.
+    Held,
+    /// A held edit a moderator turned down.
+    Rejected,
+}
+
+impl RevisionStatus {
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "published" => Self::Published,
+            "held" => Self::Held,
+            "rejected" => Self::Rejected,
+            _ => return None,
+        })
+    }
+}
+
+/// An artist's or album's bio as it stands.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct Bio {
+    pub entity_type: CatalogKind,
+    pub entity_id: i64,
+    /// The current revision; `null` when there is no bio.
+    pub revision_id: Option<i64>,
+    /// Plain text: show it as text, a paragraph at each blank line, and
+    /// `http://` and `https://` URLs as links (`rel="nofollow ugc"`), never
+    /// embedded or previewed.
+    pub body: Option<String>,
+    pub kind: Option<RevisionKind>,
+    /// Who wrote the current revision; `null` for imported text, a
+    /// moderator's revert, and an account deleted or waiting to be, or
+    /// blocking the viewer or blocked by it.
+    pub author: Option<UserSummary>,
+    pub updated_at: Option<DateTime<Utc>>,
+    /// Locked by a moderator: nobody may edit or revert it.
+    pub locked: bool,
+    /// Published revisions in its history.
+    pub revisions: i64,
+}
+
+/// A revision of a bio.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct BioRevision {
+    pub id: i64,
+    pub entity_type: CatalogKind,
+    pub entity_id: i64,
+    /// The revision that was current when it was written; `null` for the
+    /// first.
+    pub parent_id: Option<i64>,
+    pub kind: RevisionKind,
+    /// As [`Bio::author`].
+    pub author: Option<UserSummary>,
+    /// The edit summary (maybe empty); `null` when a moderator hid the
+    /// revision.
+    pub summary: Option<String>,
+    /// The text; `null` in history pages (fetch the revision for it) and
+    /// when a moderator hid the revision.
+    pub body: Option<String>,
+    /// Characters in the text.
+    pub length: i64,
+    /// For a revert, the revision whose text it restored.
+    pub reverted_to: Option<i64>,
+    pub status: RevisionStatus,
+    /// Why a held edit waits for review: `repeated_link`,
+    /// `link_across_bios` or `duplicate_text`.
+    pub held_reason: Option<String>,
+    /// A moderator hid its text and summary.
+    pub hidden: bool,
+    /// It is the bio's current text.
+    pub current: bool,
+    pub created_at: DateTime<Utc>,
+}
+
+/// A page of a bio's history, newest revision first.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[ts(export)]
+pub struct BioHistoryPage {
+    pub entries: Vec<BioRevision>,
+    /// `before` for the next page; `null` on the last one.
+    pub next: Option<String>,
+}
+
 /// A user's OAuth connection to an external streaming service (currently
 /// Spotify only), polled by the worker to auto-scrobble listening activity
 /// reported by the provider's own official API.

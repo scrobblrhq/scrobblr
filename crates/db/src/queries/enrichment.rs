@@ -408,8 +408,9 @@ pub async fn get_track_ctx(pool: &PgPool, id: i64) -> Result<Option<TrackCtx>, s
 }
 
 // Merge policy: `mbid` is an identity anchor — fill-only-NULL, never
-// overwritten, even on forced refresh. Provider-owned fields (images, bio)
-// are fill-only-NULL normally and overwritten when `force` is set. Names and
+// overwritten, even on forced refresh. Provider-owned fields (images) are
+// fill-only-NULL normally and overwritten when `force` is set; a bio becomes
+// an import revision, and never once a person has edited it (bios::import). Names and
 // titles are never touched (first-inserted casing wins, by design — see
 // tracks::find_or_create_artist).
 //
@@ -444,16 +445,13 @@ pub async fn apply_artist_metadata(
             UPDATE artists SET
                 mbid      = COALESCE(artists.mbid, $2),
                 image_url = CASE WHEN artists.image_locked THEN artists.image_url
-                                 WHEN $5 THEN COALESCE($3, artists.image_url)
-                                 ELSE COALESCE(artists.image_url, $3) END,
-                bio       = CASE WHEN $5 THEN COALESCE($4, artists.bio)
-                                 ELSE COALESCE(artists.bio, $4) END
+                                 WHEN $4 THEN COALESCE($3, artists.image_url)
+                                 ELSE COALESCE(artists.image_url, $3) END
             WHERE id = $1
             "#,
             id,
             mbid,
             meta.image_url.as_deref(),
-            meta.bio.as_deref(),
             force,
         )
         .execute(pool)
@@ -467,6 +465,9 @@ pub async fn apply_artist_metadata(
         other => {
             other?;
         }
+    }
+    if let Some(bio) = &meta.bio {
+        crate::queries::bios::import(pool, id, bio, force).await?;
     }
     Ok(())
 }

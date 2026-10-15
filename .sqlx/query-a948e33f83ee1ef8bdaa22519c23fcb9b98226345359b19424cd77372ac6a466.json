@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT u.created_at, u.delete_after IS NOT NULL AS \"leaving!\",\n               EXISTS (SELECT 1 FROM editing_suspensions s\n                       WHERE s.user_id = u.id AND (s.until IS NULL OR s.until > NOW()))\n                   AS \"suspended!\",\n               (SELECT min(d.factor)::bigint FROM coordination_days d\n                WHERE d.user_id = u.id AND d.day >= CURRENT_DATE - $2::int) AS lowest_factor\n        FROM users u\n        WHERE u.id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 1,
+        "name": "leaving!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "suspended!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "lowest_factor",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "a948e33f83ee1ef8bdaa22519c23fcb9b98226345359b19424cd77372ac6a466"
+}

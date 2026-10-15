@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO entity_bios (entity_type, entity_id, revision_id) VALUES ($1, $2, $3)\n        ON CONFLICT (entity_type, entity_id)\n        DO UPDATE SET revision_id = EXCLUDED.revision_id, updated_at = NOW()\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "80b84ef0c7f117201a020f749eb3d0ef139f91a5c6a877e9f567477c8ddad813"
+}
