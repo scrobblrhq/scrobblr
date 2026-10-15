@@ -2531,6 +2531,69 @@
         ],
         "type": "object"
       },
+      "ReportReason": {
+        "enum": [
+          "spam",
+          "vandalism",
+          "offensive",
+          "personal_data",
+          "copyright",
+          "other"
+        ],
+        "type": "string"
+      },
+      "ReportRequest": {
+        "properties": {
+          "album_id": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "artist_id": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "note": {
+            "default": "",
+            "description": "What a moderator should know: one line, 500 characters at most.",
+            "type": "string"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/ReportReason"
+          },
+          "revision_id": {
+            "description": "A bio revision; or `tag` instead.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "tag": {
+            "description": "A tag: on the artist, album or track named by one of `artist_id`,\n `album_id` and `track_id`, or anywhere without one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "track_id": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "type": "object"
+      },
       "RevertBioRequest": {
         "properties": {
           "base_revision_id": {
@@ -10841,6 +10904,95 @@
         "summary": "Global track ranking",
         "tags": [
           "Rankings"
+        ]
+      }
+    },
+    "/v1/reports": {
+      "post": {
+        "description": "Puts a bio revision, or a tag (on one artist, album or track, or anywhere), in the queue the server's operator reviews: they can revert or lock a bio, hide a revision, take a tag off, block it, or suspend an account from editing and tagging. A second report of the same target while the first is open changes nothing. The reporter isn't told what came of it, and reports are kept with the account (its export lists them). 20 reports an hour per account, 60 per address.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Reported"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Neither or both of a revision and a tag, more than one entity, an invalid tag, or a note too long or with unsafe characters"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No credential, or an invalid or expired one"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Needs a session or an API token with the `write` scope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such revision (or one held and not yours), tag or entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Over 20 reports an hour for this account or 60 from this address, or over the request limit for this address"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error, as `{ \"error\": message }`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Report a bio revision or a tag",
+        "tags": [
+          "Bios"
         ]
       }
     },

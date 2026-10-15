@@ -36,7 +36,7 @@ use crate::{
     errors::ErrorJson,
     handlers::{
         account, auth, bios, blocks, charts, community, connected_accounts, feed, imports, loves,
-        rankings, scrobbles, similarity, tags, tracks, uploads, users,
+        rankings, reports, scrobbles, similarity, tags, tracks, uploads, users,
     },
     limits,
     middleware::{
@@ -232,6 +232,11 @@ pub fn build(state: AppState) -> Router {
         .api_route(
             "/v1/album/{id}/bio/revert",
             post_with(bios::revert_album_bio, bios::_revert_album_bio_doc),
+        )
+        // Reports, for the operator's moderation
+        .api_route(
+            "/v1/reports",
+            post_with(reports::report, reports::_report_doc),
         )
         // Tags
         .api_route(

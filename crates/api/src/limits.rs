@@ -1,7 +1,7 @@
 //! Limits counted in Redis: password logins and the scrobbles an account
 //! may submit per UTC day (shared by the native API and the
 //! scrobbler-compatible ones), image uploads, follows, blocks, loves, bio
-//! edits, tags, account exports and deletion requests. Windows are part of the
+//! edits, tags, reports, account exports and deletion requests. Windows are part of the
 //! keys, so a key that missed its expiry still stops counting when its
 //! window ends.
 
@@ -177,6 +177,25 @@ pub async fn tag_attempt(state: &AppState, user_id: i64, ip: &str) -> bool {
         ),
     ];
     take_or_pass(state, keys, TAG_WINDOW_SECS, "tag").await
+}
+
+const REPORT_WINDOW_SECS: i64 = 3600;
+pub const REPORTS_PER_USER: i64 = 20;
+pub const REPORTS_PER_IP: i64 = 60;
+
+/// Counts a report and says whether it may go ahead: at most
+/// [`REPORTS_PER_USER`] per account and [`REPORTS_PER_IP`] per address an
+/// hour, refused ones included, so the queue can't be flooded. Fails open.
+pub async fn report_attempt(state: &AppState, user_id: i64, ip: &str) -> bool {
+    let window = Utc::now().timestamp() / REPORT_WINDOW_SECS;
+    let keys = [
+        (format!("report:user:{user_id}:{window}"), REPORTS_PER_USER),
+        (
+            format!("report:ip:{}:{window}", network(ip)),
+            REPORTS_PER_IP,
+        ),
+    ];
+    take_or_pass(state, keys, REPORT_WINDOW_SECS, "report").await
 }
 
 const PAIR_WINDOW_SECS: i64 = 24 * 3600;

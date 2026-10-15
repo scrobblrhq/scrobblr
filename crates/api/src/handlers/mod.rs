@@ -10,6 +10,7 @@ pub mod feed;
 pub mod imports;
 pub mod loves;
 pub mod rankings;
+pub mod reports;
 pub mod scrobbles;
 pub mod similarity;
 pub mod tags;

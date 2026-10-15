@@ -29,7 +29,7 @@ async fn exec(pool: &PgPool, sql: &str, id: i64) {
 /// coordination factor, credentials of every kind, a linked account, an
 /// import, follows, a comment, uploads and likes, now playing, its
 /// recommendations and a skip, loved tracks, bio edits, an editing
-/// suspension and a tag.
+/// suspension, a tag and a report.
 async fn populate(pool: &PgPool, name: &str, artwork_artist: i64) -> i64 {
     let user_id: i64 = sqlx::query_scalar(
         "INSERT INTO users (username, email, password_hash, created_at, image_url)
@@ -150,6 +150,7 @@ async fn populate(pool: &PgPool, name: &str, artwork_artist: i64) -> i64 {
                     ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id)
          INSERT INTO user_tags (user_id, entity_type, entity_id, tag_id, source)
          SELECT $1, 'artist', (SELECT id FROM artists ORDER BY id LIMIT 1), id, 'scrobblr' FROM t",
+        "INSERT INTO reports (reporter_id, tag_id, reason) SELECT $1, min(id), 'spam' FROM tags",
     ] {
         exec(pool, sql, user_id).await;
     }
@@ -478,6 +479,7 @@ async fn an_erase_leaves_no_row_about_the_user_and_corrects_shared_numbers() {
             "public.bio_revisions.author_id",
             "public.editing_suspensions.user_id",
             "public.user_tags.user_id",
+            "public.reports.reporter_id",
         ] {
             let n = about_gone.iter().find(|(t, _)| t == table).map(|(_, n)| *n);
             assert!(n.is_some_and(|n| n > 0), "the fixture puts rows in {table}");

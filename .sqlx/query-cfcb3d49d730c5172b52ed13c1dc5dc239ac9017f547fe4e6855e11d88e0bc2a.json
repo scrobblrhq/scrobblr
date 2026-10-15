@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT b.revision_id AS \"revision_id!\" FROM entity_bios b\n        JOIN bio_revisions h ON h.id = b.revision_id\n        WHERE b.entity_type = $1 AND b.entity_id = $2 AND h.hidden_at IS NOT NULL\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "revision_id!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "cfcb3d49d730c5172b52ed13c1dc5dc239ac9017f547fe4e6855e11d88e0bc2a"
+}

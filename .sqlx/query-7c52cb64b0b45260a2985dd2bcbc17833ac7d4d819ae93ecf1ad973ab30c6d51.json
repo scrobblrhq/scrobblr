@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE bio_revisions SET hidden_at = NULL WHERE id = $1 AND hidden_at IS NOT NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7c52cb64b0b45260a2985dd2bcbc17833ac7d4d819ae93ecf1ad973ab30c6d51"
+}

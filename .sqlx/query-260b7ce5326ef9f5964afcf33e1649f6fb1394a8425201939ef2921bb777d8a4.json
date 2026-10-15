@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT r.id FROM bio_revisions r\n        WHERE r.entity_type = $1 AND r.entity_id = $2 AND r.id < $3\n          AND r.status = 'published' AND r.hidden_at IS NULL\n          AND NOT EXISTS (SELECT 1 FROM editing_suspensions s\n                          WHERE s.user_id = r.author_id AND (s.until IS NULL OR s.until > NOW()))\n        ORDER BY r.id DESC\n        LIMIT 1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "260b7ce5326ef9f5964afcf33e1649f6fb1394a8425201939ef2921bb777d8a4"
+}

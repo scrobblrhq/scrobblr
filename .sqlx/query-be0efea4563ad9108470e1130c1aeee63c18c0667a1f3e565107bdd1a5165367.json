@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO entity_bios (entity_type, entity_id, locked_at, lock_reason)\n        VALUES ($1, $2, CASE WHEN $3::bool THEN NOW() END, $4)\n        ON CONFLICT (entity_type, entity_id) DO UPDATE\n        SET locked_at = EXCLUDED.locked_at, lock_reason = EXCLUDED.lock_reason\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Bool",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "be0efea4563ad9108470e1130c1aeee63c18c0667a1f3e565107bdd1a5165367"
+}

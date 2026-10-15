@@ -1,0 +1,58 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT r.id, r.entity_type, r.entity_id, u.username AS \"author?\", r.held_reason,\n               left(regexp_replace(r.body, '\\s+', ' ', 'g'), 160) AS \"excerpt!\", r.created_at\n        FROM bio_revisions r\n        LEFT JOIN users u ON u.id = r.author_id\n        WHERE r.status = 'held'\n        ORDER BY r.created_at\n        LIMIT $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "entity_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "entity_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "author?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "held_reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "excerpt!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      null,
+      false
+    ]
+  },
+  "hash": "77f89cad9d6d60eab867786bfdf98cb3debaf7af8eccd1de084d3af796a67af5"
+}

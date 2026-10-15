@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE bio_revisions SET status = 'rejected', reviewed_at = NOW()\n            WHERE author_id = ANY($1) AND status = 'held'\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "642d972a4a30db2497f0614e59dfdb732e798e80605dbefa8ef93bb8b385fe1b"
+}

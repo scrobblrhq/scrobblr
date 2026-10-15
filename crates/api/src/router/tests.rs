@@ -73,6 +73,7 @@ const ROUTES: &[(&str, &str, Access)] = &[
         "/v1/album/{id}/bio/revert",
         Access::Scope(Scope::Write),
     ),
+    ("POST", "/v1/reports", Access::Scope(Scope::Write)),
     ("POST", "/v1/artist/{id}/tags", Access::Scope(Scope::Write)),
     ("POST", "/v1/album/{id}/tags", Access::Scope(Scope::Write)),
     ("POST", "/v1/track/{id}/tags", Access::Scope(Scope::Write)),

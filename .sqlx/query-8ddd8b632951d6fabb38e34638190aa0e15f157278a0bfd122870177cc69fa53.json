@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE bio_revisions SET hidden_at = COALESCE(hidden_at, NOW())\n        WHERE entity_type = $1 AND entity_id = $2\n          AND body_hash = (SELECT body_hash FROM bio_revisions WHERE id = $3)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8ddd8b632951d6fabb38e34638190aa0e15f157278a0bfd122870177cc69fa53"
+}

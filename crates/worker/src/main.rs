@@ -7,6 +7,7 @@ mod enrichment;
 mod fake_lastfm;
 mod heartbeat;
 mod lastfm_import;
+mod moderation;
 mod rankings;
 mod similarity;
 mod status;
@@ -35,7 +36,7 @@ async fn main() -> anyhow::Result<()> {
         Some("help" | "--help" | "-h")
     ) {
         println!(
-            "{USAGE}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+            "{USAGE}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
             status::USAGE,
             classification::cli::USAGE,
             rankings::cli::USAGE,
@@ -44,6 +45,7 @@ async fn main() -> anyhow::Result<()> {
             tracks::USAGE,
             albums::USAGE,
             tags::USAGE,
+            moderation::USAGE,
             uploads::USAGE,
             accounts::USAGE
         );
@@ -98,6 +100,10 @@ async fn main() -> anyhow::Result<()> {
         Some("albums") => {
             db::migrate::ensure_current(&db).await?;
             return albums::run(&db, &args[1..]).await;
+        }
+        Some("moderation") => {
+            db::migrate::ensure_current(&db).await?;
+            return moderation::run(&db, &args[1..]).await;
         }
         Some("tags") => {
             db::migrate::ensure_current(&db).await?;

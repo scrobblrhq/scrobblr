@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO reports (reporter_id, revision_id, tag_id, entity_type, entity_id, reason, note)\n        VALUES ($1, $2, $3, $4, $5, $6, $7)\n        ON CONFLICT DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8",
+        "Text",
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e61e90a15ffd92b7c8836cac526bc2860dc2e3714b04d9cc6506643568e5dbca"
+}

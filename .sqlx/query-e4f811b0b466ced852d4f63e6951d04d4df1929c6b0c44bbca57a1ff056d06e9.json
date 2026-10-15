@@ -1,0 +1,88 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT r.id, r.created_at, u.username AS reporter, r.reason, r.note, r.revision_id,\n               t.name AS \"tag?\",\n               COALESCE(r.entity_type, v.entity_type) AS entity_type,\n               COALESCE(r.entity_id, v.entity_id) AS entity_id,\n               a.username AS \"author?\",\n               left(regexp_replace(v.body, '\\s+', ' ', 'g'), 120) AS excerpt,\n               count(*) OVER (PARTITION BY r.revision_id, r.tag_id, r.entity_type, r.entity_id)\n                   AS \"on_target!\"\n        FROM reports r\n        JOIN users u ON u.id = r.reporter_id\n        LEFT JOIN tags t ON t.id = r.tag_id\n        LEFT JOIN bio_revisions v ON v.id = r.revision_id\n        LEFT JOIN users a ON a.id = v.author_id\n        WHERE r.status = 'open'\n        ORDER BY r.created_at\n        LIMIT $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "reporter",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "note",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "revision_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "tag?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "entity_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "entity_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "author?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "excerpt",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "on_target!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      null,
+      null,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "e4f811b0b466ced852d4f63e6951d04d4df1929c6b0c44bbca57a1ff056d06e9"
+}

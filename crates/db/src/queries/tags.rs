@@ -536,6 +536,7 @@ pub async fn purge_unused(pool: &PgPool) -> Result<u64, sqlx::Error> {
         WHERE t.created_at < NOW() - INTERVAL '1 day'
           AND NOT EXISTS (SELECT 1 FROM user_tags ut WHERE ut.tag_id = t.id)
           AND NOT EXISTS (SELECT 1 FROM tag_counts c WHERE c.tag_id = t.id)
+          AND NOT EXISTS (SELECT 1 FROM reports r WHERE r.tag_id = t.id)
         "#,
     )
     .execute(pool)

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM editing_suspensions WHERE user_id = ANY($1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "730d1e6bd94c94bd1bf1512bb46e0ec0e13adb620130f9769dedb3d6f4ddd927"
+}

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE reports SET status = $2, resolution = $3, resolved_at = NOW()\n        WHERE id = ANY($1) AND status = 'open'\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bf08246422059db05f43a9d31d4ed81d4ff393bc328ec702cd52e0aee4d2b2d8"
+}

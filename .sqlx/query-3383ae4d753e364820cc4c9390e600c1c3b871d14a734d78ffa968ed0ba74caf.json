@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        DELETE FROM user_tags\n        WHERE tag_id = $1 AND ($2::text IS NULL OR (entity_type = $2 AND entity_id = $3))\n        RETURNING entity_type, entity_id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "entity_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "entity_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "3383ae4d753e364820cc4c9390e600c1c3b871d14a734d78ffa968ed0ba74caf"
+}

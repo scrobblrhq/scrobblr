@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO editing_suspensions (user_id, until, reason)\n        SELECT UNNEST($1::bigint[]), $2, $3\n        ON CONFLICT (user_id) DO UPDATE\n        SET until = EXCLUDED.until, reason = EXCLUDED.reason, created_at = NOW()\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "Timestamptz",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d732b92896a8c7a71766b48b6269b08d6fe3147e32deb648a4e23eb219f6c218"
+}
