@@ -1,4 +1,9 @@
-{ pkgs, lib, ... }:
+{
+  pkgs,
+  lib,
+  config,
+  ...
+}:
 {
   # Backend-only dev shell: Rust + Postgres/TimescaleDB + Redis + tooling.
   # (No Android/Flutter here — the mobile app lives in its own repo.)
@@ -18,7 +23,17 @@
     PKG_CONFIG_PATH = "${pkgs.openssl.dev}/lib/pkgconfig";
   };
 
-  claude.code.enable = true;
+  # Store paths: the desktop app runs hooks outside the devenv shell.
+  claude.code = {
+    enable = true;
+    # Replaces devenv's default, whose `prek run` checks staged files only, never the one just edited.
+    hooks.git-hooks-run = {
+      name = "Run git-hooks";
+      hookType = "PostToolUse";
+      matcher = "^(Edit|MultiEdit|Write)$";
+      command = ''cd "$CLAUDE_PROJECT_DIR" && ${pkgs.jq}/bin/jq -r .tool_input.file_path | xargs ${lib.getExe config.git-hooks.package} run --files'';
+    };
+  };
   dotenv.enable = true;
 
   languages.rust = {
