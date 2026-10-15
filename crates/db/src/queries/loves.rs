@@ -134,7 +134,8 @@ pub struct Love {
     pub track_id: i64,
     pub track_title: String,
     pub track_mbid: Option<Uuid>,
-    /// The longest length known.
+    /// The catalog's length, else MusicBrainz's, else Deezer's, as a track's
+    /// page shows it.
     pub duration_ms: Option<i32>,
     pub artist_id: i64,
     pub artist_name: String,
