@@ -10925,7 +10925,7 @@
     },
     "/v1/reports": {
       "post": {
-        "description": "Puts a bio revision, or a tag (on one artist, album or track, or anywhere), in the queue the server's operator reviews: they can revert or lock a bio, hide a revision, take a tag off, block it, or suspend an account from editing and tagging. A second report of the same target while the first is open changes nothing. The reporter isn't told what came of it, and reports are kept with the account (its export lists them). 20 reports an hour per account, 60 per address.",
+        "description": "Puts a bio revision, or a tag (on one artist, album or track, or anywhere), in the queue the server's operator reviews: they can revert or lock a bio, hide a revision, take a tag off, block it, or suspend an account from editing and tagging. A tag can be reported where it can be seen: shown on an entity, or on a public profile. A second report of the same target while the first is open changes nothing. The reporter isn't notified of what came of it; its export lists its reports, with whether each is open, resolved or dismissed. Nobody is told who reported what. 20 reports an hour per account, 60 per address.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -10978,7 +10978,7 @@
                 }
               }
             },
-            "description": "No such revision (or one held and not yours), tag or entity"
+            "description": "No such revision (or one held and not yours) or entity, or a tag shown nowhere and on no public profile"
           },
           "429": {
             "content": {
@@ -11700,7 +11700,7 @@
     },
     "/v1/tag/{tag}/albums": {
       "get": {
-        "description": "The albums the tag is shown on, most taggers first, `limit` a page (50 by default, 200 at most) from `offset`; `total` counts them all. The tag is normalized as tags are (case, spacing and Unicode forms don't matter). Each account counts once, weighed as the rankings weigh listeners: in full from a week after registering, at its factor when the anti-botting coordination detection flagged it, not at all while suspended or waiting to be deleted; private accounts count, unnamed. A tag is shown on an entity from the server's minimum of weighted accounts (`RANKING_MIN_LISTENERS`, 5 unless configured), so nobody can put one there alone. The worker recounts an entity within a minute of a change, and every entity every 6 hours. Tags feed nothing else: rankings, recommendations and similar artists don't read them. Cacheable for 5 minutes, with an `ETag`.",
+        "description": "The albums the tag is shown on, most taggers first, `limit` a page (50 by default, 200 at most) from `offset`; `total` counts them all; a tag shown nowhere, used or not, gives an empty page. The tag is normalized as tags are (case, spacing and Unicode forms don't matter). Each account counts once, weighed as the rankings weigh listeners: in full from a week after registering, at its factor when the anti-botting coordination detection flagged it, not at all while suspended or waiting to be deleted; private accounts count, unnamed. A tag is shown on an entity from the server's minimum of weighted accounts (`RANKING_MIN_LISTENERS`, 5 unless configured), so nobody can put one there alone. The worker recounts an entity within a minute of a change, and every entity every 6 hours. Tags feed nothing else: rankings, recommendations and similar artists don't read them. Cacheable for 5 minutes, with an `ETag`.",
         "parameters": [
           {
             "in": "path",
@@ -11808,16 +11808,6 @@
               }
             },
             "description": "Not a valid tag, or a negative offset"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            },
-            "description": "Nobody uses that tag"
           },
           "429": {
             "content": {
@@ -11848,7 +11838,7 @@
     },
     "/v1/tag/{tag}/artists": {
       "get": {
-        "description": "The artists the tag is shown on, most taggers first, `limit` a page (50 by default, 200 at most) from `offset`; `total` counts them all. The tag is normalized as tags are (case, spacing and Unicode forms don't matter). Each account counts once, weighed as the rankings weigh listeners: in full from a week after registering, at its factor when the anti-botting coordination detection flagged it, not at all while suspended or waiting to be deleted; private accounts count, unnamed. A tag is shown on an entity from the server's minimum of weighted accounts (`RANKING_MIN_LISTENERS`, 5 unless configured), so nobody can put one there alone. The worker recounts an entity within a minute of a change, and every entity every 6 hours. Tags feed nothing else: rankings, recommendations and similar artists don't read them. Cacheable for 5 minutes, with an `ETag`.",
+        "description": "The artists the tag is shown on, most taggers first, `limit` a page (50 by default, 200 at most) from `offset`; `total` counts them all; a tag shown nowhere, used or not, gives an empty page. The tag is normalized as tags are (case, spacing and Unicode forms don't matter). Each account counts once, weighed as the rankings weigh listeners: in full from a week after registering, at its factor when the anti-botting coordination detection flagged it, not at all while suspended or waiting to be deleted; private accounts count, unnamed. A tag is shown on an entity from the server's minimum of weighted accounts (`RANKING_MIN_LISTENERS`, 5 unless configured), so nobody can put one there alone. The worker recounts an entity within a minute of a change, and every entity every 6 hours. Tags feed nothing else: rankings, recommendations and similar artists don't read them. Cacheable for 5 minutes, with an `ETag`.",
         "parameters": [
           {
             "in": "path",
@@ -11956,16 +11946,6 @@
               }
             },
             "description": "Not a valid tag, or a negative offset"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            },
-            "description": "Nobody uses that tag"
           },
           "429": {
             "content": {
@@ -11996,7 +11976,7 @@
     },
     "/v1/tag/{tag}/tracks": {
       "get": {
-        "description": "The tracks the tag is shown on, most taggers first, `limit` a page (50 by default, 200 at most) from `offset`; `total` counts them all. The tag is normalized as tags are (case, spacing and Unicode forms don't matter). Each account counts once, weighed as the rankings weigh listeners: in full from a week after registering, at its factor when the anti-botting coordination detection flagged it, not at all while suspended or waiting to be deleted; private accounts count, unnamed. A tag is shown on an entity from the server's minimum of weighted accounts (`RANKING_MIN_LISTENERS`, 5 unless configured), so nobody can put one there alone. The worker recounts an entity within a minute of a change, and every entity every 6 hours. Tags feed nothing else: rankings, recommendations and similar artists don't read them. Cacheable for 5 minutes, with an `ETag`.",
+        "description": "The tracks the tag is shown on, most taggers first, `limit` a page (50 by default, 200 at most) from `offset`; `total` counts them all; a tag shown nowhere, used or not, gives an empty page. The tag is normalized as tags are (case, spacing and Unicode forms don't matter). Each account counts once, weighed as the rankings weigh listeners: in full from a week after registering, at its factor when the anti-botting coordination detection flagged it, not at all while suspended or waiting to be deleted; private accounts count, unnamed. A tag is shown on an entity from the server's minimum of weighted accounts (`RANKING_MIN_LISTENERS`, 5 unless configured), so nobody can put one there alone. The worker recounts an entity within a minute of a change, and every entity every 6 hours. Tags feed nothing else: rankings, recommendations and similar artists don't read them. Cacheable for 5 minutes, with an `ETag`.",
         "parameters": [
           {
             "in": "path",
@@ -12104,16 +12084,6 @@
               }
             },
             "description": "Not a valid tag, or a negative offset"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            },
-            "description": "Nobody uses that tag"
           },
           "429": {
             "content": {

@@ -462,7 +462,6 @@ pub struct ExportedSuspension {
     pub since: DateTime<Utc>,
     /// `null`: until lifted.
     pub until: Option<DateTime<Utc>>,
-    pub reason: String,
 }
 
 pub async fn editing_suspension(
@@ -471,7 +470,7 @@ pub async fn editing_suspension(
 ) -> Result<Option<ExportedSuspension>, sqlx::Error> {
     sqlx::query_as!(
         ExportedSuspension,
-        "SELECT created_at AS since, until, reason FROM editing_suspensions WHERE user_id = $1",
+        "SELECT created_at AS since, until FROM editing_suspensions WHERE user_id = $1",
         user_id,
     )
     .fetch_optional(pool)

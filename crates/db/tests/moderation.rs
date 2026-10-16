@@ -310,6 +310,25 @@ async fn hiding_locking_and_deciding_held_edits() {
             Moderated::NoSuchRevision,
             "decided already"
         );
+        // A held copy of hidden text can't be published.
+        let copy = revision(
+            edit(
+                &pool,
+                alice,
+                other,
+                "https://b.example https://b.example https://b.example",
+            )
+            .await,
+        );
+        assert_eq!(copy.status, RevisionStatus::Held);
+        moderation_db::hide(&pool, copy.id).await.unwrap();
+        assert_eq!(
+            moderation_db::decide(&pool, copy.id, true, true)
+                .await
+                .unwrap(),
+            Moderated::Hidden
+        );
+        assert!(moderation_db::held(&pool, 10).await.unwrap()[0].hidden);
     })
     .await;
 }

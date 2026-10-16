@@ -169,11 +169,14 @@ async fn tagged(
         return Err(AppError::BadRequest("offset can't be negative".into()));
     }
     let limit = super::page_limit(q.limit, 50, 200);
-    let tag_id = tags_db::tag_id(&state.db, &tag)
-        .await?
-        .ok_or(AppError::NotFound)?;
-    let (entries, total) =
-        tags_db::top_entities(&state.db, tag_id, kind, min_weight(state), limit, offset).await?;
+    // A tag nobody shows reads as one nobody uses: whether some account
+    // used it isn't anyone else's to learn.
+    let (entries, total) = match tags_db::tag_id(&state.db, &tag).await? {
+        Some(tag_id) => {
+            tags_db::top_entities(&state.db, tag_id, kind, min_weight(state), limit, offset).await?
+        }
+        None => (Vec::new(), 0),
+    };
     let body = TaggedEntityPage {
         tag,
         entries,
@@ -216,13 +219,12 @@ fn tagged_doc(op: TransformOperation, kind: CatalogKind) -> TransformOperation {
     let nouns = format!("{}s", noun(kind));
     cached(op)
         .summary(&format!("The {nouns} a tag is on"))
-        .description(&format!("The {nouns} the tag is shown on, most taggers first, `limit` a page (50 by default, 200 at most) from `offset`; `total` counts them all. The tag is normalized as tags are (case, spacing and Unicode forms don't matter). {COUNTED} Cacheable for 5 minutes, with an `ETag`."))
+        .description(&format!("The {nouns} the tag is shown on, most taggers first, `limit` a page (50 by default, 200 at most) from `offset`; `total` counts them all; a tag shown nowhere, used or not, gives an empty page. The tag is normalized as tags are (case, spacing and Unicode forms don't matter). {COUNTED} Cacheable for 5 minutes, with an `ETag`."))
         .tag("Tags")
         .response_with::<200, Json<TaggedEntityPage>, _>(|r| {
             caching::headers(r, "A tag of the body, for `If-None-Match`", CACHE_CONTROL)
         })
         .response_with::<400, ErrorJson, _>(|r| r.description("Not a valid tag, or a negative offset"))
-        .response_with::<404, ErrorJson, _>(|r| r.description("Nobody uses that tag"))
 }
 
 pub fn _tagged_artists_doc(op: TransformOperation) -> TransformOperation {
@@ -699,10 +701,13 @@ mod tests {
                 app.get("/v1/tag/dream%20pop/albums").await.0,
                 StatusCode::OK
             );
+            let (status, _, body) = app.get("/v1/tag/unknown/artists").await;
             assert_eq!(
-                app.get("/v1/tag/unknown/artists").await.0,
-                StatusCode::NOT_FOUND
+                status,
+                StatusCode::OK,
+                "nobody is told whether a tag is used"
             );
+            assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["total"], 0);
             assert_eq!(
                 app.get("/v1/tag/a%2Fb/artists").await.0,
                 StatusCode::BAD_REQUEST

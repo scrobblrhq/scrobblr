@@ -128,6 +128,8 @@ pub enum Moderated {
     NoSuchRevision,
     /// The held edit was written over a revision that isn't current now.
     Stale,
+    /// Its text is hidden: it can't be published.
+    Hidden,
 }
 
 /// A moderator's revision restoring `to`'s text (`None`: no text), over
@@ -323,6 +325,8 @@ pub struct Held {
     pub author: Option<String>,
     pub held_reason: Option<String>,
     pub excerpt: String,
+    /// A moderator hid its text (`hide` hides held copies too).
+    pub hidden: bool,
     pub created_at: DateTime<Utc>,
 }
 
@@ -332,7 +336,8 @@ pub async fn held(pool: &PgPool, limit: i64) -> Result<Vec<Held>, sqlx::Error> {
         Held,
         r#"
         SELECT r.id, r.entity_type, r.entity_id, u.username AS "author?", r.held_reason,
-               left(regexp_replace(r.body, '\s+', ' ', 'g'), 160) AS "excerpt!", r.created_at
+               left(regexp_replace(r.body, '\s+', ' ', 'g'), 160) AS "excerpt!",
+               r.hidden_at IS NOT NULL AS "hidden!", r.created_at
         FROM bio_revisions r
         LEFT JOIN users u ON u.id = r.author_id
         WHERE r.status = 'held'
@@ -346,7 +351,7 @@ pub async fn held(pool: &PgPool, limit: i64) -> Result<Vec<Held>, sqlx::Error> {
 }
 
 /// Publishes a held edit, if the bio is still at the revision it was
-/// written over (or `force`); or rejects it.
+/// written over (or `force`) and its text isn't hidden; or rejects it.
 pub async fn decide(
     pool: &PgPool,
     revision_id: i64,
@@ -356,7 +361,8 @@ pub async fn decide(
     let mut tx = pool.begin().await?;
     let Some(r) = sqlx::query!(
         r#"
-        SELECT entity_type, entity_id, parent_id FROM bio_revisions
+        SELECT entity_type, entity_id, parent_id, hidden_at IS NOT NULL AS "hidden!"
+        FROM bio_revisions
         WHERE id = $1 AND status = 'held'
         FOR UPDATE
         "#,
@@ -367,6 +373,9 @@ pub async fn decide(
     else {
         return Ok(Moderated::NoSuchRevision);
     };
+    if approve && r.hidden {
+        return Ok(Moderated::Hidden);
+    }
     if approve {
         let head = sqlx::query_scalar!(
             "SELECT revision_id FROM entity_bios WHERE entity_type = $1 AND entity_id = $2 FOR UPDATE",

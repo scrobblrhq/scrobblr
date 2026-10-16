@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT created_at AS since, until, reason FROM editing_suspensions WHERE user_id = $1",
+  "query": "SELECT created_at AS since, until FROM editing_suspensions WHERE user_id = $1",
   "describe": {
     "columns": [
       {
@@ -12,11 +12,6 @@
         "ordinal": 1,
         "name": "until",
         "type_info": "Timestamptz"
-      },
-      {
-        "ordinal": 2,
-        "name": "reason",
-        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -26,9 +21,8 @@
     },
     "nullable": [
       false,
-      true,
-      false
+      true
     ]
   },
-  "hash": "201b8e763384297d86cfef0d71b1f8976d99b06eef2ed3165d987dea58920c3a"
+  "hash": "40d57407a50e0533211a699e21dd0d9600f3e415e7fb7f59b3a3db2cbb4283ab"
 }

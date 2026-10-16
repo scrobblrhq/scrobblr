@@ -463,6 +463,10 @@ pub const NOT_INCLUDED: &[(&str, &str)] = &[
         "Their decisions, about you: the export holds what you did, and nobody is told who blocked or removed them.",
     ),
     (
+        "Reports others made about your bio revisions or tags, and the reason an operator gave for suspending your editing",
+        "Other people's reports are theirs, and nobody is told who reported them. A suspension's reason is the operator's note, which may name other accounts or anti-abuse evidence; when it began and until when are included.",
+    ),
+    (
         "The weight of your tags in the tag counts, and other people's revisions of the bios you edited",
         "The weight is computed from your account's age and the anti-abuse factors above; tags.json has every tag you put on something. Other people's revisions are theirs, and public in each bio's history.",
     ),
@@ -488,8 +492,10 @@ account.json     your profile and settings, follows, the accounts you block
                  now playing, your similarity setting, the artists
                  recommended to you and your taste neighbours as last
                  computed, the recommendations you skipped, your reports
-                 of bio revisions and tags, an editing suspension if a
-                 moderator set one, and what is not included and why
+                 of bio revisions and tags (with whether each is open,
+                 resolved or dismissed), when an editing suspension began
+                 and ends if a moderator set one, and what is not included
+                 and why
 scrobbles.csv    every scrobble, oldest first: when, artist, track, album,
                  the lengths the client reported, the client (as it called
                  itself, and as the server identified it), the import that

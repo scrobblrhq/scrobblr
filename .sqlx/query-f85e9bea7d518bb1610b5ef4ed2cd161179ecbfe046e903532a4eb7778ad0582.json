@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT t.id FROM tags t\n        WHERE t.name = $1\n          AND (EXISTS (SELECT 1 FROM tag_counts c WHERE c.tag_id = t.id AND c.weight >= $2)\n               OR EXISTS (SELECT 1 FROM user_tags ut JOIN users u ON u.id = ut.user_id\n                          WHERE ut.tag_id = t.id AND NOT u.is_private AND u.delete_after IS NULL))\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "f85e9bea7d518bb1610b5ef4ed2cd161179ecbfe046e903532a4eb7778ad0582"
+}

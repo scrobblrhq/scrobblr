@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT entity_type, entity_id, parent_id FROM bio_revisions\n        WHERE id = $1 AND status = 'held'\n        FOR UPDATE\n        ",
+  "query": "\n        SELECT entity_type, entity_id, parent_id, hidden_at IS NOT NULL AS \"hidden!\"\n        FROM bio_revisions\n        WHERE id = $1 AND status = 'held'\n        FOR UPDATE\n        ",
   "describe": {
     "columns": [
       {
@@ -17,6 +17,11 @@
         "ordinal": 2,
         "name": "parent_id",
         "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "hidden!",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -27,8 +32,9 @@
     "nullable": [
       false,
       false,
-      true
+      true,
+      null
     ]
   },
-  "hash": "ac0ecfb7f5333e5c25c8c13240ce867ceac18eef6ee024f9c2603991704f8653"
+  "hash": "369f908fbff8c5f9ff10733e1cad9134b27a0617d3d9840be43d269ee1a146b8"
 }

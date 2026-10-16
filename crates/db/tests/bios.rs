@@ -430,6 +430,45 @@ async fn imports_never_overwrite_people() {
                 .unwrap()
         );
         assert_eq!(mirror(&pool, band).await.as_deref(), Some("From Last.fm."));
+        // Nor over a moderator: a hidden import (which leaves no text) or
+        // a lock keeps Last.fm out.
+        let hidden = artist(&pool, "Hidden").await;
+        assert!(
+            bios_db::import(&pool, hidden, "Someone's address.", false)
+                .await
+                .unwrap()
+        );
+        let first = bios_db::current(&pool, CatalogKind::Artist, hidden, None)
+            .await
+            .unwrap()
+            .revision_id
+            .unwrap();
+        db::queries::moderation::hide(&pool, first).await.unwrap();
+        assert_eq!(mirror(&pool, hidden).await, None);
+        assert!(
+            !bios_db::import(&pool, hidden, "Someone's address.", true)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !bios_db::import(&pool, hidden, "Something else.", false)
+                .await
+                .unwrap()
+        );
+        let locked = artist(&pool, "Locked").await;
+        assert!(
+            bios_db::import(&pool, locked, "First.", false)
+                .await
+                .unwrap()
+        );
+        db::queries::moderation::lock(&pool, CatalogKind::Artist, locked, Some("war"))
+            .await
+            .unwrap();
+        assert!(
+            !bios_db::import(&pool, locked, "Second.", true)
+                .await
+                .unwrap()
+        );
         // Text the rules refuse isn't imported.
         let other = artist(&pool, "Other").await;
         assert!(

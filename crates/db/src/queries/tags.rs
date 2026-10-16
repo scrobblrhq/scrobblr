@@ -27,6 +27,29 @@ pub async fn tag_id(pool: &PgPool, name: &str) -> Result<Option<i64>, sqlx::Erro
         .await
 }
 
+/// The tag, if anyone may see it used: shown on an entity (`min_weight`
+/// and more) or among the tags of a public account not waiting to be
+/// deleted. A tag used only where nobody else can see it reads as unused.
+pub async fn visible_tag_id(
+    pool: &PgPool,
+    name: &str,
+    min_weight: i64,
+) -> Result<Option<i64>, sqlx::Error> {
+    sqlx::query_scalar!(
+        r#"
+        SELECT t.id FROM tags t
+        WHERE t.name = $1
+          AND (EXISTS (SELECT 1 FROM tag_counts c WHERE c.tag_id = t.id AND c.weight >= $2)
+               OR EXISTS (SELECT 1 FROM user_tags ut JOIN users u ON u.id = ut.user_id
+                          WHERE ut.tag_id = t.id AND NOT u.is_private AND u.delete_after IS NULL))
+        "#,
+        name,
+        min_weight,
+    )
+    .fetch_optional(pool)
+    .await
+}
+
 pub(crate) async fn enqueue<'e>(
     db: impl PgExecutor<'e>,
     kind: &str,

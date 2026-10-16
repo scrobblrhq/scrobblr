@@ -518,7 +518,9 @@ pub async fn revert(
 
 /// Last.fm's bio of an artist, as an `import` revision: when it has no
 /// bio, or over an earlier import with `force`; never once a person has
-/// edited it. Text the bio rules refuse is left out. Whether it was written.
+/// edited it, nor once a moderator locked it or hid any of its text (a hide
+/// can leave it without text, which Last.fm would otherwise fill again).
+/// Text the bio rules refuse is left out. Whether it was written.
 pub async fn import(
     pool: &PgPool,
     artist_id: i64,
@@ -542,9 +544,11 @@ pub async fn import(
     let head = sqlx::query!(
         r#"
         SELECT b.revision_id, r.body AS "body?",
-               EXISTS (SELECT 1 FROM bio_revisions p
-                       WHERE p.entity_type = 'artist' AND p.entity_id = $1
-                         AND p.kind <> 'import' AND p.status = 'published') AS "edited!"
+               b.locked_at IS NOT NULL
+               OR EXISTS (SELECT 1 FROM bio_revisions p
+                          WHERE p.entity_type = 'artist' AND p.entity_id = $1
+                            AND ((p.kind <> 'import' AND p.status = 'published')
+                                 OR p.hidden_at IS NOT NULL)) AS "edited!"
         FROM entity_bios b
         LEFT JOIN bio_revisions r ON r.id = b.revision_id
         WHERE b.entity_type = 'artist' AND b.entity_id = $1

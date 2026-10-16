@@ -343,18 +343,23 @@ docker compose exec worker worker tags refresh                  # recount every 
 - **Held edits** are those the spam heuristics stopped (a link host
   repeated in the text, a host pasted into other bios, a long text copied
   from another bio). `approve` refuses one written over a revision that is
-  no longer current: reject it, or `--force` it over the newer text.
+  no longer current (reject it, or `--force` it over the newer text) and
+  one whose text you hid (`held` shows it as `(hidden)`).
 - **`suspend`** stops accounts editing bios and tagging (for `--days`, or
   until `unsuspend`); their tags stop counting at once and their own
   profile keeps them. With `--undo`, every bio showing a revision by any
   suspended account goes back to its latest revision by an account in good
   standing, and their held edits are rejected. Name a whole farm in one
-  command. The account is told only that it can't edit or tag now.
+  command. The account is told only that it can't edit or tag now; its
+  export shows when the suspension began and ends. `--reason` is your
+  note: it is never shown to the account, nor in its export.
 - **`block-tag`** refuses tags holding the term's words in a row (`pills`
   blocks `buy pills` and `pills-online`, not `pillsbury`) and takes those
   already there off everything. Tags are normalized first (case, Unicode
   forms, spacing), so one spelling covers them all.
-- **Locks** stop everyone but the operator; nothing unlocks on its own.
+- **Locks** stop everyone but the operator, Last.fm's enrichment
+  included; nothing unlocks on its own. A bio with a hidden revision is
+  never filled from Last.fm again either, so a hidden import stays gone.
 
 The coordination detection's factors also stop accounts from editing (below
 half weight over 28 days) and weigh their tags ([rankings.md](rankings.md#coordination));

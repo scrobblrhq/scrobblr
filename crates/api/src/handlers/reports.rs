@@ -83,7 +83,8 @@ async fn target(state: &AppState, user_id: i64, req: &ReportRequest) -> ApiResul
         }
         (None, Some(tag)) => {
             let tag = community::tag_name(tag).map_err(|e| AppError::BadRequest(e.to_string()))?;
-            let tag_id = tags_db::tag_id(&state.db, &tag)
+            let min = i64::from(state.rankings.min_listeners) * shared::ranking::FULL;
+            let tag_id = tags_db::visible_tag_id(&state.db, &tag, min)
                 .await?
                 .ok_or(AppError::NotFound)?;
             if let Some((kind, id)) = on {
@@ -116,14 +117,14 @@ pub async fn report(
 
 pub fn _report_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Report a bio revision or a tag")
-        .description(&format!("Puts a bio revision, or a tag (on one artist, album or track, or anywhere), in the queue the server's operator reviews: they can revert or lock a bio, hide a revision, take a tag off, block it, or suspend an account from editing and tagging. A second report of the same target while the first is open changes nothing. The reporter isn't told what came of it, and reports are kept with the account (its export lists them). {} reports an hour per account, {} per address.", limits::REPORTS_PER_USER, limits::REPORTS_PER_IP))
+        .description(&format!("Puts a bio revision, or a tag (on one artist, album or track, or anywhere), in the queue the server's operator reviews: they can revert or lock a bio, hide a revision, take a tag off, block it, or suspend an account from editing and tagging. A tag can be reported where it can be seen: shown on an entity, or on a public profile. A second report of the same target while the first is open changes nothing. The reporter isn't notified of what came of it; its export lists its reports, with whether each is open, resolved or dismissed. Nobody is told who reported what. {} reports an hour per account, {} per address.", limits::REPORTS_PER_USER, limits::REPORTS_PER_IP))
         .tag("Bios")
         .response_with::<204, (), _>(|r| r.description("Reported"))
         .response_with::<400, ErrorJson, _>(|r| {
             r.description("Neither or both of a revision and a tag, more than one entity, an invalid tag, or a note too long or with unsafe characters")
         })
         .response_with::<404, ErrorJson, _>(|r| {
-            r.description("No such revision (or one held and not yours), tag or entity")
+            r.description("No such revision (or one held and not yours) or entity, or a tag shown nowhere and on no public profile")
         })
         .response_with::<429, ErrorJson, _>(|r| {
             r.description(&format!(
@@ -170,6 +171,20 @@ mod tests {
             )
             .await;
             let (_, _, reporter) = app.other_user("reporter").await;
+            // A tag only a private account uses can't be reported: nobody sees it.
+            let (hider, _, hider_session) = app.other_user("hider").await;
+            app.api_as(
+                &hider_session,
+                Method::POST,
+                &format!("/v1/artist/{band}/tags"),
+                Some(json!({ "tags": ["secret"] })),
+            )
+            .await;
+            sqlx::query("UPDATE users SET is_private = TRUE WHERE id = $1")
+                .bind(hider)
+                .execute(&app.pool)
+                .await
+                .unwrap();
             for body in [
                 json!({ "revision_id": revision["id"], "reason": "vandalism" }),
                 json!({ "revision_id": revision["id"], "reason": "spam", "note": "again" }),
@@ -204,6 +219,10 @@ mod tests {
                 ),
                 (
                     json!({ "tag": "unused", "reason": "spam" }),
+                    StatusCode::NOT_FOUND,
+                ),
+                (
+                    json!({ "tag": "secret", "reason": "spam" }),
                     StatusCode::NOT_FOUND,
                 ),
                 (

@@ -31,7 +31,8 @@ pub const USAGE: &str = "       worker moderation reports [--limit N]
        worker moderation unhide REVISION
        worker moderation suspend NAME... [--days N] [--reason TEXT] [--undo]
                                   stop accounts editing bios and tagging (for N days, or
-                                  until lifted); their tags stop counting at once. --undo
+                                  until lifted); their tags stop counting at once. The
+                                  reason is the operator's note, never shown to them. --undo
                                   puts every bio showing their text back to its latest
                                   revision by an account not suspended, and rejects their
                                   held edits
@@ -107,6 +108,7 @@ fn moderated(result: Moderated, done: &str) -> anyhow::Result<()> {
             "the bio changed since the edit was written: reject it, or approve it with --force \
              to write it over the newer text"
         ),
+        Moderated::Hidden => bail!("its text is hidden: reject it, or unhide it first"),
     }
 }
 
@@ -181,7 +183,7 @@ pub async fn run(db: &PgPool, args: &[String]) -> anyhow::Result<()> {
                     h.entity_id,
                     h.author.as_deref().unwrap_or("(nobody)"),
                     h.held_reason.as_deref().unwrap_or(""),
-                    h.excerpt
+                    if h.hidden { "(hidden)" } else { &h.excerpt }
                 );
             }
             Ok(())

@@ -190,8 +190,9 @@ client, import and label), `loved_tracks.csv` and `loved_tracks.json`
 (every loved track with when and how it was loved), `tags.json` (every
 tag the user put on something), `bio_edits.json` (every bio revision the
 user wrote, with its text and status, hidden ones included: the text is
-theirs), the reports and an editing suspension in `account.json`, and the
-uploaded images. Nothing is written to
+theirs), the user's reports (with whether each is open, resolved or
+dismissed) and when an editing suspension began and ends in
+`account.json`, and the uploaded images. Nothing is written to
 the server's disk: there is no copy to expire.
 
 Left out, and said so in `account.json`: the password hash; credentials'
@@ -204,7 +205,10 @@ blocks the user or removed them from their followers (their decisions); daily
 totals, album says and counters (computed from the scrobbles); the weight
 of the user's tags in the counts (computed from the account's age and the
 anti-abuse factors); other accounts' revisions of the bios the user
-edited (theirs, and public in the history); logs, Redis and backups.
+edited (theirs, and public in the history); reports others made about
+the user's revisions or tags (theirs: nobody is told who reported); the
+reason the operator gave for a suspension (their note, which may name
+other accounts or anti-abuse evidence); logs, Redis and backups.
 
 ## Deletion
 
@@ -245,7 +249,9 @@ included, with no author (`author_id` set to NULL, the one foreign key to
 `users` that doesn't cascade, which the erasure test allows by name and
 checks); nothing left in them links to the account, but the text is
 whatever its author wrote. Its held and rejected edits, never published,
-are deleted. Reports others made about its revisions stay, as theirs. The
+are deleted. Reports others made about its revisions stay, as theirs.
+Tag names nobody else uses are deleted at the worker's next full pass
+(within 6 hours, and never sooner than a day after the tag was made). The
 global rankings and similar artists are recomputed on the worker's next
 pass (within minutes). The uploaded files are deleted; one that
 became an artist's or album's image stays as the catalog's, no longer tied

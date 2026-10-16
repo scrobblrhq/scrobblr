@@ -728,8 +728,9 @@ and whose lowest coordination factor over the last 28 days is at least
 0.5: the midpoint of the detection's scale, where it is more sure than
 not that the account is part of a farm ([rankings.md](rankings.md#coordination)).
 A refusal is a 403: a new account is told from when it may edit; the
-others only that they can't edit now, so a farm learns nothing about the
-detection. Nobody edits a bio the operator locked (403, `locked: true`).
+others only that they can't edit now. That doesn't hide everything: an
+account that may still tag, and whose export shows no suspension, can
+infer that the coordination detection flagged it. Nobody edits a bio the operator locked (403, `locked: true`).
 
 **The text** is plain: no HTML, no Markdown. Clients show it as text, a
 paragraph at each blank line, `http://` and `https://` URLs as links
@@ -783,10 +784,13 @@ text; `Album` has no `bio`: read the bio route.
 the entity one of `artist_id`, `album_id`, `track_id` names, or
 anywhere), a `reason` (`spam`, `vandalism`, `offensive`,
 `personal_data`, `copyright`, `other`) and a `note` (one line, 500
-characters). A second report of the same target by the same account
+characters). A tag can be reported where it can be seen: shown on an
+entity, or among a public profile's tags; any other is a 404, as for a
+tag nobody uses. A second report of the same target by the same account
 while the first is open changes nothing (204 either way). 20 reports an
-hour per account, 60 per address. The reporter is never told what came
-of it; nobody is told who reported. The queue is the operator's
+hour per account, 60 per address. The reporter isn't notified of what
+came of it (its export lists whether each report is open, resolved or
+dismissed); nobody is told who reported. The queue is the operator's
 (`worker moderation reports`).
 
 ## Tags
@@ -858,7 +862,9 @@ uses and no report names, a day after they were made.
 **Caching.** Both public reads send `Cache-Control: public,
 max-age=300` and a weak `ETag` of the body; `If-None-Match` with it gets
 a 304. `GET /v1/tag/{tag}/…` pages by `limit` (50, at most 200) and
-`offset`, with `total`; an unknown tag is a 404, an invalid one a 400.
+`offset`, with `total`. A tag shown nowhere gives an empty page whether
+or not some account uses it, so nobody learns of a tag below the minimum;
+an invalid one is a 400.
 
 **Visibility.** `GET /v1/user/{username}/tags` is the profile's: 403 for
 someone else's private profile, 404 for an account waiting to be deleted
