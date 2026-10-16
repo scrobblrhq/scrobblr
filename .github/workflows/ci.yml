@@ -38,12 +38,16 @@ jobs:
       - run: just ci
 
   database:
-    name: Database tests
+    name: Database tests (${{ matrix.postgres }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # devenv's versions, and docker-compose.yml's (production's).
+        postgres: ["2.29.2-pg18", "2.30.2-pg16"]
     services:
       postgres:
-        # The same TimescaleDB and Postgres versions as devenv.
-        image: timescale/timescaledb:2.29.2-pg18
+        image: timescale/timescaledb:${{ matrix.postgres }}
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres

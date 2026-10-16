@@ -11,8 +11,8 @@
 name: scrobblr
 
 # Pinned: a floating tag upgrades TimescaleDB unannounced, and an image
-# older than a database's extension can't load it. Dev and CI run
-# Postgres 18; moving an existing volume to it takes pg_upgrade. The backup
+# older than a database's extension can't load it. Dev runs Postgres 18 and
+# CI both; moving an existing volume to 18 takes pg_upgrade. The backup
 # image is built on it, so its pg_dump is the server's.
 x-db-image: &db-image timescale/timescaledb:2.30.2-pg16
 

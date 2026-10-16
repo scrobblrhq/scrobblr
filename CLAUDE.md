@@ -51,7 +51,7 @@ cd packages/types && bun run build
 
 The justfile exports `SQLX_OFFLINE=true`, so every recipe compiles against the committed `.sqlx/` cache, never the local database's schema (the dev database may lag the migrations). Point `DATABASE_URL` at a scratch database when running `ci-db` or `sqlx-prepare`: `migrate` applies the migrations to it.
 
-CI (`.github/workflows/ci.yml`) runs `just ci`, and `just ci-db` against TimescaleDB 2.29.2 on Postgres 18 and Redis 8 (devenv's versions), on pushes to `main` and pull requests. Its Rust toolchain is pinned to devenv's (`RUST_TOOLCHAIN`), so clippy agrees with local runs: bump it when `devenv.lock` updates Rust.
+CI (`.github/workflows/ci.yml`) runs `just ci`, and `just ci-db` against Redis 8 and both TimescaleDB 2.29.2 on Postgres 18 (devenv's versions) and 2.30.2 on Postgres 16 (docker-compose.yml's), on pushes to `main` and pull requests. Its Rust toolchain is pinned to devenv's (`RUST_TOOLCHAIN`), so clippy agrees with local runs: bump it when `devenv.lock` updates Rust.
 
 ### SQLx offline mode
 
