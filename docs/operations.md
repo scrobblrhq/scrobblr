@@ -366,12 +366,32 @@ half weight over 28 days) and weigh their tags ([rankings.md](rankings.md#coordi
 `worker rank cohorts` lists the accounts it flagged, which `suspend` can
 take in one go.
 
-A moderator role in the API (moderators who aren't operators) would need:
-a role on accounts and who grants it, routes for the queue and each action
-behind it (sessions only, as for blocks), an audit log of who did what
-(the CLI's actions leave a moderator's revision or a timestamp, not a
-name), limits on moderators themselves, and the web screens. None of that
-exists.
+There is no moderator role in the API: it would need a role and who
+grants it, session-only routes for the queue and each action, an audit log
+naming who did what (the CLI's actions leave a moderator's revision or a
+timestamp, not a name), limits on moderators and web screens.
+
+## Scrobbler protocols
+
+The Last.fm, Audioscrobbler 1.2 and ListenBrainz endpoints live at the
+API's root (`/2.0/`, `/api/auth/`, `/` and `/1.2/`, `/1/`;
+[docs/api/scrobbler-protocols.md](api/scrobbler-protocols.md) is the
+users' guide). Settings:
+
+- `PUBLIC_BASE_URL`: the Audioscrobbler handshake hands out URLs built on
+  it.
+- `WEB_APP_URL`: where `/api/auth/` sends browsers to approve an app.
+- `TOKEN_ENCRYPTION_KEY`: needed for Audioscrobbler 1.2. Its handshake
+  proves knowledge of the password's MD5, so the server keeps that,
+  encrypted, for tokens made while the key is set.
+- `SCROBBLER_PASSWORD_LOGIN`: whether Last.fm-style logins accept account
+  passwords besides tokens. On by default, off when `AUTH_APP_KEYS` is set
+  (an unsigned login there would get around it).
+- `SCROBBLER_API_KEYS`, `SCROBBLER_STRICT_API_KEYS`: Last.fm API keys whose
+  secrets you know (their request signatures are then checked), and
+  whether to refuse all others.
+- `SCROBBLER_DAILY_LIMIT`: scrobbles per account per UTC day (default
+  3000), counted together with the native `/v1/scrobble`.
 
 ## Behind a reverse proxy
 

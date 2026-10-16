@@ -5,10 +5,9 @@ stores. The API serves them itself, so an instance needs no setup for them.
 
 ## How they are stored
 
-Every upload is decoded and re-encoded as a JPEG: avatars at most 512 px a
-side, artwork at most 1024 px. Nothing from the original file survives, EXIF
-and GPS data included. The API accepts JPEG, PNG and WebP, detected from the
-file's contents, up to 8 MiB, 12000 px a side and 40 megapixels.
+Every upload is decoded and re-encoded as a JPEG (`api::media::image`;
+formats and limits as clients see them: [docs/api/images.md](api/images.md)),
+so nothing from the original file survives, EXIF and GPS data included.
 
 The result is written under `UPLOAD_DIR` at a random key, such as
 `avatars/3f/3f2a9c…e1.jpg`, `artists/…` or `albums/…`. A key is never reused
@@ -91,4 +90,4 @@ URL can't be guessed, so only someone who had it can see that copy.
 ## Backups
 
 Back them up with the database, which holds their keys:
-[operations.md](operations.md#backup-and-restore).
+[operations.md](operations.md#backups).

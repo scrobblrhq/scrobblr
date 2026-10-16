@@ -16,16 +16,16 @@ scrobblr/
 │   ├── api/      ← Axum HTTP API (handlers, middleware, router, uploads)
 │   ├── shared/   ← Domain models & password hashing (source of generated TS types)
 │   ├── db/       ← SQLx queries (repositories for all entities)
-│   └── worker/   ← Background jobs (cleanup, metadata enrichment and track lengths,
-│                   now-playing republish, scrobble classification, ranking weights
-│                   and precomputed global rankings)
-│                   and the `migrate` / `classify` / `rank` / `import` / `tracks` /
-│                   `uploads` CLI
+│   └── worker/   ← Background jobs (enrichment, classification, ranking weights and
+│                   snapshots, coordination detection, similarity, tag counts, album
+│                   attribution, erasing deleted accounts) and the operator CLI
+│                   (`worker --help`)
 ├── packages/
 │   └── types/    ← @scrobblr/types — TS types generated from crates/shared via ts-rs
 ├── migrations/    ← numbered plain-SQL, applied in order by `just migrate`
-├── docs/          ← operations, rankings, uploads, scrobbler clients
-├── scripts/synthetic/   ← synthetic population for benchmarking rankings
+├── docs/          ← operator and contributor guides; docs/api/ holds the client
+│                   guides the spec embeds (served at /docs)
+├── scripts/synthetic/   ← synthetic populations for benchmarks and attack scenarios
 ├── Dockerfile · docker-compose.yml   ← the deployment (docs/operations.md)
 └── .env.example · .env.docker.example
 ```
@@ -108,9 +108,6 @@ imported scrobbles. Operators can also import any account for an existing
 user from the command line (`worker import`; `cargo run -p worker -- --help`
 lists its commands).
 
-Interactive API docs are served at [`/docs`](http://localhost:8080/docs) (OpenAPI spec at `/api.json`;
-[`openapi.json`](openapi.json) is its committed snapshot, which `just test` keeps current).
-
 ### Scrobbling from other apps
 
 Existing scrobblers (Web Scrobbler, Pano Scrobbler, Audioscrobbler 1.2 players,
@@ -174,10 +171,10 @@ The worker enriches the catalog in the background: **MusicBrainz** resolves MBID
 
 Jobs are queued in `enrichment_jobs` when new catalog entities are first scrobbled, by the authenticated `POST /v1/{track,artist,album}/{id}/refresh` endpoints (forced re-fetch), and by a periodic backfill sweep. Transient provider failures retry with exponential backoff; existing fields are never overwritten except images/bio on manual refresh, and never for a community-chosen image (`image_locked`). After the worker fills an artist/album image it re-publishes the affected users' now-playing over the live SSE stream, so an in-progress track's cover updates from its placeholder without waiting for the next song (requires `REDIS_URL`; degrades gracefully without it).
 
-## Community contributions
+## API documentation
 
-- **Avatars** — users upload their own via `POST /v1/user/me/avatar`.
-- **Artist/album artwork** — last.fm-style, add-only: uploads become candidates that users vote on; the most-liked candidate becomes the displayed image once it reaches 3 likes, and is then protected from enrichment overwrites.
-- **Comments** — public reads, authenticated writes, owner-only deletes on artists and tracks.
-
-Uploaded images are re-encoded to JPEG (EXIF stripped, downscaled, source dimensions capped) and stored under `UPLOAD_DIR`; the database keeps each one's key, and clients get `{UPLOAD_PUBLIC_URL}/{key}`. The API serves them at `/uploads`: see [docs/uploads.md](docs/uploads.md). Private profiles are excluded from search and listener lists.
+Interactive docs are served at `/docs`, from the OpenAPI spec at
+`/api.json`, whose committed snapshot is [`openapi.json`](openapi.json).
+The guides they show (authentication, errors, rate limits, pagination,
+privacy, and each area of the API) are the Markdown files in
+[docs/api/](docs/api), built into the spec.

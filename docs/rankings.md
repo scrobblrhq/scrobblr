@@ -15,23 +15,13 @@ ranked from the same weights and factors, per request.
 
 ## Profiles
 
-A profile shows its user's listening, suspect plays included, but never the
-classifier's duplicates (the same listen reported again, such as 2,000
-scrobbles of one track 1 to 2 seconds apart).
-
-- `scrobble_count` (every `UserProfile`, and Last.fm's `user.getInfo`)
-  leaves classified duplicates out. Top artists and tracks, the heatmap and
-  recent scrobbles (and `user.getRecentTracks`) leave them out too.
-- `GET /v1/user/{username}` and `GET /v1/user/me` add `scrobble_breakdown`:
-  `verified` (labelled `counted`) and `unverified` (`suspect + no_data +
-  pending`) add up to `scrobble_count`; `duplicates` is in neither.
-- Top artists and tracks add `unverified_count` (plays labelled `suspect` or
-  `no_data`), and recent scrobbles a `status` (`counted`, `suspect`,
-  `no_data`, or `null` until classified).
-
-A trigger on `scrobble_classification_days` keeps `users.scrobble_count`
-and `user_label_totals` in step with every classification (migration
-`0019`), so no query has to subtract anything at read time.
+Profiles read the labels, never the weights: `scrobble_count` and every
+top list leave the classifier's duplicates out, and
+`scrobble_breakdown` splits the count into verified and unverified plays
+(docs/api/users.md). A trigger on `scrobble_classification_days` keeps
+`users.scrobble_count` and `user_label_totals` in step with every
+classification (migration `0019`), so no query subtracts anything at read
+time.
 
 ## Weights
 
@@ -296,11 +286,9 @@ of the population; with no flags the cost is near nothing):
 | `rankings()`, tracks, week / month / 60 days | 0.84 / 2.36 / 3.58 s | 0.91 / 2.70 / 4.07 s |
 | reading 50 positions of a snapshot | unchanged | unchanged |
 
-Two first attempts cost more and were dropped: joining every
-`ranking_daily` row to the factors (the planner merge-joined in day order,
-+25 to 65 % with no factor stored) and subtracting per (user, entity, day)
-what the factors take (+45 to 80 % with them). One factor per user and
-period, joined by hash, is what the table measures.
+One factor per user and period, joined by hash (`enable_mergejoin = off`),
+is what the table measures: joining every `ranking_daily` row to the
+factors made the planner merge-join in day order.
 
 ### Synthetic results
 
@@ -555,121 +543,42 @@ every `ranking_daily` row of the year.
 
 ## Public routes
 
-`GET /v1/rankings/artists` and `GET /v1/rankings/tracks`
-(`crates/api/src/handlers/rankings.rs`) serve the stored snapshots as
-they are: one statement reads the page and the snapshot it comes from,
-nothing is computed per request.
+`GET /v1/rankings/artists` and `/tracks` (`handlers/rankings.rs`; what
+clients get: docs/api/rankings.md) serve the stored snapshots as they are,
+computing nothing per request.
 
-| parameter | | |
-| --- | --- | --- |
-| `period` | `week` (default), `month`, `year` | anything else: 400 |
-| `limit` | 50 by default, 200 at most | clamped to 1–200, like other lists |
-| `offset` | positions to skip, 0 by default | negative: 400; past the end: an empty page |
+- **One statement per page** (`rankings::served_page`): the page and the
+  snapshot it comes from, so a refresh committing meanwhile can't mix two.
+  Positions are a primary-key range, so a deep page costs what the first
+  does; offsets rather than cursors, since a refresh replaces the whole
+  snapshot and a cursor would pin nothing.
+- **Numbers**: `listeners` and `plays` are the listener credits and
+  weights above, coordination factors applied, rounded to whole numbers:
+  with a handful of listeners, fractions come close to saying whose plays
+  were discounted. Raw counts aren't served: beside the filtered ones they
+  would tell a farm how much of its push was discounted.
+- **Small groups**: entries credited with fewer than
+  `RANKING_MIN_LISTENERS` (5) listeners aren't served
+  (`shared::ranking::is_served`). A credit is one at most, so a served
+  entry stands for at least 5 accounts, and ordered by listeners the
+  served entries are a prefix of the stored 1,000. `worker rank top` marks
+  the cut.
+- **Freshness**: no snapshot yet is a `404` (cacheable 60 s); one overdue
+  by 15 minutes (`Period::stale_after`) is served with `stale: true`.
+- **Caching**: `Cache-Control: public, max-age=300,
+  stale-while-revalidate=300` and a weak ETag of `computed_at`, the minimum
+  and staleness; `If-None-Match` gets a `304` after one primary-key lookup
+  of the snapshot. A field that changes for the same snapshot must go into
+  the ETag.
 
-```json
-{
-  "period": "week",
-  "from": "2026-10-04",
-  "to": "2026-10-10",
-  "computed_at": "2026-10-10T22:01:07.512Z",
-  "stale": false,
-  "total": 812,
-  "offset": 0,
-  "limit": 2,
-  "entries": [
-    { "position": 1, "track_id": 1841, "track_title": "Teardrop", "artist_id": 97,
-      "artist_name": "Massive Attack", "album_image": "https://…/albums/3f/….jpg",
-      "listeners": 412, "plays": 1290 },
-    { "position": 2, "track_id": 77, "track_title": "Windowlicker", "artist_id": 12,
-      "artist_name": "Aphex Twin", "album_image": null, "listeners": 398, "plays": 1517 }
-  ]
-}
-```
-
-Artists' entries carry `artist_id`, `artist_name` and `image_url`
-instead, like `TopArtist`; tracks' are shaped like `TopTrack` (the album's
-cover as the track's image). Names and images are the catalog's at the
-time of the request; image keys become URLs as everywhere else.
-
-- **Numbers.** `listeners` (the order) and `plays` are the listener credits
-  and weights of [Listeners and plays](#listeners-and-plays), coordination
-  factors applied, rounded to whole numbers: with a handful of listeners,
-  fractions come close to saying whose plays were discounted, and by how
-  much. Raw counts aren't served: beside
-  the filtered ones they would tell a farm how much of its push was
-  discounted, a free oracle for tuning it.
-- **Pagination.** Offset, not a cursor: positions are a primary-key range,
-  so a deep page costs what the first does, and a cursor would pin nothing
-  (a refresh replaces the whole snapshot). `total` is how many positions
-  are served.
-- **Small groups.** Entries credited with fewer than
-  `RANKING_MIN_LISTENERS` (5) listeners aren't served. A credit is one at
-  most, so a served entry stands for at least 5 accounts; ordered by
-  listeners, the served entries are a prefix of the stored 1,000, and the
-  cut needs no recomputation when the setting changes. `worker rank top`
-  marks it. Without it a weekly chart on a small instance would list what
-  each user played that week.
-- **Private profiles.** Their plays count, as they do in every catalog
-  aggregate (`scrobble_count`, `listener_count`, top tracks): a private
-  profile hides who listens, not that listening happened. Nothing in a page
-  names or counts a user, and the minimum keeps one account's listening
-  from being a position of its own. There is no other opt-out setting.
-- **Public.** No credential: the same page for everyone, so any proxy may
-  cache it. The global per-address limit applies like everywhere (a 304
-  counts as a request). CORS follows `CORS_ALLOWED_ORIGINS` like the rest
-  of the native API.
-
-### Freshness
-
-| the snapshot | the route |
-| --- | --- |
-| not computed yet (new install, worker not running yet) | 404 `{ "error": "no week ranking has been computed yet" }`, cacheable 60 s |
-| fresh | 200, `stale: false` |
-| refresh overdue by more than 15 min (worker behind, stopped or failing) | 200 with the last snapshot, `stale: true` |
-
-`from` and `to` are the UTC days it covers, both included (`to` the day it
-was computed); `computed_at` when. A refresh is due an hour after the
-last for weeks and months, a day after for years, and at every UTC
-midnight; `stale` is true 15 minutes past that (`Period::stale_after`), so
-clients can say "updated 3 h ago" instead of showing nothing. A failed
-refresh changes nothing that is served: it rolls back and is retried, and
-`/health/worker` reports the loop failing.
-
-### Caching
-
-Every 200 and 304 carries `Cache-Control: public, max-age=300,
-stale-while-revalidate=300` and a weak `ETag` made of the snapshot's
-`computed_at`, the minimum and whether it is stale: whatever changes the
-body of a URL. A request with that tag in `If-None-Match` (or `*`) gets a
-304 after a primary-key lookup of the snapshot, without reading entries.
-The tag is weak because compression changes the bytes.
-
-### Measured
-
-On the synthetic population ([Synthetic scenario](#synthetic-scenario),
-4,000 users over 60 days, 3.95M scrobbles, 20,000 artists and 160,000
-tracks; every period has 1,000 positions with 5 listeners or more), the
-release API on the same 8-core desktop as the database (TimescaleDB 2.29.2
-in a container, `shared_buffers=512MB`), one client at a time, gzip,
-2,000 requests each:
-
-| request | p50 | p99 |
-| --- | --- | --- |
-| first 50 positions | 2.2–2.4 ms | 4.8–6.3 ms |
-| positions 951–1,000 | 2.2–2.5 ms | 4.9–9.3 ms |
-| positions 801–1,000 (`limit=200`) | 4.2–4.6 ms | 7.0–8.0 ms |
-| `If-None-Match` hit (304) | 0.48–0.54 ms | 1.7–2.0 ms |
-
-The same for every period and both kinds: a page reads the same rows
-whatever the history behind it. With 16 clients at once, 1,275 pages a
-second (p50 12 ms) or 5,274 304s a second. The first version counted the
-served positions once per entry of the page: 14.6 ms for 50, 52 ms for
-200.
+Measured (synthetic population below, release API, one client): a page of
+50 2.2 ms p50, of 200 4.4 ms, a `304` 0.5 ms; 16 clients at once, 1,275
+pages a second.
 
 ## Similarity
 
 Similar artists, recommendations and taste neighbours
-([social.md](social.md#similar-artists-taste-neighbours-and-recommendations)
+([docs/api/recommendations.md](api/recommendations.md)
 for the routes) are made from the same weights and coordination factors as
 the rankings, so what can't move a ranking can't move them either. The
 worker recomputes them once a day (`shared::similarity`, the `similarity`
@@ -763,12 +672,6 @@ years of Last.fm history gets recommendations the day they import it
 (unless every play they have is older than the window), where waiting for
 weights would take weeks; and an account dumping a fabricated history can
 only make its own recommendations worse.
-
-Summing only a candidate's three strongest votes, so that an artist
-attached to everything a user plays casually couldn't outvote what their
-favourites point to, was tried and dropped: it cost hit rate (0.495 to
-0.414 on the evaluation below, before cohesion was added) and stopped no
-farm that cohesion and the share floor don't.
 
 ### Taste neighbours
 
@@ -913,16 +816,6 @@ real tastes are neither, real discoveries come from outside (radio,
 friends, releases), and nothing here measures whether people like what
 they're shown. Tune on real data.
 
-Choices made on a prototype of the same model (the same kind of
-population, 4,000 users, 14-day hold-out, a credit-counted share floor):
-a full credit at 1 play gave a 0.38 hit rate, 2 plays 0.46, 4 plays 0.48,
-8 plays 0.44; a share floor of 5 % 0.48 (508 artists covered), 7.5 % 0.48
-(390) and 10 % 0.46 (315), the last doubling the price of an attack
-against 5 %. Of the scores, a plain cosine gave 0.39 and a plain excess
-count 0.46 at a 5 % floor, both recommending mostly the most popular;
-lift 0.49, as good, but with no floor it scored 0.44 on rare pairs'
-noise.
-
 ### Recalibrating with real users
 
 1. Turn nothing off: the defaults lean to fewer and safer neighbours.
@@ -946,7 +839,7 @@ noise.
 
 Measured on the population of [Attacks](#attacks) (5,521 accounts,
 5,176,216 scrobbles, the follow graph and the three-year heavy listener
-of [social.md](social.md#measured)), TimescaleDB 2.29.2 / Postgres 18 in a
+of [social.md](social.md#costs)), TimescaleDB 2.29.2 / Postgres 18 in a
 container (`shared_buffers=512MB`), on a 4-core cloud machine with 15 GB
 of memory:
 
@@ -959,12 +852,10 @@ of memory:
 | a run | 22 to 24 s, 177 MB peak memory |
 | stored | `artist_neighbours` 11 MB, `user_recommendations` 18 MB (one row per user), `user_neighbours` 30 MB (164,810 rows) |
 
-Storing first took 54 s: a row per recommendation (502,499) with three
-foreign keys, at ~25 µs each a row, so a user's list is now one row of
-arrays (FK on the user only, for the erase): 20,000 rows took 1,492 ms with
-three FKs, 496 with one, 36 with none. Taste neighbours stay a row per pair
-(the erase and the generic erasure test find them by neighbour), 30 per
-user.
+A user's recommendations are one row of arrays with a foreign key on the
+user only (for the erase): a row per recommendation with three foreign
+keys cost ~25 µs a row to store. Taste neighbours are a row per pair (the
+erase and the generic erasure test find them by neighbour), 30 per user.
 
 It only reads until its final transaction. With 4 clients each
 scrobbling, reading a profile, a ranking page, an artist's neighbours and

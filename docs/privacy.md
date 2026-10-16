@@ -88,7 +88,7 @@ feedback reads answer as the profile does (403 private, 404 leaving or
 blocking), and ListenBrainz's lists of who loved a recording aren't
 served. A ListenBrainz "hate" only takes a love back; it is not stored. An account that blocks a viewer doesn't exist for that
 viewer signed in, and neither appears in the other's lists of people;
-nobody is told who blocks them ([social.md](social.md#blocking-and-removing-followers)).
+nobody is told who blocks them ([social.md](social.md#follows-and-blocks)).
 Bio revisions are public with their author's name whatever the profile's
 privacy, as comments are, except while the author waits to be deleted and
 to an account blocking it or blocked by it; held and rejected edits are
@@ -101,7 +101,7 @@ nobody is told who reported them.
 metadata survives), served at `/uploads` with a one-year immutable cache
 lifetime ([uploads.md](uploads.md)).
 
-**Redis**, all expiring: a session's user id (until the session expires),
+**Redis**, all expiring: a session's user id (5 minutes at most),
 rate-limit counters keyed by user id, address network or username (15
 minutes to 2 days), single-use states of account links (10 minutes),
 Audioscrobbler 1.2 sessions (24 hours after last use).
@@ -125,7 +125,7 @@ first, and their play counters, which add up everyone's plays.
 ## Similarity
 
 Similar artists, recommendations and taste neighbours
-([social.md](social.md#similar-artists-taste-neighbours-and-recommendations))
+([rankings.md](rankings.md#similarity))
 are computed once a day from the ranking weights. What they keep:
 
 - **The setting** (`users.similarity`): `listed`, `anonymous` (the
