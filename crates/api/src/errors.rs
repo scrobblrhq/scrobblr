@@ -1,7 +1,7 @@
 use aide::OperationOutput;
 use axum::{
     Json,
-    http::StatusCode,
+    http::{HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
 };
 use schemars::JsonSchema;
@@ -151,6 +151,35 @@ impl IntoResponse for AppError {
 
         (status, Json(ErrorBody { error: message })).into_response()
     }
+}
+
+/// Errors axum answers by itself (a body, query or path that doesn't parse,
+/// a method a route doesn't have) in the `{ "error" }` shape of the rest of
+/// the native API, keeping their status and headers.
+pub async fn json_errors(response: Response) -> Response {
+    let status = response.status();
+    let is_json = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .is_some_and(|v| v.as_bytes().starts_with(b"application/json"));
+    if is_json || !(status.is_client_error() || status.is_server_error()) {
+        return response;
+    }
+    let (mut parts, body) = response.into_parts();
+    let error = axum::body::to_bytes(body, 16 * 1024)
+        .await
+        .ok()
+        .and_then(|bytes| String::from_utf8(bytes.to_vec()).ok())
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty())
+        .unwrap_or_else(|| status.canonical_reason().unwrap_or("error").to_lowercase());
+    parts.headers.remove(header::CONTENT_LENGTH);
+    parts.headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    let body = serde_json::to_vec(&ErrorBody { error }).expect("an error body serializes");
+    Response::from_parts(parts, axum::body::Body::from(body))
 }
 
 /// The body of every error the native API answers with.

@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use axum::body::Body;
-use axum::http::Request;
+use axum::http::{Request, StatusCode, header};
 use serde_json::Value;
 use tower::ServiceExt;
 
@@ -113,4 +113,63 @@ async fn every_operation_is_documented() {
         }
     }
     assert!(missing.is_empty(), "the spec lacks {missing:#?}");
+}
+
+/// What axum refuses before a handler runs answers as `ErrorJson` too.
+#[tokio::test]
+async fn refusals_before_a_handler_have_the_documented_error_body() {
+    let mut state = offline_state();
+    state.rate_limit.requests = 0;
+    let app = super::build(state);
+    let requests = [
+        (
+            "POST",
+            "/v1/auth/login",
+            "not json",
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "POST",
+            "/v1/auth/login",
+            "{}",
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            "GET",
+            "/v1/rankings/artists?limit=many",
+            "",
+            StatusCode::BAD_REQUEST,
+        ),
+        ("GET", "/v1/artist/abc", "", StatusCode::BAD_REQUEST),
+        (
+            "DELETE",
+            "/v1/rankings/artists",
+            "",
+            StatusCode::METHOD_NOT_ALLOWED,
+        ),
+        ("GET", "/v1/no-such-route", "", StatusCode::NOT_FOUND),
+    ];
+    for (method, path, body, expected) in requests {
+        let req = Request::builder()
+            .method(method)
+            .uri(path)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body))
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), expected, "{method} {path}");
+        assert_eq!(
+            response.headers()[header::CONTENT_TYPE],
+            "application/json",
+            "{method} {path}"
+        );
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&body).unwrap();
+        assert!(
+            body["error"].as_str().is_some_and(|e| !e.is_empty()),
+            "{method} {path}: {body}"
+        );
+    }
 }

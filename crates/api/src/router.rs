@@ -706,14 +706,7 @@ pub fn build(state: AppState) -> Router {
 
     let mut api = OpenApi::default();
 
-    let native = ApiRouter::new()
-        .route("/docs", Scalar::new("/api.json").axum_route())
-        .route("/health", axum::routing::get(monitoring::health))
-        .route(
-            "/health/worker",
-            axum::routing::get(monitoring::health_worker),
-        )
-        .route("/metrics", axum::routing::get(monitoring::metrics))
+    let routes = ApiRouter::new()
         .merge(authed(
             &state,
             Access::Scope(Scope::Scrobble),
@@ -726,7 +719,17 @@ pub fn build(state: AppState) -> Router {
         .merge(authed(&state, Access::Any, any_credential_routes))
         .merge(auth_public)
         .merge(public)
-        .merge(optional_authed_users);
+        .merge(optional_authed_users)
+        .layer(middleware::map_response(crate::errors::json_errors));
+    let native = ApiRouter::new()
+        .route("/docs", Scalar::new("/api.json").axum_route())
+        .route("/health", axum::routing::get(monitoring::health))
+        .route(
+            "/health/worker",
+            axum::routing::get(monitoring::health_worker),
+        )
+        .route("/metrics", axum::routing::get(monitoring::metrics))
+        .merge(routes);
     let native = match state.cors.layer() {
         Some(cors) => native.layer(cors),
         None => native,
@@ -735,6 +738,7 @@ pub fn build(state: AppState) -> Router {
         .merge(ApiRouter::from(
             compat::router().layer(cors::protocol_layer()),
         ))
+        .fallback(|| async { crate::errors::AppError::NotFound })
         .layer(middleware::from_fn_with_state(state.clone(), rate_limit));
     if let Some(root) = state.media.local_root() {
         router = router.nest_service("/uploads", uploads_service(root));
