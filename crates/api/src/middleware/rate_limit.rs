@@ -185,7 +185,7 @@ pub async fn upload_limit(
         .ok_or_else(|| AppError::Internal(anyhow::anyhow!("upload limit before auth")))?
         .id;
     let ip = request_ip(&req, &state.proxies);
-    if !crate::limits::upload_attempt(&state, user_id, &ip).await {
+    if !crate::limits::upload_attempt(&state, user_id, &ip).await? {
         return Err(AppError::RateLimited);
     }
     Ok(next.run(req).await)

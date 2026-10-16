@@ -67,9 +67,9 @@ pub const UPLOADS_PER_IP: i64 = 30;
 
 /// Counts an image upload and says whether it may go ahead: at most
 /// [`UPLOADS_PER_USER`] per account and [`UPLOADS_PER_IP`] per address an
-/// hour, refused ones included. A Redis failure lets it through, like the
-/// global rate limit.
-pub async fn upload_attempt(state: &AppState, user_id: i64, ip: &str) -> bool {
+/// hour, refused ones included. Fails closed: an upload costs a decode and
+/// disk space, and nothing else stops a flood of them.
+pub async fn upload_attempt(state: &AppState, user_id: i64, ip: &str) -> ApiResult<bool> {
     let window = Utc::now().timestamp() / UPLOAD_WINDOW_SECS;
     let keys = [
         (format!("upload:user:{user_id}:{window}"), UPLOADS_PER_USER),
@@ -78,7 +78,7 @@ pub async fn upload_attempt(state: &AppState, user_id: i64, ip: &str) -> bool {
             UPLOADS_PER_IP,
         ),
     ];
-    take_or_pass(state, keys, UPLOAD_WINDOW_SECS, "upload").await
+    take(state, keys, UPLOAD_WINDOW_SECS).await
 }
 
 const FOLLOW_WINDOW_SECS: i64 = 3600;
