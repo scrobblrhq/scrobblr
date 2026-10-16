@@ -123,6 +123,8 @@ action succeeds:
 | bio edits and reverts | 30 an hour; 50 revisions, 3 of one bio, in 24 hours | 60 an hour |
 | tag changes (every API together) | 120 an hour | 300 an hour |
 | reports | 20 an hour | 60 an hour |
+| comments | 30 an hour | 60 an hour |
+| catalog refreshes | 30 an hour | 60 an hour |
 | account exports | 3 a day | 10 a day |
 | account deletion attempts | 5 an hour | 10 an hour |
 | live streams open at once | 20 per signed-in viewer | 50 |
@@ -188,10 +190,10 @@ route, the scrobbler APIs included.
   `blocking: true`.
 - **Accounts waiting to be deleted** answer `404` and appear nowhere,
   until they are restored or erased.
-- **Lists of people** (followers, following, listeners, search, comments,
-  image candidates, taste neighbours) name public accounts only, but for
-  the viewer's own entry, and leave out accounts blocking the viewer or
-  blocked by it and accounts waiting to be deleted.
+- **Lists of people** (followers, following, listeners, search, taste
+  neighbours) name public accounts only, but for the viewer's own entry;
+  they, comments and image candidates leave out accounts blocking the
+  viewer or blocked by it and accounts waiting to be deleted.
 - **Authors.** Comments, uploaded images and bio revisions keep their
   author's name whatever the profile's privacy: they were published for
   everyone. A bio revision's `author` is `null` when its author is waiting
