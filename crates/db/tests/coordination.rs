@@ -186,6 +186,61 @@ async fn a_farm_gets_factors_and_falls_out_of_the_rankings() {
     .await;
 }
 
+/// Album votes weigh by their account's factor: a run queues the tracks
+/// of the accounts whose factor it changes, and only theirs.
+#[tokio::test]
+#[ignore = "needs Postgres: just test-db"]
+async fn a_run_queues_the_tracks_its_changed_accounts_voted_on() {
+    with_db(true, |pool| async move {
+        population(&pool, 50).await;
+        sqlx::query(
+            "WITH albums AS (
+                 INSERT INTO albums (artist_id, title, title_normalized)
+                 SELECT artist_id, 'Album', 'album' FROM tracks RETURNING id, artist_id)
+             INSERT INTO track_album_votes (track_id, user_id, album_id, played_at)
+             SELECT t.id, u.id, a.id, NOW()
+             FROM users u
+             JOIN tracks t ON t.title = 'Song'
+             JOIN artists ar ON ar.id = t.artist_id
+             JOIN albums a ON a.artist_id = t.artist_id
+             WHERE (u.username = 'farm1' AND ar.name = 'Farm Band')
+                OR (u.username = 'honest1' AND ar.name = 'Band 60')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let queued = async || -> Vec<String> {
+            sqlx::query_scalar(
+                "SELECT ar.name FROM album_attribution_queue q
+                 JOIN tracks t ON t.id = q.track_id JOIN artists ar ON ar.id = t.artist_id",
+            )
+            .fetch_all(&pool)
+            .await
+            .unwrap()
+        };
+
+        run(&pool, &params()).await;
+        assert_eq!(queued().await, ["Farm Band"]);
+
+        // The same factors again change nothing.
+        sqlx::query("DELETE FROM album_attribution_queue")
+            .execute(&pool)
+            .await
+            .unwrap();
+        run(&pool, &params()).await;
+        assert!(queued().await.is_empty());
+
+        // Factors taken away count as a change.
+        let report = CoordinationParams {
+            mode: Mode::Report,
+            ..params()
+        };
+        run(&pool, &report).await;
+        assert_eq!(queued().await, ["Farm Band"]);
+    })
+    .await;
+}
+
 #[tokio::test]
 #[ignore = "needs Postgres: just test-db"]
 async fn small_populations_and_honest_ones_get_no_factor() {

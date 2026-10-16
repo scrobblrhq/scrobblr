@@ -275,7 +275,7 @@ Guide: `docs/social.md` (Albums). `tracks.album_id` is the one album a track's p
 
 - **Votes** (`track_album_votes`, one per account and track): the album its plays named, the latest when it changes (`albums_db::record_vote` after `ingest_scrobble`'s commit, read before written; `record_votes` per import page). A changed vote queues the track (`album_attribution_queue`, 30 s settle).
 - **Weight**: one per account at least `RANKING_MIN_ACCOUNT_DAYS` old and not waiting to be erased, times its lowest coordination factor of the coordination window; ×2 for a release MusicBrainz lists the recording on (`tracks.mb_release_titles`, lowercased titles from the recording's last lookup, kept only for the track's own mbid). A new album needs 1.5× the current one's score and one account more.
-- **Queued** on a vote change, at an account's coming of age (`recheck_at`), at deletion request, restore and erase (`enqueue_voted`), when release titles change and at `tracks mb-review --apply`. Coordination runs queue nothing.
+- **Queued** on a vote change, at an account's coming of age (`recheck_at`), at deletion request, restore and erase (`enqueue_voted`), when release titles change, at `tracks mb-review --apply`, and for the accounts whose factor a coordination run changes (or `clear_factors` removes).
 - **Don't** store the album in `ranking_daily` or any aggregate: a move would have to rewrite them. The community album chart joins `tracks` once per (account, day, track) row (measured: 1.1–1.3× the tracks chart; a stored column, 8 bytes a row plus a `track_id` index, reached 0.7×).
 - `worker albums backfill [--dry-run]`: votes of every stored scrobble, a chunk a statement, into a temp table, then every track decided; once after migrating to `0032`.
 

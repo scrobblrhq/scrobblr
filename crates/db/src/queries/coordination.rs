@@ -382,6 +382,36 @@ pub async fn store(
     .execute(&mut *tx)
     .await?;
 
+    // Album votes weigh by their account's lowest factor: an account whose
+    // factor this run changes has its tracks decided again.
+    let previous: HashMap<i64, i32> = sqlx::query!(
+        r#"
+        SELECT user_id, min(factor) AS "factor!" FROM coordination_days
+        WHERE ($1 OR day BETWEEN $2 AND $3) GROUP BY user_id
+        "#,
+        params.mode != Mode::Apply,
+        window.from,
+        window.to,
+    )
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .map(|r| (r.user_id, r.factor))
+    .collect();
+    let current: HashMap<i64, i32> = match params.mode {
+        Mode::Apply => users.iter().copied().zip(factors.iter().copied()).collect(),
+        Mode::Report | Mode::Off => HashMap::new(),
+    };
+    let changed: Vec<i64> = previous
+        .keys()
+        .chain(current.keys())
+        .copied()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .filter(|user| previous.get(user) != current.get(user))
+        .collect();
+    crate::queries::albums::enqueue_voted(&mut *tx, &changed).await?;
+
     match params.mode {
         Mode::Apply => {
             sqlx::query!(
@@ -418,13 +448,20 @@ pub async fn store(
     Ok(run_id)
 }
 
-/// Removes every stored factor (coordination turned off); returns how many
-/// (user, day) rows held one.
+/// Removes every stored factor (coordination turned off), queuing the
+/// tracks their accounts voted on; returns how many (user, day) rows held
+/// one.
 pub async fn clear_factors(pool: &PgPool) -> Result<u64, sqlx::Error> {
-    Ok(sqlx::query!("DELETE FROM coordination_days")
-        .execute(pool)
-        .await?
-        .rows_affected())
+    let mut tx = pool.begin().await?;
+    let mut users = sqlx::query_scalar!("DELETE FROM coordination_days RETURNING user_id")
+        .fetch_all(&mut *tx)
+        .await?;
+    let rows = users.len() as u64;
+    users.sort_unstable();
+    users.dedup();
+    crate::queries::albums::enqueue_voted(&mut *tx, &users).await?;
+    tx.commit().await?;
+    Ok(rows)
 }
 
 /// Deletes runs finished more than `keep_days` ago, with their cohorts and

@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM coordination_days RETURNING user_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "daf58a2e769176ce16cd3cd245b2a3949dd97372427b03fdbba74f90ec8806e2"
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO album_attribution_queue (track_id, due_at)\n        SELECT DISTINCT track_id, NOW() FROM track_album_votes WHERE user_id = ANY($1)\n        ORDER BY track_id\n        ON CONFLICT (track_id) DO UPDATE SET due_at = EXCLUDED.due_at\n            WHERE album_attribution_queue.due_at > EXCLUDED.due_at\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "69cc3bc066b96ac7eaa8e998f452a7de2d3dcb59d5aa9bbac2a99a4330d04173"
+}

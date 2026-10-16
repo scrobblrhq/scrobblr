@@ -95,17 +95,22 @@ pub async fn record_votes(
     Ok(())
 }
 
-/// Queues every track `user_id` voted on, for when its votes start or stop
-/// counting (a deletion, a restore, an erase).
-pub async fn enqueue_voted(executor: impl PgExecutor<'_>, user_id: i64) -> Result<(), sqlx::Error> {
+/// Queues every track `user_ids` voted on, for when their votes start or
+/// stop counting or weigh differently (a deletion, a restore, an erase, a
+/// coordination run).
+pub async fn enqueue_voted(
+    executor: impl PgExecutor<'_>,
+    user_ids: &[i64],
+) -> Result<(), sqlx::Error> {
     sqlx::query!(
         r#"
         INSERT INTO album_attribution_queue (track_id, due_at)
-        SELECT track_id, NOW() FROM track_album_votes WHERE user_id = $1 ORDER BY track_id
+        SELECT DISTINCT track_id, NOW() FROM track_album_votes WHERE user_id = ANY($1)
+        ORDER BY track_id
         ON CONFLICT (track_id) DO UPDATE SET due_at = EXCLUDED.due_at
             WHERE album_attribution_queue.due_at > EXCLUDED.due_at
         "#,
-        user_id,
+        user_ids,
     )
     .execute(executor)
     .await?;

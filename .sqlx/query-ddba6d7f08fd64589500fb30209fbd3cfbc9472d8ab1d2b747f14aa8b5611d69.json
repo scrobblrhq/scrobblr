@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT user_id, min(factor) AS \"factor!\" FROM coordination_days\n        WHERE ($1 OR day BETWEEN $2 AND $3) GROUP BY user_id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "factor!",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bool",
+        "Date",
+        "Date"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "ddba6d7f08fd64589500fb30209fbd3cfbc9472d8ab1d2b747f14aa8b5611d69"
+}
