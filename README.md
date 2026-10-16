@@ -143,7 +143,7 @@ request.
 
 ## Environment Variables
 
-The main ones; `.env.example` (for `cargo run`) and `.env.docker.example` (for Compose) list and explain them all.
+The main ones; `.env.docker.example` lists and explains them all (the same names work for `cargo run`, whose `.env.example` holds what a development machine needs).
 
 | Variable             | Required | Default                  | Description                         |
 |----------------------|----------|--------------------------|-------------------------------------|
