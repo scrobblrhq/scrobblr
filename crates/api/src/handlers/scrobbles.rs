@@ -248,8 +248,14 @@ pub async fn recent_scrobbles(
     let viewer_id = auth_user.map(|Extension(a)| a.id);
     crate::middleware::visibility::ensure_profile_visible(&state, viewer_id, &user).await?;
 
+    // Nothing but duplicates, if anything: no statement over every chunk.
+    if user.scrobble_count == 0 {
+        return Ok(Json(Vec::new()));
+    }
     let limit = super::page_limit(q.limit, 50, 200);
-    let scrobbles = scrobbles_db::get_recent_scrobbles(&state.db, user.id, limit, q.before).await?;
+    let scrobbles =
+        scrobbles_db::get_recent_scrobbles(&state.db, user.id, user.last_seen_at, limit, q.before)
+            .await?;
 
     Ok(Json(scrobbles))
 }

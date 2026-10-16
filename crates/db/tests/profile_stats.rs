@@ -150,7 +150,7 @@ async fn profiles_leave_duplicates_out_and_tell_verified_from_unverified() {
         assert_eq!(heatmap.len(), 1);
         assert_eq!(heatmap[0].scrobble_count, 324);
 
-        let recent = scrobbles_db::get_recent_scrobbles(&pool, user_id, 500, None)
+        let recent = scrobbles_db::get_recent_scrobbles(&pool, user_id, None, 500, None)
             .await
             .unwrap();
         assert_eq!(recent[0].track_title, "Late");

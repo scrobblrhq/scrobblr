@@ -125,8 +125,7 @@ async fn window_entries(
                al.id AS "album_id?", al.title AS "album_title?", al.image_url AS "album_image?",
                CASE WHEN d.user_id IS NULL OR p.id > d.max_scrobble_id THEN NULL
                     ELSE COALESCE(p.status::text, 'counted') END AS status,
-               EXISTS (SELECT 1 FROM loved_tracks l
-                       WHERE l.user_id = p.user_id AND l.track_id = p.track_id) AS "loved!"
+               l.user_id IS NOT NULL AS "loved!"
         FROM (
             SELECT s.id, s.played_at, s.user_id, s.track_id, s.artist_id, s.album_id, f.status
             FROM scrobbles s
@@ -142,6 +141,7 @@ async fn window_entries(
         LEFT JOIN albums al ON al.id = COALESCE(p.album_id, t.album_id)
         LEFT JOIN scrobble_classification_days d
                ON d.user_id = p.user_id AND d.day = (p.played_at AT TIME ZONE 'UTC')::date
+        LEFT JOIN loved_tracks l ON l.user_id = p.user_id AND l.track_id = p.track_id
         ORDER BY p.played_at DESC, p.id DESC
         "#,
         accounts,

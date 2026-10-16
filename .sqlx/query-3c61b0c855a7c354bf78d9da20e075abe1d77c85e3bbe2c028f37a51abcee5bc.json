@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            s.id,\n            s.played_at,\n            s.source,\n            s.track_id,\n            t.title          AS track_title,\n            s.artist_id,\n            a.name           AS artist_name,\n            s.album_id,\n            al.title         AS \"album_title?\",\n            al.image_url     AS \"album_image?\",\n            s.duration_ms,\n            CASE WHEN d.user_id IS NULL OR s.id > d.max_scrobble_id THEN NULL\n                 ELSE COALESCE(f.status::text, 'counted') END AS status,\n            EXISTS (SELECT 1 FROM loved_tracks l\n                    WHERE l.user_id = s.user_id AND l.track_id = s.track_id) AS \"loved!\"\n        FROM scrobbles s\n        JOIN tracks  t  ON t.id = s.track_id\n        JOIN artists a  ON a.id = s.artist_id\n        LEFT JOIN albums al ON al.id = s.album_id\n        LEFT JOIN scrobble_flags f\n               ON f.scrobble_id = s.id AND f.played_at = s.played_at\n        LEFT JOIN scrobble_classification_days d\n               ON d.user_id = s.user_id AND d.day = (s.played_at AT TIME ZONE 'UTC')::date\n        WHERE s.user_id    = $1\n          AND s.played_at  < $2\n          AND f.status IS DISTINCT FROM 'duplicate'\n        ORDER BY s.played_at DESC\n        LIMIT $3\n        ",
+  "query": "\n        SELECT\n            s.id,\n            s.played_at,\n            s.source,\n            s.track_id,\n            t.title          AS track_title,\n            s.artist_id,\n            a.name           AS artist_name,\n            s.album_id,\n            al.title         AS \"album_title?\",\n            al.image_url     AS \"album_image?\",\n            s.duration_ms,\n            CASE WHEN d.user_id IS NULL OR s.id > d.max_scrobble_id THEN NULL\n                 ELSE COALESCE(f.status::text, 'counted') END AS status,\n            l.user_id IS NOT NULL AS \"loved!\"\n        FROM scrobbles s\n        JOIN tracks  t  ON t.id = s.track_id\n        JOIN artists a  ON a.id = s.artist_id\n        LEFT JOIN albums al ON al.id = s.album_id\n        LEFT JOIN scrobble_flags f\n               ON f.scrobble_id = s.id AND f.played_at = s.played_at\n        LEFT JOIN scrobble_classification_days d\n               ON d.user_id = s.user_id AND d.day = (s.played_at AT TIME ZONE 'UTC')::date\n        LEFT JOIN loved_tracks l ON l.user_id = s.user_id AND l.track_id = s.track_id\n        WHERE s.user_id    = $1\n          AND ($2::timestamptz IS NULL OR s.played_at >= $2)\n          AND s.played_at  < $3\n          AND f.status IS DISTINCT FROM 'duplicate'\n        ORDER BY s.played_at DESC\n        LIMIT $4\n        ",
   "describe": {
     "columns": [
       {
@@ -73,6 +73,7 @@
       "Left": [
         "Int8",
         "Timestamptz",
+        "Timestamptz",
         "Int8"
       ]
     },
@@ -92,5 +93,5 @@
       null
     ]
   },
-  "hash": "21f3db2ee1f2b1f28900052b0397aa156c22a92a6fe706f0889316219a9d82d4"
+  "hash": "3c61b0c855a7c354bf78d9da20e075abe1d77c85e3bbe2c028f37a51abcee5bc"
 }

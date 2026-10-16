@@ -193,22 +193,48 @@ pub async fn upsert_now_playing(pool: &PgPool, np: &UpsertNowPlaying) -> Result<
     Ok(())
 }
 
+/// How far back the newest plays are looked for first: a statement over
+/// the scrobbles of every chunk takes longer to plan (one plan per chunk
+/// and index) than to run, and a profile's newest plays are nearly always
+/// recent.
+const RECENT_WINDOW: TimeDelta = TimeDelta::days(14);
+
 /// Returns the most recent scrobbles for a user, enriched with track, artist,
 /// and album metadata and their label. Duplicates are left out.
 ///
 /// Results are ordered newest-first. Pass `before` to paginate backwards
 /// through history (keyset pagination). If `before` is `None`, results start
-/// from the current time.
-///
-/// Uses the `idx_scrobbles_user_time` index for efficient time-range scans.
+/// from the current time. `last_seen_at` is the user's: no play is later.
+/// The [`RECENT_WINDOW`] before the newest play that can match is read
+/// first, the rest of history only when it holds fewer than `limit`.
 pub async fn get_recent_scrobbles(
     pool: &PgPool,
     user_id: i64,
+    last_seen_at: Option<DateTime<Utc>>,
     limit: i64,
     before: Option<DateTime<Utc>>,
 ) -> Result<Vec<ScrobbleRich>, sqlx::Error> {
-    let cutoff = before.unwrap_or_else(Utc::now);
+    let mut cutoff = before.unwrap_or_else(Utc::now);
+    if let Some(latest) = last_seen_at {
+        cutoff = cutoff.min(latest + TimeDelta::microseconds(1));
+    }
+    let window = cutoff - RECENT_WINDOW;
+    let mut scrobbles = recent_between(pool, user_id, Some(window), cutoff, limit).await?;
+    let missing = limit - scrobbles.len() as i64;
+    if missing > 0 {
+        scrobbles.extend(recent_between(pool, user_id, None, window, missing).await?);
+    }
+    Ok(scrobbles)
+}
 
+/// The user's newest scrobbles in `[from, before)`.
+async fn recent_between(
+    pool: &PgPool,
+    user_id: i64,
+    from: Option<DateTime<Utc>>,
+    before: DateTime<Utc>,
+    limit: i64,
+) -> Result<Vec<ScrobbleRich>, sqlx::Error> {
     let rows = sqlx::query!(
         r#"
         SELECT
@@ -225,8 +251,7 @@ pub async fn get_recent_scrobbles(
             s.duration_ms,
             CASE WHEN d.user_id IS NULL OR s.id > d.max_scrobble_id THEN NULL
                  ELSE COALESCE(f.status::text, 'counted') END AS status,
-            EXISTS (SELECT 1 FROM loved_tracks l
-                    WHERE l.user_id = s.user_id AND l.track_id = s.track_id) AS "loved!"
+            l.user_id IS NOT NULL AS "loved!"
         FROM scrobbles s
         JOIN tracks  t  ON t.id = s.track_id
         JOIN artists a  ON a.id = s.artist_id
@@ -235,20 +260,23 @@ pub async fn get_recent_scrobbles(
                ON f.scrobble_id = s.id AND f.played_at = s.played_at
         LEFT JOIN scrobble_classification_days d
                ON d.user_id = s.user_id AND d.day = (s.played_at AT TIME ZONE 'UTC')::date
+        LEFT JOIN loved_tracks l ON l.user_id = s.user_id AND l.track_id = s.track_id
         WHERE s.user_id    = $1
-          AND s.played_at  < $2
+          AND ($2::timestamptz IS NULL OR s.played_at >= $2)
+          AND s.played_at  < $3
           AND f.status IS DISTINCT FROM 'duplicate'
         ORDER BY s.played_at DESC
-        LIMIT $3
+        LIMIT $4
         "#,
         user_id,
-        cutoff,
+        from,
+        before,
         limit,
     )
     .fetch_all(pool)
     .await?;
 
-    let scrobbles = rows
+    Ok(rows
         .into_iter()
         .map(|r| ScrobbleRich {
             id: r.id,
@@ -265,9 +293,7 @@ pub async fn get_recent_scrobbles(
             status: r.status.as_deref().and_then(ScrobbleLabel::from_status),
             loved: r.loved,
         })
-        .collect();
-
-    Ok(scrobbles)
+        .collect())
 }
 
 /// One page of a user's scrobbles in `[from, to]`, newest first, by offset
@@ -288,8 +314,7 @@ pub async fn recent_scrobbles_page(
                al.title AS "album_title?", al.image_url AS "album_image?", s.duration_ms,
                CASE WHEN d.user_id IS NULL OR s.id > d.max_scrobble_id THEN NULL
                     ELSE COALESCE(f.status::text, 'counted') END AS status,
-               EXISTS (SELECT 1 FROM loved_tracks l
-                       WHERE l.user_id = s.user_id AND l.track_id = s.track_id) AS "loved!"
+               l.user_id IS NOT NULL AS "loved!"
         FROM scrobbles s
         JOIN tracks  t  ON t.id = s.track_id
         JOIN artists a  ON a.id = s.artist_id
@@ -298,6 +323,7 @@ pub async fn recent_scrobbles_page(
                ON f.scrobble_id = s.id AND f.played_at = s.played_at
         LEFT JOIN scrobble_classification_days d
                ON d.user_id = s.user_id AND d.day = (s.played_at AT TIME ZONE 'UTC')::date
+        LEFT JOIN loved_tracks l ON l.user_id = s.user_id AND l.track_id = s.track_id
         WHERE s.user_id = $1
           AND ($2::timestamptz IS NULL OR s.played_at >= $2)
           AND ($3::timestamptz IS NULL OR s.played_at <= $3)
