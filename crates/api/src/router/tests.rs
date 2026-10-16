@@ -624,11 +624,13 @@ async fn tokens_get_only_scopes_the_server_knows() {
     .await;
 }
 
-/// Routes that say more to a signed-in viewer take a session or a token
-/// that may read the account; any other token reads as signed out there.
+/// A token that may read the account is a viewer where the extras are
+/// the account's own data (the track page's `loved`), and reads as
+/// signed out wherever they would show how other accounts stand to it:
+/// blocks are a session's alone.
 #[tokio::test]
 #[ignore = "needs Postgres and Redis: just test-db"]
-async fn a_read_token_is_a_viewer_on_optional_routes() {
+async fn a_read_token_is_a_viewer_only_for_the_accounts_own_data() {
     with_app(CompatConfig::default(), |app| async move {
         let (status, _) = app
             .api(
@@ -651,6 +653,12 @@ async fn a_read_token_is_a_viewer_on_optional_routes() {
             app.api(Method::POST, &love, None).await.0,
             StatusCode::NO_CONTENT
         );
+        let (_, other, _) = app.other_user("blocked").await;
+        let block = format!("/v1/user/{other}/block");
+        assert_eq!(
+            app.api(Method::POST, &block, None).await.0,
+            StatusCode::NO_CONTENT
+        );
         let (status, _) = app
             .api(
                 Method::PATCH,
@@ -663,15 +671,21 @@ async fn a_read_token_is_a_viewer_on_optional_routes() {
         let reader = token(&app, &["read"]).await;
         let scrobbler = token(&app, &["scrobble", "write"]).await;
         let track = format!("/v1/track/{track_id}");
-        let profile = format!("/v1/user/{}", app.username);
         let (status, body) = app.api_as(&reader, Method::GET, &track, None).await;
         assert_eq!((status, &body["loved"]), (StatusCode::OK, &json!(true)));
-        let (status, _) = app.api_as(&reader, Method::GET, &profile, None).await;
-        assert_eq!(status, StatusCode::OK, "its own private profile");
-
         let (status, body) = app.api_as(&scrobbler, Method::GET, &track, None).await;
         assert_eq!((status, &body["loved"]), (StatusCode::OK, &json!(null)));
-        let (status, _) = app.api_as(&scrobbler, Method::GET, &profile, None).await;
+
+        let (_, body) = app
+            .api(Method::GET, &format!("/v1/user/{other}"), None)
+            .await;
+        assert_eq!(body["blocking"], json!(true), "the session sees its block");
+        let (status, body) = app
+            .api_as(&reader, Method::GET, &format!("/v1/user/{other}"), None)
+            .await;
+        assert_eq!((status, &body["blocking"]), (StatusCode::OK, &json!(null)));
+        let own = format!("/v1/user/{}", app.username);
+        let (status, _) = app.api_as(&reader, Method::GET, &own, None).await;
         assert_eq!(
             status,
             StatusCode::FORBIDDEN,

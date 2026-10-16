@@ -1,5 +1,5 @@
 use aide::axum::routing::{patch_with, put_with};
-use aide::transform::{TransformOpenApi, TransformOperation};
+use aide::transform::{TransformOpenApi, TransformOperation, TransformPathItem};
 use aide::util::iter_operations_mut;
 use aide::{
     axum::{
@@ -41,7 +41,7 @@ use crate::{
     limits,
     middleware::{
         app_signature::require_app_signature,
-        auth::{Access, Scope, optional_auth, require_auth},
+        auth::{Access, Scope, optional_auth, optional_auth_or_read_token, require_auth},
         cors,
         rate_limit::{rate_limit, upload_limit},
     },
@@ -554,14 +554,22 @@ pub fn build(state: AppState) -> Router {
             get_with(rankings::track_ranking, rankings::_track_ranking_doc),
         );
 
-    // Optional auth: a signed-in viewer gets what concerns it (follows,
-    // votes, loves), and doesn't get accounts blocking it or blocked by it.
-    let optional_authed_users = ApiRouter::new()
-        // The track's page, with whether the viewer loves it
+    // The track's page, with whether the viewer loves it: nothing but the
+    // account's own data, so a token that may read it may ask.
+    let own_data_routes = ApiRouter::new()
         .api_route(
             "/v1/track/{id}",
             get_with(tracks::get_track, tracks::_get_track_doc),
         )
+        .with_path_items(optional_bearer)
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            optional_auth_or_read_token,
+        ));
+
+    // Optional auth: a signed-in viewer gets what concerns it (follows,
+    // votes, loves), and doesn't get accounts blocking it or blocked by it.
+    let optional_authed_users = ApiRouter::new()
         // Bios, naming their authors
         .api_route(
             "/v1/artist/{id}/bio",
@@ -693,15 +701,7 @@ pub fn build(state: AppState) -> Router {
                 scrobbles::_activity_heatmap_doc,
             ),
         )
-        .with_path_items(|mut item| {
-            for (_, op) in iter_operations_mut(item.inner_mut()) {
-                op.security = vec![
-                    SecurityRequirement::default(),
-                    [(BEARER.to_string(), vec![])].into_iter().collect(),
-                ];
-            }
-            item
-        })
+        .with_path_items(optional_bearer)
         .layer(middleware::from_fn_with_state(state.clone(), optional_auth));
 
     let mut api = OpenApi::default();
@@ -719,6 +719,7 @@ pub fn build(state: AppState) -> Router {
         .merge(authed(&state, Access::Any, any_credential_routes))
         .merge(auth_public)
         .merge(public)
+        .merge(own_data_routes)
         .merge(optional_authed_users)
         .layer(middleware::map_response(crate::errors::json_errors));
     let native = ApiRouter::new()
@@ -767,6 +768,17 @@ pub fn build(state: AppState) -> Router {
 }
 
 const BEARER: &str = "bearer";
+
+/// Documents a credential as optional on routes behind `optional_auth`.
+fn optional_bearer(mut item: TransformPathItem<'_>) -> TransformPathItem<'_> {
+    for (_, op) in iter_operations_mut(item.inner_mut()) {
+        op.security = vec![
+            SecurityRequirement::default(),
+            [(BEARER.to_string(), vec![])].into_iter().collect(),
+        ];
+    }
+    item
+}
 
 /// A handler panicked: the panic hook has logged it, the client gets the
 /// usual opaque 500.

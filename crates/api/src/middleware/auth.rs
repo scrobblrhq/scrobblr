@@ -164,17 +164,23 @@ async fn api_token_user(state: &AppState, token: &str) -> Result<Option<AuthUser
     }))
 }
 
-/// Resolves a session, or an API token with the `read` scope (what these
-/// routes show a signed-in viewer is the account's own data), to an
-/// [`AuthUser`]; `None` on any failure (no such credential, another
-/// token, or a transient DB/Redis error).
-async fn try_authenticate_viewer(state: &AppState, token: &str) -> Option<AuthUser> {
+/// Resolves a session, or with `read_tokens` an API token with the `read`
+/// scope, to an [`AuthUser`]; `None` on any failure (no such credential,
+/// another token, or a transient DB/Redis error).
+async fn try_authenticate_viewer(
+    state: &AppState,
+    token: &str,
+    read_tokens: bool,
+) -> Option<AuthUser> {
     if let Ok(session_id) = Uuid::parse_str(token) {
         let user_id = resolve_session_cached(state, session_id).await.ok()?;
         return Some(AuthUser {
             id: user_id,
             credential: Credential::Session { id: session_id },
         });
+    }
+    if !read_tokens {
+        return None;
     }
     api_token_user(state, token)
         .await
@@ -183,21 +189,33 @@ async fn try_authenticate_viewer(state: &AppState, token: &str) -> Option<AuthUs
         .filter(|user| user.credential.check(Access::Scope(Scope::Read)).is_ok())
 }
 
-/// Middleware that *optionally* authenticates a request: a session, or an
-/// API token with the `read` scope.
+/// Middleware that *optionally* authenticates a request via session token.
 ///
 /// Unlike [`require_auth`], a missing, malformed, or invalid token is not an
 /// error — the request simply proceeds with no [`AuthUser`] in its
-/// extensions, as does a token without `read`. This also means a transient
-/// failure (DB or Redis hiccup) is indistinguishable from "not logged in";
-/// only use this where that's okay.
-pub async fn optional_auth(
+/// extensions. This also means a transient failure (DB or Redis hiccup) is
+/// indistinguishable from "not logged in"; only use this where that's okay.
+///
+/// Only sessions: what these routes say to a signed-in viewer includes how
+/// other accounts stand to it (blocks answer 404, lists leave blocked
+/// accounts out, profiles say `blocking`), which no API token may learn.
+pub async fn optional_auth(State(state): State<AppState>, req: Request, next: Next) -> Response {
+    optionally(&state, req, next, false).await
+}
+
+/// [`optional_auth`], also taking an API token with `read`: for routes
+/// whose extras for a signed-in viewer are the account's own data alone.
+pub async fn optional_auth_or_read_token(
     State(state): State<AppState>,
-    mut req: Request,
+    req: Request,
     next: Next,
 ) -> Response {
+    optionally(&state, req, next, true).await
+}
+
+async fn optionally(state: &AppState, mut req: Request, next: Next, read_tokens: bool) -> Response {
     if let Ok(token) = extract_bearer_token(&req)
-        && let Some(user) = try_authenticate_viewer(&state, &token).await
+        && let Some(user) = try_authenticate_viewer(state, &token, read_tokens).await
     {
         req.extensions_mut().insert(user);
     }

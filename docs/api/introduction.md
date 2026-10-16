@@ -68,9 +68,11 @@ callback), blocks and removed followers, the similarity setting
 that token, which is how an app checks the token it was given.
 
 Routes that say more to a signed-in viewer (whether the viewer follows an
-account or loves a track, the viewer's own private profile, accounts
-blocking the viewer left out) take a session or a token with `read`; any
-other token counts as signed out there.
+account, the viewer's own private profile, accounts blocking the viewer
+left out) take a session only, since how other accounts stand to the
+account is a session's to see; the track page (`GET /v1/track/{id}`) also
+takes a token with `read`, for its `loved` flag. Any other credential
+counts as signed out there.
 
 Third-party scrobblers don't use any of these: they take **scrobbler
 tokens**, which only scrobble, love and tag (the **Scrobblers** and
