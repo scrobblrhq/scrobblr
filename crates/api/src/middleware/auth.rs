@@ -191,10 +191,12 @@ pub async fn optional_auth(
     next.run(req).await
 }
 
-/// Resolves a session UUID to a `user_id`, using Redis as a read-through cache.
-///
-/// TTL is set to the remaining lifetime of the session so the cache entry
-/// never outlives the underlying row.
+/// How long a session lookup stays cached: a session ended while its cache
+/// entry couldn't be removed (Redis away) still works this long at most.
+const SESSION_CACHE_SECS: i64 = 300;
+
+/// Resolves a session UUID to a `user_id`, using Redis as a read-through
+/// cache for [`SESSION_CACHE_SECS`], never past the session's end.
 async fn resolve_session_cached(state: &AppState, session_id: Uuid) -> Result<i64, AppError> {
     let cache_key = format!("session:{session_id}");
 
@@ -210,7 +212,7 @@ async fn resolve_session_cached(state: &AppState, session_id: Uuid) -> Result<i6
 
     let ttl_secs = (session.expires_at - chrono::Utc::now())
         .num_seconds()
-        .max(1);
+        .clamp(1, SESSION_CACHE_SECS);
     let _ = state
         .redis
         .set::<(), _, _>(
