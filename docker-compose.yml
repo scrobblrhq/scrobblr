@@ -56,7 +56,9 @@ services:
     logging: *logging
 
   redis:
-    image: redis:7-alpine
+    # Holds only expiring state (sessions cache, limits): no volume, and any
+    # version can replace it. The one dev and CI run.
+    image: redis:8-alpine
     command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-scrobblr}"]
     environment:
       REDISCLI_AUTH: ${REDIS_PASSWORD:-scrobblr}
