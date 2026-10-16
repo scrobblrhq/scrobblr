@@ -11,7 +11,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     errors::{ApiResult, AppError, ErrorJson},
-    middleware::auth::AuthUser,
+    limits,
+    middleware::{auth::AuthUser, rate_limit::ClientIp},
     state::AppState,
 };
 use db::queries::{
@@ -255,6 +256,14 @@ pub struct RefreshResponse {
     pub status: String,
 }
 
+fn refresh_limits() -> String {
+    format!(
+        "Over {} refreshes an hour for this account or {} from this address, or over the request limit for this address",
+        limits::REFRESHES_PER_USER,
+        limits::REFRESHES_PER_IP
+    )
+}
+
 async fn queue_refresh(
     state: &AppState,
     entity_type: &str,
@@ -272,8 +281,13 @@ async fn queue_refresh(
 /// POST /v1/track/:id/refresh
 pub async fn refresh_track(
     State(state): State<AppState>,
+    Extension(auth_user): Extension<AuthUser>,
+    ClientIp(ip): ClientIp,
     Path(IdPath { id }): Path<IdPath>,
 ) -> ApiResult<impl IntoApiResponse> {
+    if !limits::refresh_attempt(&state, auth_user.id, &ip).await {
+        return Err(AppError::RateLimited);
+    }
     tracks_db::find_track_by_id(&state.db, id)
         .await?
         .ok_or(AppError::NotFound)?;
@@ -282,6 +296,7 @@ pub async fn refresh_track(
 
 pub fn _refresh_track_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Refresh track metadata")
+        .response_with::<429, ErrorJson, _>(|r| r.description(&refresh_limits()))
         .description("Queues a forced metadata re-enrichment for the track (MusicBrainz ID, duration). Processed asynchronously by the background worker.")
         .tag("Catalog")
         .response::<202, Json<RefreshResponse>>()
@@ -292,8 +307,13 @@ pub fn _refresh_track_doc(op: TransformOperation) -> TransformOperation {
 /// POST /v1/artist/:id/refresh
 pub async fn refresh_artist(
     State(state): State<AppState>,
+    Extension(auth_user): Extension<AuthUser>,
+    ClientIp(ip): ClientIp,
     Path(IdPath { id }): Path<IdPath>,
 ) -> ApiResult<impl IntoApiResponse> {
+    if !limits::refresh_attempt(&state, auth_user.id, &ip).await {
+        return Err(AppError::RateLimited);
+    }
     tracks_db::find_artist_by_id(&state.db, id)
         .await?
         .ok_or(AppError::NotFound)?;
@@ -302,6 +322,7 @@ pub async fn refresh_artist(
 
 pub fn _refresh_artist_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Refresh artist metadata")
+        .response_with::<429, ErrorJson, _>(|r| r.description(&refresh_limits()))
         .description("Queues a forced metadata re-enrichment for the artist (MusicBrainz ID, image, bio). Overwrites provider-sourced fields; processed asynchronously by the background worker.")
         .tag("Catalog")
         .response::<202, Json<RefreshResponse>>()
@@ -312,8 +333,13 @@ pub fn _refresh_artist_doc(op: TransformOperation) -> TransformOperation {
 /// POST /v1/album/:id/refresh
 pub async fn refresh_album(
     State(state): State<AppState>,
+    Extension(auth_user): Extension<AuthUser>,
+    ClientIp(ip): ClientIp,
     Path(IdPath { id }): Path<IdPath>,
 ) -> ApiResult<impl IntoApiResponse> {
+    if !limits::refresh_attempt(&state, auth_user.id, &ip).await {
+        return Err(AppError::RateLimited);
+    }
     tracks_db::find_album_by_id(&state.db, id)
         .await?
         .ok_or(AppError::NotFound)?;
@@ -322,6 +348,7 @@ pub async fn refresh_album(
 
 pub fn _refresh_album_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Refresh album metadata")
+        .response_with::<429, ErrorJson, _>(|r| r.description(&refresh_limits()))
         .description("Queues a forced metadata re-enrichment for the album (MusicBrainz ID, cover art, release date). Overwrites provider-sourced fields; processed asynchronously by the background worker.")
         .tag("Catalog")
         .response::<202, Json<RefreshResponse>>()

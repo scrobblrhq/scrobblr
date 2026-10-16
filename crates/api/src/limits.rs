@@ -1,7 +1,8 @@
 //! Limits counted in Redis: password logins and the scrobbles an account
 //! may submit per UTC day (shared by the native API and the
 //! scrobbler-compatible ones), image uploads, follows, blocks, loves, bio
-//! edits, tags, reports, account exports and deletion requests. Windows are part of the
+//! edits, tags, reports, comments, catalog refreshes, account exports and
+//! deletion requests. Windows are part of the
 //! keys, so a key that missed its expiry still stops counting when its
 //! window ends.
 
@@ -196,6 +197,52 @@ pub async fn report_attempt(state: &AppState, user_id: i64, ip: &str) -> bool {
         ),
     ];
     take_or_pass(state, keys, REPORT_WINDOW_SECS, "report").await
+}
+
+const COMMENT_WINDOW_SECS: i64 = 3600;
+pub const COMMENTS_PER_USER: i64 = 30;
+pub const COMMENTS_PER_IP: i64 = 60;
+
+/// Counts a comment and says whether it may be posted: at most
+/// [`COMMENTS_PER_USER`] per account and [`COMMENTS_PER_IP`] per address an
+/// hour, refused ones included. Fails open.
+pub async fn comment_attempt(state: &AppState, user_id: i64, ip: &str) -> bool {
+    let window = Utc::now().timestamp() / COMMENT_WINDOW_SECS;
+    let keys = [
+        (
+            format!("comment:user:{user_id}:{window}"),
+            COMMENTS_PER_USER,
+        ),
+        (
+            format!("comment:ip:{}:{window}", network(ip)),
+            COMMENTS_PER_IP,
+        ),
+    ];
+    take_or_pass(state, keys, COMMENT_WINDOW_SECS, "comment").await
+}
+
+const REFRESH_WINDOW_SECS: i64 = 3600;
+pub const REFRESHES_PER_USER: i64 = 30;
+pub const REFRESHES_PER_IP: i64 = 60;
+
+/// Counts a catalog refresh and says whether it may be queued: at most
+/// [`REFRESHES_PER_USER`] per account and [`REFRESHES_PER_IP`] per address an
+/// hour, refused ones included, so they can't crowd out the enrichment of
+/// what is scrobbled (refreshes go first, at the providers' pace). Fails
+/// open.
+pub async fn refresh_attempt(state: &AppState, user_id: i64, ip: &str) -> bool {
+    let window = Utc::now().timestamp() / REFRESH_WINDOW_SECS;
+    let keys = [
+        (
+            format!("refresh:user:{user_id}:{window}"),
+            REFRESHES_PER_USER,
+        ),
+        (
+            format!("refresh:ip:{}:{window}", network(ip)),
+            REFRESHES_PER_IP,
+        ),
+    ];
+    take_or_pass(state, keys, REFRESH_WINDOW_SECS, "refresh").await
 }
 
 const PAIR_WINDOW_SECS: i64 = 24 * 3600;

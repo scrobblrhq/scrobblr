@@ -7048,7 +7048,7 @@
                 }
               }
             },
-            "description": "Over the request limit for this address"
+            "description": "Over 30 refreshes an hour for this account or 60 from this address, or over the request limit for this address"
           },
           "default": {
             "content": {
@@ -7953,7 +7953,7 @@
         ]
       },
       "post": {
-        "description": "Posts a comment on an artist as the authenticated user.",
+        "description": "Posts a comment on an artist as the authenticated user: 1 to 2,000 characters, 30 comments an hour per account and 60 per address.",
         "parameters": [
           {
             "in": "path",
@@ -8035,7 +8035,7 @@
                 }
               }
             },
-            "description": "Over the request limit for this address"
+            "description": "Over 30 comments an hour for this account or 60 from this address, or over the request limit for this address"
           },
           "default": {
             "content": {
@@ -8410,7 +8410,7 @@
                 }
               }
             },
-            "description": "Over the request limit for this address"
+            "description": "Over 30 refreshes an hour for this account or 60 from this address, or over the request limit for this address"
           },
           "default": {
             "content": {
@@ -12248,7 +12248,7 @@
         ]
       },
       "post": {
-        "description": "Posts a comment on a track as the authenticated user.",
+        "description": "Posts a comment on a track as the authenticated user: 1 to 2,000 characters, 30 comments an hour per account and 60 per address.",
         "parameters": [
           {
             "in": "path",
@@ -12330,7 +12330,7 @@
                 }
               }
             },
-            "description": "Over the request limit for this address"
+            "description": "Over 30 comments an hour for this account or 60 from this address, or over the request limit for this address"
           },
           "default": {
             "content": {
@@ -12672,7 +12672,7 @@
                 }
               }
             },
-            "description": "Over the request limit for this address"
+            "description": "Over 30 refreshes an hour for this account or 60 from this address, or over the request limit for this address"
           },
           "default": {
             "content": {

@@ -17,7 +17,8 @@ use serde::{Deserialize, Serialize};
 use super::IdPath;
 use crate::{
     errors::{ApiResult, AppError, ErrorJson},
-    middleware::auth::AuthUser,
+    limits,
+    middleware::{auth::AuthUser, rate_limit::ClientIp},
     state::AppState,
 };
 use db::queries::{community as community_db, tracks as tracks_db};
@@ -168,8 +169,12 @@ async fn create_comment(
     entity_type: &str,
     id: i64,
     user_id: i64,
+    ip: &str,
     body: String,
 ) -> ApiResult<(StatusCode, Json<Comment>)> {
+    if !limits::comment_attempt(state, user_id, ip).await {
+        return Err(AppError::RateLimited);
+    }
     ensure_comment_entity(state, entity_type, id).await?;
     let body = body.trim();
     if body.is_empty() {
@@ -203,15 +208,23 @@ pub fn _list_artist_comments_doc(op: TransformOperation) -> TransformOperation {
 pub async fn add_artist_comment(
     State(state): State<AppState>,
     Extension(auth_user): Extension<AuthUser>,
+    ClientIp(ip): ClientIp,
     Path(IdPath { id }): Path<IdPath>,
     Json(body): Json<NewCommentRequest>,
 ) -> ApiResult<impl IntoApiResponse> {
-    create_comment(&state, "artist", id, auth_user.id, body.body).await
+    create_comment(&state, "artist", id, auth_user.id, &ip, body.body).await
 }
 
 pub fn _add_artist_comment_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Comment on an artist")
-        .description("Posts a comment on an artist as the authenticated user.")
+        .response_with::<429, ErrorJson, _>(|r| {
+            r.description(&format!(
+                "Over {} comments an hour for this account or {} from this address, or over the request limit for this address",
+                limits::COMMENTS_PER_USER,
+                limits::COMMENTS_PER_IP
+            ))
+        })
+        .description(&format!("Posts a comment on an artist as the authenticated user: 1 to 2,000 characters, {} comments an hour per account and {} per address.", limits::COMMENTS_PER_USER, limits::COMMENTS_PER_IP))
         .tag("Catalog")
         .response::<201, Json<Comment>>()
         .response_with::<400, ErrorJson, _>(|r| r.description("Empty or too-long comment"))
@@ -238,15 +251,23 @@ pub fn _list_track_comments_doc(op: TransformOperation) -> TransformOperation {
 pub async fn add_track_comment(
     State(state): State<AppState>,
     Extension(auth_user): Extension<AuthUser>,
+    ClientIp(ip): ClientIp,
     Path(IdPath { id }): Path<IdPath>,
     Json(body): Json<NewCommentRequest>,
 ) -> ApiResult<impl IntoApiResponse> {
-    create_comment(&state, "track", id, auth_user.id, body.body).await
+    create_comment(&state, "track", id, auth_user.id, &ip, body.body).await
 }
 
 pub fn _add_track_comment_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Comment on a track")
-        .description("Posts a comment on a track as the authenticated user.")
+        .response_with::<429, ErrorJson, _>(|r| {
+            r.description(&format!(
+                "Over {} comments an hour for this account or {} from this address, or over the request limit for this address",
+                limits::COMMENTS_PER_USER,
+                limits::COMMENTS_PER_IP
+            ))
+        })
+        .description(&format!("Posts a comment on a track as the authenticated user: 1 to 2,000 characters, {} comments an hour per account and {} per address.", limits::COMMENTS_PER_USER, limits::COMMENTS_PER_IP))
         .tag("Catalog")
         .response::<201, Json<Comment>>()
         .response_with::<400, ErrorJson, _>(|r| r.description("Empty or too-long comment"))
@@ -275,4 +296,60 @@ pub fn _delete_comment_doc(op: TransformOperation) -> TransformOperation {
         .response::<200, Json<DeletedResponse>>()
         .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
         .response_with::<404, ErrorJson, _>(|r| r.description("Comment not found or not owned"))
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::http::{Method, StatusCode};
+    use chrono::{TimeDelta, Utc};
+    use serde_json::json;
+
+    use crate::limits;
+    use crate::test_app::with_custom_app;
+
+    /// Comments and catalog refreshes have hourly limits of their own,
+    /// refused attempts included.
+    #[tokio::test]
+    #[ignore = "needs Postgres and Redis: just test-db"]
+    async fn comments_and_refreshes_are_rate_limited() {
+        let unlimited = |state: &mut crate::state::AppState| state.rate_limit.requests = 0;
+        with_custom_app(unlimited, |app| async move {
+            let play = json!({
+                "track": "Teardrop",
+                "artist": "Massive Attack",
+                "played_at": Utc::now() - TimeDelta::minutes(6),
+            });
+            let (status, _) = app.api(Method::POST, "/v1/scrobble", Some(play)).await;
+            assert_eq!(status, StatusCode::CREATED);
+            let artist: i64 = sqlx::query_scalar("SELECT id FROM artists")
+                .fetch_one(&app.pool)
+                .await
+                .unwrap();
+
+            let comments = format!("/v1/artist/{artist}/comments");
+            for _ in 0..limits::COMMENTS_PER_USER {
+                let (status, _) = app
+                    .api(Method::POST, &comments, Some(json!({ "body": "hi" })))
+                    .await;
+                assert_eq!(status, StatusCode::CREATED);
+            }
+            let (status, _) = app
+                .api(Method::POST, &comments, Some(json!({ "body": "hi" })))
+                .await;
+            assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+
+            let refresh = format!("/v1/artist/{artist}/refresh");
+            for _ in 0..limits::REFRESHES_PER_USER {
+                assert_eq!(
+                    app.api(Method::POST, &refresh, None).await.0,
+                    StatusCode::ACCEPTED
+                );
+            }
+            assert_eq!(
+                app.api(Method::POST, &refresh, None).await.0,
+                StatusCode::TOO_MANY_REQUESTS
+            );
+        })
+        .await;
+    }
 }
