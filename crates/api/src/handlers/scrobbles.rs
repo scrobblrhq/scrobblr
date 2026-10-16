@@ -433,6 +433,12 @@ pub async fn live_now_playing(
         .live
         .listen(user.id, &ip, viewer_id)
         .ok_or(AppError::RateLimited)?;
+    // A profile that turned private (or a block) since the check above
+    // closed the streams open then, not this one.
+    let user = users_db::find_by_id(&state.db, user.id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    crate::middleware::visibility::ensure_profile_visible(&state, viewer_id, &user).await?;
     let current = match scrobbles_db::get_now_playing(&state.db, user.id).await? {
         Some(rich) => Event::default()
             .json_data(&rich)
