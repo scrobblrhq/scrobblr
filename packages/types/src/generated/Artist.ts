@@ -10,7 +10,8 @@ export type Artist = { id: number, name: string, name_normalized: string, mbid: 
  */
 bio: string | null, 
 /**
- * `null` unless at least `RANKING_MIN_LISTENERS` (5) users played it.
+ * `null` unless enough distinct users played it (a minimum the server
+ * sets).
  */
 scrobble_count: number | null, 
 /**

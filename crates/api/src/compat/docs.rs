@@ -36,7 +36,7 @@ fn lastfm() -> Value {
         `track.updateNowPlaying` (POST), `track.love` and `track.unlove` (POST), `track.getInfo` \
         (by `artist` and `track` or `mbid`; with `username` or a session, `userloved` and \
         `userplaycount` where that user's profile may be seen; no `listeners`, and `playcount` \
-        only past `RANKING_MIN_LISTENERS`; `toptags` as shown), `artist.getInfo` (the \
+        only past the minimum of listeners; `toptags` as shown), `artist.getInfo` (the \
         community bio, `summary` its first paragraph; tags; `playcount` past the minimum; \
         `userplaycount` as for tracks; no `listeners` or similar artists), \
         `artist.addTags`, `album.addTags` and `track.addTags` (POST, `tags` comma-separated, \
@@ -106,7 +106,7 @@ fn browser_authorization() -> Value {
             "summary": "Last.fm browser authorization",
             "description": "Where Last.fm-API clients send the user's browser: `?api_key=…&token=…` \
                 (desktop flow) or `?api_key=…&cb=…` (web flow). Redirects, with the same query, to \
-                the web app's `/scrobbler/authorize` (`WEB_APP_URL`), which approves through \
+                the web app's `/scrobbler/authorize`, which approves through \
                 `/v1/scrobbler/authorizations`.",
             "parameters": [
                 text("api_key", "The client's Last.fm API key"),
@@ -114,8 +114,8 @@ fn browser_authorization() -> Value {
                 text("cb", "Web flow: where to send the browser back to")
             ],
             "responses": {
-                "303": { "description": "To `{WEB_APP_URL}/scrobbler/authorize?{query}`" },
-                "503": { "description": "WEB_APP_URL isn't set (an HTML page explains token logins)",
+                "303": { "description": "To the web app's `/scrobbler/authorize?{query}`" },
+                "503": { "description": "The server has no web app (an HTML page explains token logins)",
                          "content": { "text/html": { "schema": { "type": "string" } } } }
             }
         }
@@ -128,7 +128,7 @@ fn handshake() -> Value {
             "tags": [TAG],
             "summary": "Audioscrobbler 1.2 handshake",
             "description": "`?hs=true&p=1.2.1&c=…&v=…&u=USER&t=UNIX&a=md5(md5(TOKEN)+t)`, where TOKEN \
-                is a scrobbler token made while TOKEN_ENCRYPTION_KEY was set; or the web-services \
+                is a scrobbler token with `legacy_auth` (made while the server could keep its MD5); or the web-services \
                 form with `api_key` and `sk`. Answers `OK`, a session id and the now-playing and \
                 submission URLs, or `BADAUTH`, `BADTIME`, `FAILED …`. Without `hs=true`: 404.",
             "parameters": [

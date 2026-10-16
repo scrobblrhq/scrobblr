@@ -237,8 +237,8 @@ fn document<'t>(op: TransformOperation<'t>, summary: &str, things: &str) -> Tran
              ending today), ranked by listeners, then by plays. Each account counts once at \
              most, and less when its plays don't look like real listening; plays are weighed \
              the same way. No account is named, and {things} with fewer listeners than the \
-             server's minimum (5 unless configured) are left out, so the ranking may be \
-             shorter than 1,000 positions.\n\n\
+             server's minimum are left out, so the ranking may be shorter than 1,000 \
+             positions.\n\n\
              The server recomputes week and month rankings every hour and the year's every \
              day: a page says when its ranking was computed (`computed_at`) and which days it \
              covers (`from`, `to`). When a recomputation is overdue, the last ranking is \

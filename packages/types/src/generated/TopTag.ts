@@ -5,9 +5,7 @@
  */
 export type TopTag = { name: string, 
 /**
- * The accounts that put it there, weighed as the rankings weigh
- * listeners (a week-old account in full, one the anti-botting
- * coordination detection flagged at its factor), to the nearest whole;
- * at least `RANKING_MIN_LISTENERS` (5).
+ * About how many established accounts put it there; a tag shows from
+ * a minimum the server sets.
  */
 taggers: number, };

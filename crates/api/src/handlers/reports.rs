@@ -117,7 +117,7 @@ pub async fn report(
 
 pub fn _report_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Report a bio revision or a tag")
-        .description(&format!("Puts a bio revision, or a tag (on one artist, album or track, or anywhere), in the queue the server's operator reviews: they can revert or lock a bio, hide a revision, take a tag off, block it, or suspend an account from editing and tagging. A tag can be reported where it can be seen: shown on an entity, or on a public profile. A second report of the same target while the first is open changes nothing. The reporter isn't notified of what came of it; its export lists its reports, with whether each is open, resolved or dismissed. Nobody is told who reported what. {} reports an hour per account, {} per address.", limits::REPORTS_PER_USER, limits::REPORTS_PER_IP))
+        .description(&format!("Puts a bio revision, or a tag (on one artist, album or track, or anywhere), in the queue the server's moderators review. A tag can be reported where it can be seen: shown on an entity, or on a public profile. A second report of the same target while the first is open changes nothing. The reporter isn't notified of what came of it; its export lists its reports, with whether each is open, resolved or dismissed. Nobody is told who reported what. {} reports an hour per account, {} per address.", limits::REPORTS_PER_USER, limits::REPORTS_PER_IP))
         .tag("Bios")
         .response_with::<204, (), _>(|r| r.description("Reported"))
         .response_with::<400, ErrorJson, _>(|r| {

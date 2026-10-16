@@ -102,7 +102,7 @@ pub async fn create_token(
 
 pub fn _create_token_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Create a scrobbler token")
-        .description("A secret to paste into a third-party scrobbler: the user token of a ListenBrainz client, the password of an Audioscrobbler 1.2 client, or the password of a Last.fm-API client (instead of the account password). It can scrobble and nothing else, and is shown only in this response. `legacy_auth` is false when the server has no TOKEN_ENCRYPTION_KEY, which Audioscrobbler 1.2 needs.")
+        .description("A secret to paste into a third-party scrobbler: the user token of a ListenBrainz client, the password of an Audioscrobbler 1.2 client, or the password of a Last.fm-API client (instead of the account password). It can scrobble and nothing else, and is shown only in this response. `legacy_auth` is false when the server can't keep the token's MD5, which Audioscrobbler 1.2 needs.")
         .tag("Scrobblers")
         .response::<201, Json<CreatedScrobblerToken>>()
         .response_with::<400, ErrorJson, _>(|r| r.description("Missing or overlong name"))

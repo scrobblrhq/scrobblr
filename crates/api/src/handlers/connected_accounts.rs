@@ -138,12 +138,12 @@ pub async fn connect_provider(
 
 pub fn _connect_provider_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Start linking an account")
-        .description("Returns the provider's authorize URL to send the user's browser to: `spotify` (auto-scrobbling) or `lastfm` (proves ownership of the Last.fm account before importing its history). The provider sends the browser back to the web app's `/connect/{provider}/callback` (Spotify: to `SPOTIFY_REDIRECT_URI`), which finishes the link with `POST /v1/connect/{provider}/callback` and the same user's session within 10 minutes.")
+        .description("Returns the provider's authorize URL to send the user's browser to: `spotify` (auto-scrobbling) or `lastfm` (proves ownership of the Last.fm account before importing its history). The provider sends the browser back to the web app's `/connect/{provider}/callback` (Spotify: to the redirect URI registered for the server), which finishes the link with `POST /v1/connect/{provider}/callback` and the same user's session within 10 minutes.")
         .tag("Connected accounts")
         .response::<200, Json<AuthorizeResponse>>()
         .response_with::<400, ErrorJson, _>(|r| r.description("Unsupported provider"))
         .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
-        .response_with::<503, ErrorJson, _>(|r| r.description("The provider isn't configured on this server, or (Last.fm) it has no web app to come back to (`WEB_APP_URL`)"))
+        .response_with::<503, ErrorJson, _>(|r| r.description("The provider isn't configured on this server, or (Last.fm) it has no web app to come back to"))
 }
 
 /// Where the browser comes back to finish linking an account.
@@ -228,11 +228,11 @@ pub async fn forward_callback(
 
 pub fn _forward_callback_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Forward a provider's callback to the web app")
-        .description("For a provider whose redirect URI is this API's (`SPOTIFY_REDIRECT_URI` pointing here): sends the browser on to `{WEB_APP_URL}/connect/{provider}/callback` with the provider's query, where the web app finishes the link with `POST /v1/connect/{provider}/callback`. Links nothing itself.")
+        .description("For a provider whose redirect URI is this API's: sends the browser on to the web app's `/connect/{provider}/callback` with the provider's query, where the web app finishes the link with `POST /v1/connect/{provider}/callback`. Links nothing itself.")
         .tag("Connected accounts")
-        .response_with::<303, (), _>(|r| r.description("To `{WEB_APP_URL}/connect/{provider}/callback?{query}`"))
+        .response_with::<303, (), _>(|r| r.description("To the web app's `/connect/{provider}/callback?{query}`"))
         .response_with::<400, ErrorJson, _>(|r| r.description("Unsupported provider"))
-        .response_with::<503, ErrorJson, _>(|r| r.description("This server has no web app (`WEB_APP_URL`)"))
+        .response_with::<503, ErrorJson, _>(|r| r.description("This server has no web app"))
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]

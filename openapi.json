@@ -73,7 +73,7 @@
             ]
           },
           "scrobble_count": {
-            "description": "Plays of its tracks; `null` unless at least `RANKING_MIN_LISTENERS`\n (5) users played them.",
+            "description": "Plays of its tracks; `null` unless enough distinct users played them\n (a minimum the server sets).",
             "format": "int64",
             "type": [
               "integer",
@@ -246,7 +246,7 @@
             "type": "string"
           },
           "scrobble_count": {
-            "description": "`null` unless at least `RANKING_MIN_LISTENERS` (5) users played it.",
+            "description": "`null` unless enough distinct users played it (a minimum the server\n sets).",
             "format": "int64",
             "type": [
               "integer",
@@ -3704,7 +3704,7 @@
             "type": "string"
           },
           "taggers": {
-            "description": "The accounts that put it there, weighed as the rankings weigh\n listeners (a week-old account in full, one the anti-botting\n coordination detection flagged at its factor), to the nearest whole;\n at least `RANKING_MIN_LISTENERS` (5).",
+            "description": "About how many established accounts put it there; a tag shows from\n a minimum the server sets.",
             "format": "int64",
             "type": "integer"
           }
@@ -3821,7 +3821,7 @@
             ]
           },
           "scrobble_count": {
-            "description": "`null` unless at least `RANKING_MIN_LISTENERS` (5) users played it.",
+            "description": "`null` unless enough distinct users played it (a minimum the server\n sets).",
             "format": "int64",
             "type": [
               "integer",
@@ -4047,7 +4047,7 @@
             ]
           },
           "scrobble_count": {
-            "description": "`null` unless at least `RANKING_MIN_LISTENERS` (5) users played it.",
+            "description": "`null` unless enough distinct users played it (a minimum the server\n sets).",
             "format": "int64",
             "type": [
               "integer",
@@ -4349,7 +4349,7 @@
   "paths": {
     "/": {
       "get": {
-        "description": "`?hs=true&p=1.2.1&c=…&v=…&u=USER&t=UNIX&a=md5(md5(TOKEN)+t)`, where TOKEN is a scrobbler token made while TOKEN_ENCRYPTION_KEY was set; or the web-services form with `api_key` and `sk`. Answers `OK`, a session id and the now-playing and submission URLs, or `BADAUTH`, `BADTIME`, `FAILED …`. Without `hs=true`: 404.",
+        "description": "`?hs=true&p=1.2.1&c=…&v=…&u=USER&t=UNIX&a=md5(md5(TOKEN)+t)`, where TOKEN is a scrobbler token with `legacy_auth` (made while the server could keep its MD5); or the web-services form with `api_key` and `sk`. Answers `OK`, a session id and the now-playing and submission URLs, or `BADAUTH`, `BADTIME`, `FAILED …`. Without `hs=true`: 404.",
         "parameters": [
           {
             "description": "`true`",
@@ -4456,7 +4456,7 @@
     },
     "/1.2": {
       "get": {
-        "description": "`?hs=true&p=1.2.1&c=…&v=…&u=USER&t=UNIX&a=md5(md5(TOKEN)+t)`, where TOKEN is a scrobbler token made while TOKEN_ENCRYPTION_KEY was set; or the web-services form with `api_key` and `sk`. Answers `OK`, a session id and the now-playing and submission URLs, or `BADAUTH`, `BADTIME`, `FAILED …`. Without `hs=true`: 404.",
+        "description": "`?hs=true&p=1.2.1&c=…&v=…&u=USER&t=UNIX&a=md5(md5(TOKEN)+t)`, where TOKEN is a scrobbler token with `legacy_auth` (made while the server could keep its MD5); or the web-services form with `api_key` and `sk`. Answers `OK`, a session id and the now-playing and submission URLs, or `BADAUTH`, `BADTIME`, `FAILED …`. Without `hs=true`: 404.",
         "parameters": [
           {
             "description": "`true`",
@@ -4563,7 +4563,7 @@
     },
     "/1.2/": {
       "get": {
-        "description": "`?hs=true&p=1.2.1&c=…&v=…&u=USER&t=UNIX&a=md5(md5(TOKEN)+t)`, where TOKEN is a scrobbler token made while TOKEN_ENCRYPTION_KEY was set; or the web-services form with `api_key` and `sk`. Answers `OK`, a session id and the now-playing and submission URLs, or `BADAUTH`, `BADTIME`, `FAILED …`. Without `hs=true`: 404.",
+        "description": "`?hs=true&p=1.2.1&c=…&v=…&u=USER&t=UNIX&a=md5(md5(TOKEN)+t)`, where TOKEN is a scrobbler token with `legacy_auth` (made while the server could keep its MD5); or the web-services form with `api_key` and `sk`. Answers `OK`, a session id and the now-playing and submission URLs, or `BADAUTH`, `BADTIME`, `FAILED …`. Without `hs=true`: 404.",
         "parameters": [
           {
             "description": "`true`",
@@ -5797,7 +5797,7 @@
     },
     "/2.0": {
       "get": {
-        "description": "Last.fm API 2.0 for scrobblers: `auth.getToken`, `auth.getSession`, `auth.getMobileSession` (POST), `track.scrobble` (POST, up to 50 as `artist[i]` …), `track.updateNowPlaying` (POST), `track.love` and `track.unlove` (POST), `track.getInfo` (by `artist` and `track` or `mbid`; with `username` or a session, `userloved` and `userplaycount` where that user's profile may be seen; no `listeners`, and `playcount` only past `RANKING_MIN_LISTENERS`; `toptags` as shown), `artist.getInfo` (the community bio, `summary` its first paragraph; tags; `playcount` past the minimum; `userplaycount` as for tracks; no `listeners` or similar artists), `artist.addTags`, `album.addTags` and `track.addTags` (POST, `tags` comma-separated, 10 at most), `.removeTag` (POST, `tag`), `.getTags` (the tags `user`, or the session's user, put on it, as visible as the profile) and `.getTopTags` (the tags shown on it, `count` its weighted taggers) of each, `user.getTopTags`, `user.getInfo`, `user.getRecentTracks` (with `extended=1`, the artist as an object and `loved`) and `user.getLovedTracks`. Tagging an artist, album or track the server doesn't know is error 6: tags create nothing. Parameters come as a query string or a form body. Authenticated with a Scrobblr scrobbler credential as `sk` (a session key, or a scrobbler token given as the password to `auth.getMobileSession`), never with native API tokens. `api_sig` is checked for API keys the server knows the secret of. Answers in Last.fm's XML, or JSON with `format=json`; errors carry Last.fm's codes.",
+        "description": "Last.fm API 2.0 for scrobblers: `auth.getToken`, `auth.getSession`, `auth.getMobileSession` (POST), `track.scrobble` (POST, up to 50 as `artist[i]` …), `track.updateNowPlaying` (POST), `track.love` and `track.unlove` (POST), `track.getInfo` (by `artist` and `track` or `mbid`; with `username` or a session, `userloved` and `userplaycount` where that user's profile may be seen; no `listeners`, and `playcount` only past the minimum of listeners; `toptags` as shown), `artist.getInfo` (the community bio, `summary` its first paragraph; tags; `playcount` past the minimum; `userplaycount` as for tracks; no `listeners` or similar artists), `artist.addTags`, `album.addTags` and `track.addTags` (POST, `tags` comma-separated, 10 at most), `.removeTag` (POST, `tag`), `.getTags` (the tags `user`, or the session's user, put on it, as visible as the profile) and `.getTopTags` (the tags shown on it, `count` its weighted taggers) of each, `user.getTopTags`, `user.getInfo`, `user.getRecentTracks` (with `extended=1`, the artist as an object and `loved`) and `user.getLovedTracks`. Tagging an artist, album or track the server doesn't know is error 6: tags create nothing. Parameters come as a query string or a form body. Authenticated with a Scrobblr scrobbler credential as `sk` (a session key, or a scrobbler token given as the password to `auth.getMobileSession`), never with native API tokens. `api_sig` is checked for API keys the server knows the secret of. Answers in Last.fm's XML, or JSON with `format=json`; errors carry Last.fm's codes.",
         "parameters": [
           {
             "description": "Last.fm method name",
@@ -5862,7 +5862,7 @@
         ]
       },
       "post": {
-        "description": "Last.fm API 2.0 for scrobblers: `auth.getToken`, `auth.getSession`, `auth.getMobileSession` (POST), `track.scrobble` (POST, up to 50 as `artist[i]` …), `track.updateNowPlaying` (POST), `track.love` and `track.unlove` (POST), `track.getInfo` (by `artist` and `track` or `mbid`; with `username` or a session, `userloved` and `userplaycount` where that user's profile may be seen; no `listeners`, and `playcount` only past `RANKING_MIN_LISTENERS`; `toptags` as shown), `artist.getInfo` (the community bio, `summary` its first paragraph; tags; `playcount` past the minimum; `userplaycount` as for tracks; no `listeners` or similar artists), `artist.addTags`, `album.addTags` and `track.addTags` (POST, `tags` comma-separated, 10 at most), `.removeTag` (POST, `tag`), `.getTags` (the tags `user`, or the session's user, put on it, as visible as the profile) and `.getTopTags` (the tags shown on it, `count` its weighted taggers) of each, `user.getTopTags`, `user.getInfo`, `user.getRecentTracks` (with `extended=1`, the artist as an object and `loved`) and `user.getLovedTracks`. Tagging an artist, album or track the server doesn't know is error 6: tags create nothing. Parameters come as a query string or a form body. Authenticated with a Scrobblr scrobbler credential as `sk` (a session key, or a scrobbler token given as the password to `auth.getMobileSession`), never with native API tokens. `api_sig` is checked for API keys the server knows the secret of. Answers in Last.fm's XML, or JSON with `format=json`; errors carry Last.fm's codes.",
+        "description": "Last.fm API 2.0 for scrobblers: `auth.getToken`, `auth.getSession`, `auth.getMobileSession` (POST), `track.scrobble` (POST, up to 50 as `artist[i]` …), `track.updateNowPlaying` (POST), `track.love` and `track.unlove` (POST), `track.getInfo` (by `artist` and `track` or `mbid`; with `username` or a session, `userloved` and `userplaycount` where that user's profile may be seen; no `listeners`, and `playcount` only past the minimum of listeners; `toptags` as shown), `artist.getInfo` (the community bio, `summary` its first paragraph; tags; `playcount` past the minimum; `userplaycount` as for tracks; no `listeners` or similar artists), `artist.addTags`, `album.addTags` and `track.addTags` (POST, `tags` comma-separated, 10 at most), `.removeTag` (POST, `tag`), `.getTags` (the tags `user`, or the session's user, put on it, as visible as the profile) and `.getTopTags` (the tags shown on it, `count` its weighted taggers) of each, `user.getTopTags`, `user.getInfo`, `user.getRecentTracks` (with `extended=1`, the artist as an object and `loved`) and `user.getLovedTracks`. Tagging an artist, album or track the server doesn't know is error 6: tags create nothing. Parameters come as a query string or a form body. Authenticated with a Scrobblr scrobbler credential as `sk` (a session key, or a scrobbler token given as the password to `auth.getMobileSession`), never with native API tokens. `api_sig` is checked for API keys the server knows the secret of. Answers in Last.fm's XML, or JSON with `format=json`; errors carry Last.fm's codes.",
         "requestBody": {
           "content": {
             "application/x-www-form-urlencoded": {
@@ -5996,7 +5996,7 @@
     },
     "/2.0/": {
       "get": {
-        "description": "Last.fm API 2.0 for scrobblers: `auth.getToken`, `auth.getSession`, `auth.getMobileSession` (POST), `track.scrobble` (POST, up to 50 as `artist[i]` …), `track.updateNowPlaying` (POST), `track.love` and `track.unlove` (POST), `track.getInfo` (by `artist` and `track` or `mbid`; with `username` or a session, `userloved` and `userplaycount` where that user's profile may be seen; no `listeners`, and `playcount` only past `RANKING_MIN_LISTENERS`; `toptags` as shown), `artist.getInfo` (the community bio, `summary` its first paragraph; tags; `playcount` past the minimum; `userplaycount` as for tracks; no `listeners` or similar artists), `artist.addTags`, `album.addTags` and `track.addTags` (POST, `tags` comma-separated, 10 at most), `.removeTag` (POST, `tag`), `.getTags` (the tags `user`, or the session's user, put on it, as visible as the profile) and `.getTopTags` (the tags shown on it, `count` its weighted taggers) of each, `user.getTopTags`, `user.getInfo`, `user.getRecentTracks` (with `extended=1`, the artist as an object and `loved`) and `user.getLovedTracks`. Tagging an artist, album or track the server doesn't know is error 6: tags create nothing. Parameters come as a query string or a form body. Authenticated with a Scrobblr scrobbler credential as `sk` (a session key, or a scrobbler token given as the password to `auth.getMobileSession`), never with native API tokens. `api_sig` is checked for API keys the server knows the secret of. Answers in Last.fm's XML, or JSON with `format=json`; errors carry Last.fm's codes.",
+        "description": "Last.fm API 2.0 for scrobblers: `auth.getToken`, `auth.getSession`, `auth.getMobileSession` (POST), `track.scrobble` (POST, up to 50 as `artist[i]` …), `track.updateNowPlaying` (POST), `track.love` and `track.unlove` (POST), `track.getInfo` (by `artist` and `track` or `mbid`; with `username` or a session, `userloved` and `userplaycount` where that user's profile may be seen; no `listeners`, and `playcount` only past the minimum of listeners; `toptags` as shown), `artist.getInfo` (the community bio, `summary` its first paragraph; tags; `playcount` past the minimum; `userplaycount` as for tracks; no `listeners` or similar artists), `artist.addTags`, `album.addTags` and `track.addTags` (POST, `tags` comma-separated, 10 at most), `.removeTag` (POST, `tag`), `.getTags` (the tags `user`, or the session's user, put on it, as visible as the profile) and `.getTopTags` (the tags shown on it, `count` its weighted taggers) of each, `user.getTopTags`, `user.getInfo`, `user.getRecentTracks` (with `extended=1`, the artist as an object and `loved`) and `user.getLovedTracks`. Tagging an artist, album or track the server doesn't know is error 6: tags create nothing. Parameters come as a query string or a form body. Authenticated with a Scrobblr scrobbler credential as `sk` (a session key, or a scrobbler token given as the password to `auth.getMobileSession`), never with native API tokens. `api_sig` is checked for API keys the server knows the secret of. Answers in Last.fm's XML, or JSON with `format=json`; errors carry Last.fm's codes.",
         "parameters": [
           {
             "description": "Last.fm method name",
@@ -6061,7 +6061,7 @@
         ]
       },
       "post": {
-        "description": "Last.fm API 2.0 for scrobblers: `auth.getToken`, `auth.getSession`, `auth.getMobileSession` (POST), `track.scrobble` (POST, up to 50 as `artist[i]` …), `track.updateNowPlaying` (POST), `track.love` and `track.unlove` (POST), `track.getInfo` (by `artist` and `track` or `mbid`; with `username` or a session, `userloved` and `userplaycount` where that user's profile may be seen; no `listeners`, and `playcount` only past `RANKING_MIN_LISTENERS`; `toptags` as shown), `artist.getInfo` (the community bio, `summary` its first paragraph; tags; `playcount` past the minimum; `userplaycount` as for tracks; no `listeners` or similar artists), `artist.addTags`, `album.addTags` and `track.addTags` (POST, `tags` comma-separated, 10 at most), `.removeTag` (POST, `tag`), `.getTags` (the tags `user`, or the session's user, put on it, as visible as the profile) and `.getTopTags` (the tags shown on it, `count` its weighted taggers) of each, `user.getTopTags`, `user.getInfo`, `user.getRecentTracks` (with `extended=1`, the artist as an object and `loved`) and `user.getLovedTracks`. Tagging an artist, album or track the server doesn't know is error 6: tags create nothing. Parameters come as a query string or a form body. Authenticated with a Scrobblr scrobbler credential as `sk` (a session key, or a scrobbler token given as the password to `auth.getMobileSession`), never with native API tokens. `api_sig` is checked for API keys the server knows the secret of. Answers in Last.fm's XML, or JSON with `format=json`; errors carry Last.fm's codes.",
+        "description": "Last.fm API 2.0 for scrobblers: `auth.getToken`, `auth.getSession`, `auth.getMobileSession` (POST), `track.scrobble` (POST, up to 50 as `artist[i]` …), `track.updateNowPlaying` (POST), `track.love` and `track.unlove` (POST), `track.getInfo` (by `artist` and `track` or `mbid`; with `username` or a session, `userloved` and `userplaycount` where that user's profile may be seen; no `listeners`, and `playcount` only past the minimum of listeners; `toptags` as shown), `artist.getInfo` (the community bio, `summary` its first paragraph; tags; `playcount` past the minimum; `userplaycount` as for tracks; no `listeners` or similar artists), `artist.addTags`, `album.addTags` and `track.addTags` (POST, `tags` comma-separated, 10 at most), `.removeTag` (POST, `tag`), `.getTags` (the tags `user`, or the session's user, put on it, as visible as the profile) and `.getTopTags` (the tags shown on it, `count` its weighted taggers) of each, `user.getTopTags`, `user.getInfo`, `user.getRecentTracks` (with `extended=1`, the artist as an object and `loved`) and `user.getLovedTracks`. Tagging an artist, album or track the server doesn't know is error 6: tags create nothing. Parameters come as a query string or a form body. Authenticated with a Scrobblr scrobbler credential as `sk` (a session key, or a scrobbler token given as the password to `auth.getMobileSession`), never with native API tokens. `api_sig` is checked for API keys the server knows the secret of. Answers in Last.fm's XML, or JSON with `format=json`; errors carry Last.fm's codes.",
         "requestBody": {
           "content": {
             "application/x-www-form-urlencoded": {
@@ -6195,7 +6195,7 @@
     },
     "/api/auth": {
       "get": {
-        "description": "Where Last.fm-API clients send the user's browser: `?api_key=…&token=…` (desktop flow) or `?api_key=…&cb=…` (web flow). Redirects, with the same query, to the web app's `/scrobbler/authorize` (`WEB_APP_URL`), which approves through `/v1/scrobbler/authorizations`.",
+        "description": "Where Last.fm-API clients send the user's browser: `?api_key=…&token=…` (desktop flow) or `?api_key=…&cb=…` (web flow). Redirects, with the same query, to the web app's `/scrobbler/authorize`, which approves through `/v1/scrobbler/authorizations`.",
         "parameters": [
           {
             "description": "The client's Last.fm API key",
@@ -6227,7 +6227,7 @@
         ],
         "responses": {
           "303": {
-            "description": "To `{WEB_APP_URL}/scrobbler/authorize?{query}`"
+            "description": "To the web app's `/scrobbler/authorize?{query}`"
           },
           "503": {
             "content": {
@@ -6237,7 +6237,7 @@
                 }
               }
             },
-            "description": "WEB_APP_URL isn't set (an HTML page explains token logins)"
+            "description": "The server has no web app (an HTML page explains token logins)"
           }
         },
         "summary": "Last.fm browser authorization",
@@ -6248,7 +6248,7 @@
     },
     "/api/auth/": {
       "get": {
-        "description": "Where Last.fm-API clients send the user's browser: `?api_key=…&token=…` (desktop flow) or `?api_key=…&cb=…` (web flow). Redirects, with the same query, to the web app's `/scrobbler/authorize` (`WEB_APP_URL`), which approves through `/v1/scrobbler/authorizations`.",
+        "description": "Where Last.fm-API clients send the user's browser: `?api_key=…&token=…` (desktop flow) or `?api_key=…&cb=…` (web flow). Redirects, with the same query, to the web app's `/scrobbler/authorize`, which approves through `/v1/scrobbler/authorizations`.",
         "parameters": [
           {
             "description": "The client's Last.fm API key",
@@ -6280,7 +6280,7 @@
         ],
         "responses": {
           "303": {
-            "description": "To `{WEB_APP_URL}/scrobbler/authorize?{query}`"
+            "description": "To the web app's `/scrobbler/authorize?{query}`"
           },
           "503": {
             "content": {
@@ -6290,7 +6290,7 @@
                 }
               }
             },
-            "description": "WEB_APP_URL isn't set (an HTML page explains token logins)"
+            "description": "The server has no web app (an HTML page explains token logins)"
           }
         },
         "summary": "Last.fm browser authorization",
@@ -6301,7 +6301,7 @@
     },
     "/v1/album/{id}": {
       "get": {
-        "description": "Returns catalog metadata for a single album by its internal ID, with its artist's name. Each track belongs to one album, the one the accounts playing it named (one say per account at least a week old, a release MusicBrainz lists the recording on counting double; another album needs half again the current one's accounts to take the track), and its plays count for that album here and in charts, from whichever release they were played. `scrobble_count` (the plays of its tracks) is `null` for an album fewer than the minimum of listeners played. Catalog-wide counts include every user's plays, private profiles' too, so they are served only for entities at least `RANKING_MIN_LISTENERS` (5 by default) distinct users have played, counted from the daily aggregates (a new listener counts from their next refresh, within the hour; today's plays from tomorrow): a count is never one or two people's listening.",
+        "description": "Returns catalog metadata for a single album by its internal ID, with its artist's name. Each track belongs to one album, the one the accounts playing it name most, and its plays count for that album here and in charts, from whichever release they were played. `scrobble_count` (the plays of its tracks) is `null` for an album fewer than the minimum of listeners played. Catalog-wide counts include every user's plays, private profiles' too, so they are served only for entities a minimum of distinct users (set by the server) have played, counted from the daily aggregates (a new listener counts within the hour, today's plays from tomorrow): a count never stands for one or two people's listening.",
         "parameters": [
           {
             "in": "path",
@@ -6364,7 +6364,7 @@
     },
     "/v1/album/{id}/bio": {
       "get": {
-        "description": "The bio as it stands: its current revision, written by the community (accounts a week old may edit it) or imported from Last.fm before anyone did. `revision_id` and `body` are `null` when there is none. The text is plain: show it as text, a paragraph at each blank line, `http://` and `https://` URLs as links marked `rel=\"nofollow ugc\"`, never embedded. An author is named unless the account is deleted or waiting to be, or blocks the signed-in viewer or is blocked by it; imported text and moderators' reverts have none.",
+        "description": "The bio as it stands: its current revision, written by the community or imported from Last.fm before anyone did. `revision_id` and `body` are `null` when there is none. The text is plain: show it as text, a paragraph at each blank line, `http://` and `https://` URLs as links marked `rel=\"nofollow ugc\"`, never embedded. An author is named unless the account is deleted or waiting to be, or blocks the signed-in viewer or is blocked by it; imported text and moderators' reverts have none.",
         "parameters": [
           {
             "in": "path",
@@ -6431,7 +6431,7 @@
         ]
       },
       "put": {
-        "description": "Writes a new revision of the bio over `base_revision_id`, the revision the text was written over; if another came since, nothing is written (409: read the bio again and merge). Accounts may edit from 7 days after registering, unless a moderator suspended them, they wait to be deleted, or the anti-botting coordination detection has halved their weight or more over the last 28 days (403, telling them only that they can't edit now); nobody may edit a bio a moderator locked (403). An account writes 50 revisions a day at most, and 3 of one bio, so two accounts can't keep reverting each other. An edit that looks like spam (a link host repeated more than twice; a host its author added to two other bios in a week, or anyone to four in a day; a long text copied from another bio) is held for a moderator: 202, with `status: held` and why in `held_reason`, and the bio unchanged.",
+        "description": "Writes a new revision of the bio over `base_revision_id`, the revision the text was written over; if another came since, nothing is written (409: read the bio again and merge). Accounts may edit some days after registering (a 403 says from when), unless they can't edit for now (a 403 saying so); nobody may edit a bio a moderator locked (403). An account writes 50 revisions in 24 hours at most, and 3 of one bio, so two accounts can't keep reverting each other. An edit that looks like spam is held for a moderator: 202, with `status: held` and why in `held_reason`, and the bio unchanged.",
         "parameters": [
           {
             "in": "path",
@@ -6665,7 +6665,7 @@
     },
     "/v1/album/{id}/bio/revert": {
       "post": {
-        "description": "Restores the text of `revision_id`, an earlier published revision of this bio that no moderator hid, as a new revision (`kind: revert`) over `base_revision_id`, as an edit would; a revert is never held for review. Accounts may edit from 7 days after registering, unless a moderator suspended them, they wait to be deleted, or the anti-botting coordination detection has halved their weight or more over the last 28 days (403, telling them only that they can't edit now); nobody may edit a bio a moderator locked (403). An account writes 50 revisions a day at most, and 3 of one bio, so two accounts can't keep reverting each other. Reverts count with edits.",
+        "description": "Restores the text of `revision_id`, an earlier published revision of this bio that no moderator hid, as a new revision (`kind: revert`) over `base_revision_id`, as an edit would; a revert is never held for review. Accounts may edit some days after registering (a 403 says from when), unless they can't edit for now (a 403 saying so); nobody may edit a bio a moderator locked (403). An account writes 50 revisions in 24 hours at most, and 3 of one bio, so two accounts can't keep reverting each other. Reverts count with edits.",
         "parameters": [
           {
             "in": "path",
@@ -7074,7 +7074,7 @@
     },
     "/v1/album/{id}/tags": {
       "get": {
-        "description": "The album's tags, most taggers first (100 at most). Each account counts once, weighed as the rankings weigh listeners: in full from a week after registering, at its factor when the anti-botting coordination detection flagged it, not at all while suspended or waiting to be deleted; private accounts count, unnamed. A tag is shown on an entity from the server's minimum of weighted accounts (`RANKING_MIN_LISTENERS`, 5 unless configured), so nobody can put one there alone. The worker recounts an entity within a minute of a change, and every entity every 6 hours. Tags feed nothing else: rankings, recommendations and similar artists don't read them. Cacheable for 5 minutes, with an `ETag`.",
+        "description": "The album's tags, most taggers first (100 at most). A tag shows on an entity once enough established accounts use it there, so nobody can put one there alone; `taggers` says about how many, private accounts counted unnamed. Counts follow a change within a minute or so. Tags feed nothing else: rankings, recommendations and similar artists don't read them. Cacheable for 5 minutes, with an `ETag`.",
         "parameters": [
           {
             "in": "path",
@@ -7183,7 +7183,7 @@
         ]
       },
       "post": {
-        "description": "Adds tags to the user's own on the album and returns them all; tags already there change nothing. Tags are normalized (lowercase, NFKC, single spaces), 1 to 40 letters, digits, spaces and `- & ' . + ! _`; a term the operator blocked refuses the request. An account puts at most 10 tags on one artist, album or track and holds 50000 in all, and an entity carries 500 different tags at most (409). A suspended account can't tag (403); a new one may, its tags weighing nothing in the counts for a week. Adding and removing count together against 120 changes an hour per account, 300 per address, through this API and the Last.fm-compatible one.",
+        "description": "Adds tags to the user's own on the album and returns them all; tags already there change nothing. Tags are normalized (lowercase, NFKC, single spaces), 1 to 40 letters, digits, spaces and `- & ' . + ! _`; a tag the server refuses is a 400. An account puts at most 10 tags on one artist, album or track and holds 50000 in all, and an entity carries 500 different tags at most (409). An account that can't tag for now gets a 403. Adding and removing count together against 120 changes an hour per account, 300 per address, through this API and the Last.fm-compatible one.",
         "parameters": [
           {
             "in": "path",
@@ -7401,7 +7401,7 @@
     },
     "/v1/artist/{id}": {
       "get": {
-        "description": "Returns catalog metadata for a single artist by its internal ID. `scrobble_count` is `null` for an artist fewer than the minimum of listeners played; `listener_count` is always `null` (it was never kept). Catalog-wide counts include every user's plays, private profiles' too, so they are served only for entities at least `RANKING_MIN_LISTENERS` (5 by default) distinct users have played, counted from the daily aggregates (a new listener counts from their next refresh, within the hour; today's plays from tomorrow): a count is never one or two people's listening.",
+        "description": "Returns catalog metadata for a single artist by its internal ID. `scrobble_count` is `null` for an artist fewer than the minimum of listeners played; `listener_count` is always `null` (it was never kept). Catalog-wide counts include every user's plays, private profiles' too, so they are served only for entities a minimum of distinct users (set by the server) have played, counted from the daily aggregates (a new listener counts within the hour, today's plays from tomorrow): a count never stands for one or two people's listening.",
         "parameters": [
           {
             "in": "path",
@@ -7464,7 +7464,7 @@
     },
     "/v1/artist/{id}/bio": {
       "get": {
-        "description": "The bio as it stands: its current revision, written by the community (accounts a week old may edit it) or imported from Last.fm before anyone did. `revision_id` and `body` are `null` when there is none. The text is plain: show it as text, a paragraph at each blank line, `http://` and `https://` URLs as links marked `rel=\"nofollow ugc\"`, never embedded. An author is named unless the account is deleted or waiting to be, or blocks the signed-in viewer or is blocked by it; imported text and moderators' reverts have none.",
+        "description": "The bio as it stands: its current revision, written by the community or imported from Last.fm before anyone did. `revision_id` and `body` are `null` when there is none. The text is plain: show it as text, a paragraph at each blank line, `http://` and `https://` URLs as links marked `rel=\"nofollow ugc\"`, never embedded. An author is named unless the account is deleted or waiting to be, or blocks the signed-in viewer or is blocked by it; imported text and moderators' reverts have none.",
         "parameters": [
           {
             "in": "path",
@@ -7531,7 +7531,7 @@
         ]
       },
       "put": {
-        "description": "Writes a new revision of the bio over `base_revision_id`, the revision the text was written over; if another came since, nothing is written (409: read the bio again and merge). Accounts may edit from 7 days after registering, unless a moderator suspended them, they wait to be deleted, or the anti-botting coordination detection has halved their weight or more over the last 28 days (403, telling them only that they can't edit now); nobody may edit a bio a moderator locked (403). An account writes 50 revisions a day at most, and 3 of one bio, so two accounts can't keep reverting each other. An edit that looks like spam (a link host repeated more than twice; a host its author added to two other bios in a week, or anyone to four in a day; a long text copied from another bio) is held for a moderator: 202, with `status: held` and why in `held_reason`, and the bio unchanged.",
+        "description": "Writes a new revision of the bio over `base_revision_id`, the revision the text was written over; if another came since, nothing is written (409: read the bio again and merge). Accounts may edit some days after registering (a 403 says from when), unless they can't edit for now (a 403 saying so); nobody may edit a bio a moderator locked (403). An account writes 50 revisions in 24 hours at most, and 3 of one bio, so two accounts can't keep reverting each other. An edit that looks like spam is held for a moderator: 202, with `status: held` and why in `held_reason`, and the bio unchanged.",
         "parameters": [
           {
             "in": "path",
@@ -7765,7 +7765,7 @@
     },
     "/v1/artist/{id}/bio/revert": {
       "post": {
-        "description": "Restores the text of `revision_id`, an earlier published revision of this bio that no moderator hid, as a new revision (`kind: revert`) over `base_revision_id`, as an edit would; a revert is never held for review. Accounts may edit from 7 days after registering, unless a moderator suspended them, they wait to be deleted, or the anti-botting coordination detection has halved their weight or more over the last 28 days (403, telling them only that they can't edit now); nobody may edit a bio a moderator locked (403). An account writes 50 revisions a day at most, and 3 of one bio, so two accounts can't keep reverting each other. Reverts count with edits.",
+        "description": "Restores the text of `revision_id`, an earlier published revision of this bio that no moderator hid, as a new revision (`kind: revert`) over `base_revision_id`, as an edit would; a revert is never held for review. Accounts may edit some days after registering (a 403 says from when), unless they can't edit for now (a 403 saying so); nobody may edit a bio a moderator locked (403). An account writes 50 revisions in 24 hours at most, and 3 of one bio, so two accounts can't keep reverting each other. Reverts count with edits.",
         "parameters": [
           {
             "in": "path",
@@ -8585,7 +8585,7 @@
     },
     "/v1/artist/{id}/tags": {
       "get": {
-        "description": "The artist's tags, most taggers first (100 at most). Each account counts once, weighed as the rankings weigh listeners: in full from a week after registering, at its factor when the anti-botting coordination detection flagged it, not at all while suspended or waiting to be deleted; private accounts count, unnamed. A tag is shown on an entity from the server's minimum of weighted accounts (`RANKING_MIN_LISTENERS`, 5 unless configured), so nobody can put one there alone. The worker recounts an entity within a minute of a change, and every entity every 6 hours. Tags feed nothing else: rankings, recommendations and similar artists don't read them. Cacheable for 5 minutes, with an `ETag`.",
+        "description": "The artist's tags, most taggers first (100 at most). A tag shows on an entity once enough established accounts use it there, so nobody can put one there alone; `taggers` says about how many, private accounts counted unnamed. Counts follow a change within a minute or so. Tags feed nothing else: rankings, recommendations and similar artists don't read them. Cacheable for 5 minutes, with an `ETag`.",
         "parameters": [
           {
             "in": "path",
@@ -8694,7 +8694,7 @@
         ]
       },
       "post": {
-        "description": "Adds tags to the user's own on the artist and returns them all; tags already there change nothing. Tags are normalized (lowercase, NFKC, single spaces), 1 to 40 letters, digits, spaces and `- & ' . + ! _`; a term the operator blocked refuses the request. An account puts at most 10 tags on one artist, album or track and holds 50000 in all, and an entity carries 500 different tags at most (409). A suspended account can't tag (403); a new one may, its tags weighing nothing in the counts for a week. Adding and removing count together against 120 changes an hour per account, 300 per address, through this API and the Last.fm-compatible one.",
+        "description": "Adds tags to the user's own on the artist and returns them all; tags already there change nothing. Tags are normalized (lowercase, NFKC, single spaces), 1 to 40 letters, digits, spaces and `- & ' . + ! _`; a tag the server refuses is a 400. An account puts at most 10 tags on one artist, album or track and holds 50000 in all, and an entity carries 500 different tags at most (409). An account that can't tag for now gets a 403. Adding and removing count together against 120 changes an hour per account, 300 per address, through this API and the Last.fm-compatible one.",
         "parameters": [
           {
             "in": "path",
@@ -8912,7 +8912,7 @@
     },
     "/v1/artist/{id}/top-tracks": {
       "get": {
-        "description": "Returns the artist's most-scrobbled tracks across all users, ranked by play count, leaving out tracks fewer than the minimum of listeners played (of the 200 most played). Catalog-wide counts include every user's plays, private profiles' too, so they are served only for entities at least `RANKING_MIN_LISTENERS` (5 by default) distinct users have played, counted from the daily aggregates (a new listener counts from their next refresh, within the hour; today's plays from tomorrow): a count is never one or two people's listening.",
+        "description": "Returns the artist's most-scrobbled tracks across all users, ranked by play count, leaving out tracks fewer than the minimum of listeners played (of the 200 most played). Catalog-wide counts include every user's plays, private profiles' too, so they are served only for entities a minimum of distinct users (set by the server) have played, counted from the daily aggregates (a new listener counts within the hour, today's plays from tomorrow): a count never stands for one or two people's listening.",
         "parameters": [
           {
             "in": "path",
@@ -9734,7 +9734,7 @@
         ]
       },
       "get": {
-        "description": "Returns the provider's authorize URL to send the user's browser to: `spotify` (auto-scrobbling) or `lastfm` (proves ownership of the Last.fm account before importing its history). The provider sends the browser back to the web app's `/connect/{provider}/callback` (Spotify: to `SPOTIFY_REDIRECT_URI`), which finishes the link with `POST /v1/connect/{provider}/callback` and the same user's session within 10 minutes.",
+        "description": "Returns the provider's authorize URL to send the user's browser to: `spotify` (auto-scrobbling) or `lastfm` (proves ownership of the Last.fm account before importing its history). The provider sends the browser back to the web app's `/connect/{provider}/callback` (Spotify: to the redirect URI registered for the server), which finishes the link with `POST /v1/connect/{provider}/callback` and the same user's session within 10 minutes.",
         "parameters": [
           {
             "description": "`spotify` or `lastfm`.",
@@ -9807,7 +9807,7 @@
                 }
               }
             },
-            "description": "The provider isn't configured on this server, or (Last.fm) it has no web app to come back to (`WEB_APP_URL`)"
+            "description": "The provider isn't configured on this server, or (Last.fm) it has no web app to come back to"
           },
           "default": {
             "content": {
@@ -9833,7 +9833,7 @@
     },
     "/v1/connect/{provider}/callback": {
       "get": {
-        "description": "For a provider whose redirect URI is this API's (`SPOTIFY_REDIRECT_URI` pointing here): sends the browser on to `{WEB_APP_URL}/connect/{provider}/callback` with the provider's query, where the web app finishes the link with `POST /v1/connect/{provider}/callback`. Links nothing itself.",
+        "description": "For a provider whose redirect URI is this API's: sends the browser on to the web app's `/connect/{provider}/callback` with the provider's query, where the web app finishes the link with `POST /v1/connect/{provider}/callback`. Links nothing itself.",
         "parameters": [
           {
             "description": "`spotify` or `lastfm`.",
@@ -9849,7 +9849,7 @@
         ],
         "responses": {
           "303": {
-            "description": "To `{WEB_APP_URL}/connect/{provider}/callback?{query}`"
+            "description": "To the web app's `/connect/{provider}/callback?{query}`"
           },
           "400": {
             "content": {
@@ -9879,7 +9879,7 @@
                 }
               }
             },
-            "description": "This server has no web app (`WEB_APP_URL`)"
+            "description": "This server has no web app"
           },
           "default": {
             "content": {
@@ -10608,7 +10608,7 @@
     },
     "/v1/rankings/artists": {
       "get": {
-        "description": "The most listened artists of the last week, month or year (rolling UTC days ending today), ranked by listeners, then by plays. Each account counts once at most, and less when its plays don't look like real listening; plays are weighed the same way. No account is named, and artists with fewer listeners than the server's minimum (5 unless configured) are left out, so the ranking may be shorter than 1,000 positions.\n\nThe server recomputes week and month rankings every hour and the year's every day: a page says when its ranking was computed (`computed_at`) and which days it covers (`from`, `to`). When a recomputation is overdue, the last ranking is still served, with `stale: true`; before the first one, 404.\n\nPages carry an `ETag` and may be cached for 5 minutes; send the tag back in `If-None-Match` to get a 304 while the ranking hasn't changed.",
+        "description": "The most listened artists of the last week, month or year (rolling UTC days ending today), ranked by listeners, then by plays. Each account counts once at most, and less when its plays don't look like real listening; plays are weighed the same way. No account is named, and artists with fewer listeners than the server's minimum are left out, so the ranking may be shorter than 1,000 positions.\n\nThe server recomputes week and month rankings every hour and the year's every day: a page says when its ranking was computed (`computed_at`) and which days it covers (`from`, `to`). When a recomputation is overdue, the last ranking is still served, with `stale: true`; before the first one, 404.\n\nPages carry an `ETag` and may be cached for 5 minutes; send the tag back in `If-None-Match` to get a 304 while the ranking hasn't changed.",
         "parameters": [
           {
             "description": "Entries per page: 50 by default, 200 at most.",
@@ -10764,7 +10764,7 @@
     },
     "/v1/rankings/tracks": {
       "get": {
-        "description": "The most listened tracks of the last week, month or year (rolling UTC days ending today), ranked by listeners, then by plays. Each account counts once at most, and less when its plays don't look like real listening; plays are weighed the same way. No account is named, and tracks with fewer listeners than the server's minimum (5 unless configured) are left out, so the ranking may be shorter than 1,000 positions.\n\nThe server recomputes week and month rankings every hour and the year's every day: a page says when its ranking was computed (`computed_at`) and which days it covers (`from`, `to`). When a recomputation is overdue, the last ranking is still served, with `stale: true`; before the first one, 404.\n\nPages carry an `ETag` and may be cached for 5 minutes; send the tag back in `If-None-Match` to get a 304 while the ranking hasn't changed.",
+        "description": "The most listened tracks of the last week, month or year (rolling UTC days ending today), ranked by listeners, then by plays. Each account counts once at most, and less when its plays don't look like real listening; plays are weighed the same way. No account is named, and tracks with fewer listeners than the server's minimum are left out, so the ranking may be shorter than 1,000 positions.\n\nThe server recomputes week and month rankings every hour and the year's every day: a page says when its ranking was computed (`computed_at`) and which days it covers (`from`, `to`). When a recomputation is overdue, the last ranking is still served, with `stale: true`; before the first one, 404.\n\nPages carry an `ETag` and may be cached for 5 minutes; send the tag back in `If-None-Match` to get a 304 while the ranking hasn't changed.",
         "parameters": [
           {
             "description": "Entries per page: 50 by default, 200 at most.",
@@ -10920,7 +10920,7 @@
     },
     "/v1/reports": {
       "post": {
-        "description": "Puts a bio revision, or a tag (on one artist, album or track, or anywhere), in the queue the server's operator reviews: they can revert or lock a bio, hide a revision, take a tag off, block it, or suspend an account from editing and tagging. A tag can be reported where it can be seen: shown on an entity, or on a public profile. A second report of the same target while the first is open changes nothing. The reporter isn't notified of what came of it; its export lists its reports, with whether each is open, resolved or dismissed. Nobody is told who reported what. 20 reports an hour per account, 60 per address.",
+        "description": "Puts a bio revision, or a tag (on one artist, album or track, or anywhere), in the queue the server's moderators review. A tag can be reported where it can be seen: shown on an entity, or on a public profile. A second report of the same target while the first is open changes nothing. The reporter isn't notified of what came of it; its export lists its reports, with whether each is open, resolved or dismissed. Nobody is told who reported what. 20 reports an hour per account, 60 per address.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -11009,7 +11009,7 @@
     },
     "/v1/scrobble": {
       "post": {
-        "description": "Records a track listen for the authenticated user. Validates scrobble rules (e.g. minimum listen duration), deduplicates the same track within 30 seconds of another of the user's scrobbles, and refuses plays more than 30 days old (import older history instead). Each account may record `SCROBBLER_DAILY_LIMIT` scrobbles (default 3000) per UTC day, counted together with the scrobbler-compatible APIs.",
+        "description": "Records a track listen for the authenticated user. Validates scrobble rules (e.g. minimum listen duration), deduplicates the same track within 30 seconds of another of the user's scrobbles, and refuses plays more than 30 days old (import older history instead). Each account may record the server's daily allowance of scrobbles (3,000 by default) per UTC day, counted together with the scrobbler-compatible APIs.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -11518,7 +11518,7 @@
     },
     "/v1/scrobbler/tokens": {
       "post": {
-        "description": "A secret to paste into a third-party scrobbler: the user token of a ListenBrainz client, the password of an Audioscrobbler 1.2 client, or the password of a Last.fm-API client (instead of the account password). It can scrobble and nothing else, and is shown only in this response. `legacy_auth` is false when the server has no TOKEN_ENCRYPTION_KEY, which Audioscrobbler 1.2 needs.",
+        "description": "A secret to paste into a third-party scrobbler: the user token of a ListenBrainz client, the password of an Audioscrobbler 1.2 client, or the password of a Last.fm-API client (instead of the account password). It can scrobble and nothing else, and is shown only in this response. `legacy_auth` is false when the server can't keep the token's MD5, which Audioscrobbler 1.2 needs.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -11604,7 +11604,7 @@
     },
     "/v1/search": {
       "get": {
-        "description": "Full-text search across artists, tracks and users. Use the `type` parameter to restrict results to `track`, `artist`, `user`, or `all` (default). Returns up to 30 results per type. Query must not be empty. Users are public profiles only, never accounts waiting to be deleted nor, for a signed-in viewer, accounts blocking it or blocked by it. Artists' and tracks' `scrobble_count` are as `GET /v1/artist/{id}` and `GET /v1/track/{id}` serve them. Catalog-wide counts include every user's plays, private profiles' too, so they are served only for entities at least `RANKING_MIN_LISTENERS` (5 by default) distinct users have played, counted from the daily aggregates (a new listener counts from their next refresh, within the hour; today's plays from tomorrow): a count is never one or two people's listening.",
+        "description": "Full-text search across artists, tracks and users. Use the `type` parameter to restrict results to `track`, `artist`, `user`, or `all` (default). Returns up to 30 results per type. Query must not be empty. Users are public profiles only, never accounts waiting to be deleted nor, for a signed-in viewer, accounts blocking it or blocked by it. Artists' and tracks' `scrobble_count` are as `GET /v1/artist/{id}` and `GET /v1/track/{id}` serve them. Catalog-wide counts include every user's plays, private profiles' too, so they are served only for entities a minimum of distinct users (set by the server) have played, counted from the daily aggregates (a new listener counts within the hour, today's plays from tomorrow): a count never stands for one or two people's listening.",
         "parameters": [
           {
             "in": "query",
@@ -11695,7 +11695,7 @@
     },
     "/v1/tag/{tag}/albums": {
       "get": {
-        "description": "The albums the tag is shown on, most taggers first, `limit` a page (50 by default, 200 at most) from `offset`; `total` counts them all; a tag shown nowhere, used or not, gives an empty page. The tag is normalized as tags are (case, spacing and Unicode forms don't matter). Each account counts once, weighed as the rankings weigh listeners: in full from a week after registering, at its factor when the anti-botting coordination detection flagged it, not at all while suspended or waiting to be deleted; private accounts count, unnamed. A tag is shown on an entity from the server's minimum of weighted accounts (`RANKING_MIN_LISTENERS`, 5 unless configured), so nobody can put one there alone. The worker recounts an entity within a minute of a change, and every entity every 6 hours. Tags feed nothing else: rankings, recommendations and similar artists don't read them. Cacheable for 5 minutes, with an `ETag`.",
+        "description": "The albums the tag is shown on, most taggers first, `limit` a page (50 by default, 200 at most) from `offset`; `total` counts them all; a tag shown nowhere, used or not, gives an empty page. The tag is normalized as tags are (case, spacing and Unicode forms don't matter). A tag shows on an entity once enough established accounts use it there, so nobody can put one there alone; `taggers` says about how many, private accounts counted unnamed. Counts follow a change within a minute or so. Tags feed nothing else: rankings, recommendations and similar artists don't read them. Cacheable for 5 minutes, with an `ETag`.",
         "parameters": [
           {
             "in": "path",
@@ -11833,7 +11833,7 @@
     },
     "/v1/tag/{tag}/artists": {
       "get": {
-        "description": "The artists the tag is shown on, most taggers first, `limit` a page (50 by default, 200 at most) from `offset`; `total` counts them all; a tag shown nowhere, used or not, gives an empty page. The tag is normalized as tags are (case, spacing and Unicode forms don't matter). Each account counts once, weighed as the rankings weigh listeners: in full from a week after registering, at its factor when the anti-botting coordination detection flagged it, not at all while suspended or waiting to be deleted; private accounts count, unnamed. A tag is shown on an entity from the server's minimum of weighted accounts (`RANKING_MIN_LISTENERS`, 5 unless configured), so nobody can put one there alone. The worker recounts an entity within a minute of a change, and every entity every 6 hours. Tags feed nothing else: rankings, recommendations and similar artists don't read them. Cacheable for 5 minutes, with an `ETag`.",
+        "description": "The artists the tag is shown on, most taggers first, `limit` a page (50 by default, 200 at most) from `offset`; `total` counts them all; a tag shown nowhere, used or not, gives an empty page. The tag is normalized as tags are (case, spacing and Unicode forms don't matter). A tag shows on an entity once enough established accounts use it there, so nobody can put one there alone; `taggers` says about how many, private accounts counted unnamed. Counts follow a change within a minute or so. Tags feed nothing else: rankings, recommendations and similar artists don't read them. Cacheable for 5 minutes, with an `ETag`.",
         "parameters": [
           {
             "in": "path",
@@ -11971,7 +11971,7 @@
     },
     "/v1/tag/{tag}/tracks": {
       "get": {
-        "description": "The tracks the tag is shown on, most taggers first, `limit` a page (50 by default, 200 at most) from `offset`; `total` counts them all; a tag shown nowhere, used or not, gives an empty page. The tag is normalized as tags are (case, spacing and Unicode forms don't matter). Each account counts once, weighed as the rankings weigh listeners: in full from a week after registering, at its factor when the anti-botting coordination detection flagged it, not at all while suspended or waiting to be deleted; private accounts count, unnamed. A tag is shown on an entity from the server's minimum of weighted accounts (`RANKING_MIN_LISTENERS`, 5 unless configured), so nobody can put one there alone. The worker recounts an entity within a minute of a change, and every entity every 6 hours. Tags feed nothing else: rankings, recommendations and similar artists don't read them. Cacheable for 5 minutes, with an `ETag`.",
+        "description": "The tracks the tag is shown on, most taggers first, `limit` a page (50 by default, 200 at most) from `offset`; `total` counts them all; a tag shown nowhere, used or not, gives an empty page. The tag is normalized as tags are (case, spacing and Unicode forms don't matter). A tag shows on an entity once enough established accounts use it there, so nobody can put one there alone; `taggers` says about how many, private accounts counted unnamed. Counts follow a change within a minute or so. Tags feed nothing else: rankings, recommendations and similar artists don't read them. Cacheable for 5 minutes, with an `ETag`.",
         "parameters": [
           {
             "in": "path",
@@ -12109,7 +12109,7 @@
     },
     "/v1/track/{id}": {
       "get": {
-        "description": "Returns catalog metadata for a single track by its internal ID, including title, album, duration and the full artist credit list (primary artist first, then featured collaborators in billing order), and for a signed-in viewer whether it loves the track (`loved`, `null` signed out). `scrobble_count` is `null` for a track fewer than the minimum of listeners played. Catalog-wide counts include every user's plays, private profiles' too, so they are served only for entities at least `RANKING_MIN_LISTENERS` (5 by default) distinct users have played, counted from the daily aggregates (a new listener counts from their next refresh, within the hour; today's plays from tomorrow): a count is never one or two people's listening.",
+        "description": "Returns catalog metadata for a single track by its internal ID, including title, album, duration and the full artist credit list (primary artist first, then featured collaborators in billing order), and for a signed-in viewer whether it loves the track (`loved`, `null` signed out). `scrobble_count` is `null` for a track fewer than the minimum of listeners played. Catalog-wide counts include every user's plays, private profiles' too, so they are served only for entities a minimum of distinct users (set by the server) have played, counted from the daily aggregates (a new listener counts within the hour, today's plays from tomorrow): a count never stands for one or two people's listening.",
         "parameters": [
           {
             "in": "path",
@@ -12698,7 +12698,7 @@
     },
     "/v1/track/{id}/tags": {
       "get": {
-        "description": "The track's tags, most taggers first (100 at most). Each account counts once, weighed as the rankings weigh listeners: in full from a week after registering, at its factor when the anti-botting coordination detection flagged it, not at all while suspended or waiting to be deleted; private accounts count, unnamed. A tag is shown on an entity from the server's minimum of weighted accounts (`RANKING_MIN_LISTENERS`, 5 unless configured), so nobody can put one there alone. The worker recounts an entity within a minute of a change, and every entity every 6 hours. Tags feed nothing else: rankings, recommendations and similar artists don't read them. Cacheable for 5 minutes, with an `ETag`.",
+        "description": "The track's tags, most taggers first (100 at most). A tag shows on an entity once enough established accounts use it there, so nobody can put one there alone; `taggers` says about how many, private accounts counted unnamed. Counts follow a change within a minute or so. Tags feed nothing else: rankings, recommendations and similar artists don't read them. Cacheable for 5 minutes, with an `ETag`.",
         "parameters": [
           {
             "in": "path",
@@ -12807,7 +12807,7 @@
         ]
       },
       "post": {
-        "description": "Adds tags to the user's own on the track and returns them all; tags already there change nothing. Tags are normalized (lowercase, NFKC, single spaces), 1 to 40 letters, digits, spaces and `- & ' . + ! _`; a term the operator blocked refuses the request. An account puts at most 10 tags on one artist, album or track and holds 50000 in all, and an entity carries 500 different tags at most (409). A suspended account can't tag (403); a new one may, its tags weighing nothing in the counts for a week. Adding and removing count together against 120 changes an hour per account, 300 per address, through this API and the Last.fm-compatible one.",
+        "description": "Adds tags to the user's own on the track and returns them all; tags already there change nothing. Tags are normalized (lowercase, NFKC, single spaces), 1 to 40 letters, digits, spaces and `- & ' . + ! _`; a tag the server refuses is a 400. An account puts at most 10 tags on one artist, album or track and holds 50000 in all, and an entity carries 500 different tags at most (409). An account that can't tag for now gets a 403. Adding and removing count together against 120 changes an hour per account, 300 per address, through this API and the Last.fm-compatible one.",
         "parameters": [
           {
             "in": "path",
@@ -13387,7 +13387,7 @@
     },
     "/v1/user/me/community/albums": {
       "get": {
-        "description": "The albums the accounts the signed-in user follows listened to most over a period (`7d` by default, `30d`, `90d` or `12m`: UTC days ending today, today included) or a custom range of UTC days (`from` and `to`, both included, 366 days at most, within the last year: older weights aren't kept, hence no `all`), ranked as the global rankings are: by listeners, then by plays, each account counting once at most, and less when its plays don't look like real listening, plays weighed the same way, and both rounded.\n\nIt covers the accounts followed that anyone may see (`following`; private ones and those waiting to be deleted are left out), the most recently active first, as many as the range allows, so a chart's cost doesn't grow with the follows: 2000 over a week, 40 over a year (`accounts`). No account is named, and entities fewer than `min_listeners` of those accounts played are left out (the server's `RANKING_MIN_LISTENERS`, 5 unless configured), so no entry stands for one or two people's listening: following fewer accounts than that gives an empty chart. At most 1000 entries; paged by `limit` (50 by default, 200 at most) and `offset`.\n\nA ranking, once computed, is reused for 5 minutes by every request covering the same accounts and days, so pages of one chart agree and positions are that old at most; following or unfollowing, or an account turning private, makes another. Pages carry a weak `ETag` and `Cache-Control: private, max-age=60`: send the tag back in `If-None-Match` for a 304 while the ranking is the same.",
+        "description": "The albums the accounts the signed-in user follows listened to most over a period (`7d` by default, `30d`, `90d` or `12m`: UTC days ending today, today included) or a custom range of UTC days (`from` and `to`, both included, 366 days at most, within the last year: older weights aren't kept, hence no `all`), ranked as the global rankings are: by listeners, then by plays, each account counting once at most, and less when its plays don't look like real listening, plays weighed the same way, and both rounded.\n\nIt covers the accounts followed that anyone may see (`following`; private ones and those waiting to be deleted are left out), the most recently active first, as many as the range allows, so a chart's cost doesn't grow with the follows: 2000 over a week, 40 over a year (`accounts`). No account is named, and entities fewer than `min_listeners` of those accounts played are left out, so no entry stands for one or two people's listening: following fewer accounts than that gives an empty chart. At most 1000 entries; paged by `limit` (50 by default, 200 at most) and `offset`.\n\nA ranking, once computed, is reused for 5 minutes by every request covering the same accounts and days, so pages of one chart agree and positions are that old at most; following or unfollowing, or an account turning private, makes another. Pages carry a weak `ETag` and `Cache-Control: private, max-age=60`: send the tag back in `If-None-Match` for a 304 while the ranking is the same.",
         "parameters": [
           {
             "description": "The first UTC day of a custom range (`YYYY-MM-DD`), with `to`.",
@@ -13586,7 +13586,7 @@
     },
     "/v1/user/me/community/artists": {
       "get": {
-        "description": "The artists the accounts the signed-in user follows listened to most over a period (`7d` by default, `30d`, `90d` or `12m`: UTC days ending today, today included) or a custom range of UTC days (`from` and `to`, both included, 366 days at most, within the last year: older weights aren't kept, hence no `all`), ranked as the global rankings are: by listeners, then by plays, each account counting once at most, and less when its plays don't look like real listening, plays weighed the same way, and both rounded.\n\nIt covers the accounts followed that anyone may see (`following`; private ones and those waiting to be deleted are left out), the most recently active first, as many as the range allows, so a chart's cost doesn't grow with the follows: 2000 over a week, 40 over a year (`accounts`). No account is named, and entities fewer than `min_listeners` of those accounts played are left out (the server's `RANKING_MIN_LISTENERS`, 5 unless configured), so no entry stands for one or two people's listening: following fewer accounts than that gives an empty chart. At most 1000 entries; paged by `limit` (50 by default, 200 at most) and `offset`.\n\nA ranking, once computed, is reused for 5 minutes by every request covering the same accounts and days, so pages of one chart agree and positions are that old at most; following or unfollowing, or an account turning private, makes another. Pages carry a weak `ETag` and `Cache-Control: private, max-age=60`: send the tag back in `If-None-Match` for a 304 while the ranking is the same.",
+        "description": "The artists the accounts the signed-in user follows listened to most over a period (`7d` by default, `30d`, `90d` or `12m`: UTC days ending today, today included) or a custom range of UTC days (`from` and `to`, both included, 366 days at most, within the last year: older weights aren't kept, hence no `all`), ranked as the global rankings are: by listeners, then by plays, each account counting once at most, and less when its plays don't look like real listening, plays weighed the same way, and both rounded.\n\nIt covers the accounts followed that anyone may see (`following`; private ones and those waiting to be deleted are left out), the most recently active first, as many as the range allows, so a chart's cost doesn't grow with the follows: 2000 over a week, 40 over a year (`accounts`). No account is named, and entities fewer than `min_listeners` of those accounts played are left out, so no entry stands for one or two people's listening: following fewer accounts than that gives an empty chart. At most 1000 entries; paged by `limit` (50 by default, 200 at most) and `offset`.\n\nA ranking, once computed, is reused for 5 minutes by every request covering the same accounts and days, so pages of one chart agree and positions are that old at most; following or unfollowing, or an account turning private, makes another. Pages carry a weak `ETag` and `Cache-Control: private, max-age=60`: send the tag back in `If-None-Match` for a 304 while the ranking is the same.",
         "parameters": [
           {
             "description": "The first UTC day of a custom range (`YYYY-MM-DD`), with `to`.",
@@ -13785,7 +13785,7 @@
     },
     "/v1/user/me/community/tracks": {
       "get": {
-        "description": "The tracks the accounts the signed-in user follows listened to most over a period (`7d` by default, `30d`, `90d` or `12m`: UTC days ending today, today included) or a custom range of UTC days (`from` and `to`, both included, 366 days at most, within the last year: older weights aren't kept, hence no `all`), ranked as the global rankings are: by listeners, then by plays, each account counting once at most, and less when its plays don't look like real listening, plays weighed the same way, and both rounded.\n\nIt covers the accounts followed that anyone may see (`following`; private ones and those waiting to be deleted are left out), the most recently active first, as many as the range allows, so a chart's cost doesn't grow with the follows: 2000 over a week, 40 over a year (`accounts`). No account is named, and entities fewer than `min_listeners` of those accounts played are left out (the server's `RANKING_MIN_LISTENERS`, 5 unless configured), so no entry stands for one or two people's listening: following fewer accounts than that gives an empty chart. At most 1000 entries; paged by `limit` (50 by default, 200 at most) and `offset`.\n\nA ranking, once computed, is reused for 5 minutes by every request covering the same accounts and days, so pages of one chart agree and positions are that old at most; following or unfollowing, or an account turning private, makes another. Pages carry a weak `ETag` and `Cache-Control: private, max-age=60`: send the tag back in `If-None-Match` for a 304 while the ranking is the same.",
+        "description": "The tracks the accounts the signed-in user follows listened to most over a period (`7d` by default, `30d`, `90d` or `12m`: UTC days ending today, today included) or a custom range of UTC days (`from` and `to`, both included, 366 days at most, within the last year: older weights aren't kept, hence no `all`), ranked as the global rankings are: by listeners, then by plays, each account counting once at most, and less when its plays don't look like real listening, plays weighed the same way, and both rounded.\n\nIt covers the accounts followed that anyone may see (`following`; private ones and those waiting to be deleted are left out), the most recently active first, as many as the range allows, so a chart's cost doesn't grow with the follows: 2000 over a week, 40 over a year (`accounts`). No account is named, and entities fewer than `min_listeners` of those accounts played are left out, so no entry stands for one or two people's listening: following fewer accounts than that gives an empty chart. At most 1000 entries; paged by `limit` (50 by default, 200 at most) and `offset`.\n\nA ranking, once computed, is reused for 5 minutes by every request covering the same accounts and days, so pages of one chart agree and positions are that old at most; following or unfollowing, or an account turning private, makes another. Pages carry a weak `ETag` and `Cache-Control: private, max-age=60`: send the tag back in `If-None-Match` for a 304 while the ranking is the same.",
         "parameters": [
           {
             "description": "The first UTC day of a custom range (`YYYY-MM-DD`), with `to`.",
@@ -13984,7 +13984,7 @@
     },
     "/v1/user/me/delete": {
       "post": {
-        "description": "Deletes the authenticated user's account, given its password and its username typed out as `confirm`. At once: every session (this one included), API token, scrobbler credential and authorization, and linked account (with its stored OAuth tokens) is revoked, imports in progress stop, and the account disappears from profiles, search, listener lists, comments and follower lists. Its history stays for a grace period (`ACCOUNT_DELETION_GRACE_DAYS`, 7 days by default) during which logging in with the password restores it (credentials and links have to be made again); after it the worker erases everything about the account, its plays from catalog counts and rankings included. Takes a session, never an API token. At most 5 attempts an hour per account and 10 per address.",
+        "description": "Deletes the authenticated user's account, given its password and its username typed out as `confirm`. At once: every session (this one included), API token, scrobbler credential and authorization, and linked account (with its stored OAuth tokens) is revoked, imports in progress stop, and the account disappears from profiles, search, listener lists, comments and follower lists. Its history stays for a grace period (7 days by default) during which logging in with the password restores it (credentials and links have to be made again); after it the worker erases everything about the account, its plays from catalog counts and rankings included. Takes a session, never an API token. At most 5 attempts an hour per account and 10 per address.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -14070,7 +14070,7 @@
     },
     "/v1/user/me/export": {
       "get": {
-        "description": "Downloads everything Scrobblr holds about the authenticated user as a ZIP archive (`scrobblr-export/1`), streamed as it is read: `account.json` (profile and settings, follows, the accounts the user blocks and the followers it removed (never who blocks or removed it), comments, image uploads and likes, sessions without their ids, API tokens and scrobbler credentials without their values, linked accounts without their OAuth tokens, imports, now playing, the similarity setting, recommended artists and taste neighbours as last computed and the skipped recommendations, and `not_included`: what is left out and why), `scrobbles.csv` and `scrobbles.json` (every scrobble, oldest first, with its source, client, import and the classifier's label, never ranking weights), `loved_tracks.csv` and `loved_tracks.json` (every loved track, oldest love first, with how the love came), and `uploads/` (the avatar and artwork the user uploaded). Nothing is stored on the server: a broken download is asked for again. Takes a session, never an API token. At most 3 exports a day per account and 10 per address, and 2 at once on the server.",
+        "description": "Downloads everything Scrobblr holds about the authenticated user as a ZIP archive (`scrobblr-export/1`), streamed as it is read: `account.json` (profile and settings, follows, the accounts the user blocks and the followers it removed (never who blocks or removed it), comments, image uploads and likes, sessions without their ids, API tokens and scrobbler credentials without their values, linked accounts without their OAuth tokens, imports, now playing, the similarity setting, recommended artists and taste neighbours as last computed and the skipped recommendations, the reports the user made and when an editing suspension began and ends, and `not_included`: what is left out and why), `scrobbles.csv` and `scrobbles.json` (every scrobble, oldest first, with its source, client, import and the classifier's label, never ranking weights), `loved_tracks.csv` and `loved_tracks.json` (every loved track, oldest love first, with how the love came), `tags.json` (every tag the user put on something), `bio_edits.json` (every bio revision the user wrote, with its text and status), and `uploads/` (the avatar and artwork the user uploaded). Nothing is stored on the server: a broken download is asked for again. Takes a session, never an API token. At most 3 exports a day per account and 10 per address, and 2 at once on the server.",
         "responses": {
           "200": {
             "content": {

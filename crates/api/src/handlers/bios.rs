@@ -76,7 +76,7 @@ pub async fn album_bio(
 
 fn current_doc(op: TransformOperation, kind: CatalogKind) -> TransformOperation {
     op.summary(&format!("{} bio", name(kind)))
-        .description(&format!("The bio as it stands: its current revision, written by the community (accounts a week old may edit it) or imported from Last.fm before anyone did. `revision_id` and `body` are `null` when there is none. The text is plain: show it as text, a paragraph at each blank line, `http://` and `https://` URLs as links marked `rel=\"nofollow ugc\"`, never embedded. {AUTHORS}"))
+        .description(&format!("The bio as it stands: its current revision, written by the community or imported from Last.fm before anyone did. `revision_id` and `body` are `null` when there is none. The text is plain: show it as text, a paragraph at each blank line, `http://` and `https://` URLs as links marked `rel=\"nofollow ugc\"`, never embedded. {AUTHORS}"))
         .tag("Bios")
         .response::<200, Json<Bio>>()
         .response_with::<404, ErrorJson, _>(|r| r.description(&format!("{} not found", name(kind))))
@@ -319,11 +319,11 @@ fn write_limits() -> String {
     )
 }
 
-const MAY_EDIT: &str = "Accounts may edit from 7 days after registering, unless a moderator suspended them, they wait to be deleted, or the anti-botting coordination detection has halved their weight or more over the last 28 days (403, telling them only that they can't edit now); nobody may edit a bio a moderator locked (403). An account writes 50 revisions a day at most, and 3 of one bio, so two accounts can't keep reverting each other.";
+const MAY_EDIT: &str = "Accounts may edit some days after registering (a 403 says from when), unless they can't edit for now (a 403 saying so); nobody may edit a bio a moderator locked (403). An account writes 50 revisions in 24 hours at most, and 3 of one bio, so two accounts can't keep reverting each other.";
 
 fn edit_doc(op: TransformOperation, kind: CatalogKind) -> TransformOperation {
     op.summary(&format!("Edit an {} bio", name(kind).to_lowercase()))
-        .description(&format!("Writes a new revision of the bio over `base_revision_id`, the revision the text was written over; if another came since, nothing is written (409: read the bio again and merge). {MAY_EDIT} An edit that looks like spam (a link host repeated more than twice; a host its author added to two other bios in a week, or anyone to four in a day; a long text copied from another bio) is held for a moderator: 202, with `status: held` and why in `held_reason`, and the bio unchanged."))
+        .description(&format!("Writes a new revision of the bio over `base_revision_id`, the revision the text was written over; if another came since, nothing is written (409: read the bio again and merge). {MAY_EDIT} An edit that looks like spam is held for a moderator: 202, with `status: held` and why in `held_reason`, and the bio unchanged."))
         .tag("Bios")
         .response::<200, Json<BioRevision>>()
         .response_with::<202, Json<BioRevision>, _>(|r| r.description("Held for review: the bio is unchanged"))

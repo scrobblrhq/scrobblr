@@ -121,7 +121,7 @@ pub async fn scrobble(
 
 pub fn _scrobble_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Scrobble a track")
-        .description("Records a track listen for the authenticated user. Validates scrobble rules (e.g. minimum listen duration), deduplicates the same track within 30 seconds of another of the user's scrobbles, and refuses plays more than 30 days old (import older history instead). Each account may record `SCROBBLER_DAILY_LIMIT` scrobbles (default 3000) per UTC day, counted together with the scrobbler-compatible APIs.")
+        .description("Records a track listen for the authenticated user. Validates scrobble rules (e.g. minimum listen duration), deduplicates the same track within 30 seconds of another of the user's scrobbles, and refuses plays more than 30 days old (import older history instead). Each account may record the server's daily allowance of scrobbles (3,000 by default) per UTC day, counted together with the scrobbler-compatible APIs.")
         .tag("Scrobbling")
         .response::<201, Json<ScrobbleResponse>>()
         .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))

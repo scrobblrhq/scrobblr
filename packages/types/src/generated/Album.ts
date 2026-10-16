@@ -7,7 +7,7 @@
  */
 export type Album = { id: number, artist_id: number, artist_name: string, title: string, title_normalized: string, mbid: string | null, image_url: string | null, release_date: string | null, 
 /**
- * Plays of its tracks; `null` unless at least `RANKING_MIN_LISTENERS`
- * (5) users played them.
+ * Plays of its tracks; `null` unless enough distinct users played them
+ * (a minimum the server sets).
  */
 scrobble_count: number | null, created_at: string, };

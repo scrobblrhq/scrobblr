@@ -148,7 +148,8 @@ pub struct Artist {
     /// The community bio's current text; `GET /v1/artist/{id}/bio` has its
     /// revision and author.
     pub bio: Option<String>,
-    /// `null` unless at least `RANKING_MIN_LISTENERS` (5) users played it.
+    /// `null` unless enough distinct users played it (a minimum the server
+    /// sets).
     pub scrobble_count: Option<i64>,
     /// Never computed: always `null`.
     pub listener_count: Option<i64>,
@@ -170,8 +171,8 @@ pub struct Album {
     #[serde(serialize_with = "crate::media::serialize_opt_url")]
     pub image_url: Option<String>,
     pub release_date: Option<chrono::NaiveDate>,
-    /// Plays of its tracks; `null` unless at least `RANKING_MIN_LISTENERS`
-    /// (5) users played them.
+    /// Plays of its tracks; `null` unless enough distinct users played them
+    /// (a minimum the server sets).
     pub scrobble_count: Option<i64>,
     pub created_at: DateTime<Utc>,
 }
@@ -187,7 +188,8 @@ pub struct Track {
     pub title_normalized: String,
     pub mbid: Option<Uuid>,
     pub duration_ms: Option<i32>,
-    /// `null` unless at least `RANKING_MIN_LISTENERS` (5) users played it.
+    /// `null` unless enough distinct users played it (a minimum the server
+    /// sets).
     pub scrobble_count: Option<i64>,
     pub created_at: DateTime<Utc>,
 }
@@ -1024,10 +1026,8 @@ pub struct BioHistoryPage {
 #[ts(export)]
 pub struct TopTag {
     pub name: String,
-    /// The accounts that put it there, weighed as the rankings weigh
-    /// listeners (a week-old account in full, one the anti-botting
-    /// coordination detection flagged at its factor), to the nearest whole;
-    /// at least `RANKING_MIN_LISTENERS` (5).
+    /// About how many established accounts put it there; a tag shows from
+    /// a minimum the server sets.
     pub taggers: i64,
 }
 

@@ -51,7 +51,7 @@ fn min_weight(state: &AppState) -> i64 {
     i64::from(state.rankings.min_listeners) * shared::ranking::FULL
 }
 
-const COUNTED: &str = "Each account counts once, weighed as the rankings weigh listeners: in full from a week after registering, at its factor when the anti-botting coordination detection flagged it, not at all while suspended or waiting to be deleted; private accounts count, unnamed. A tag is shown on an entity from the server's minimum of weighted accounts (`RANKING_MIN_LISTENERS`, 5 unless configured), so nobody can put one there alone. The worker recounts an entity within a minute of a change, and every entity every 6 hours. Tags feed nothing else: rankings, recommendations and similar artists don't read them.";
+const COUNTED: &str = "A tag shows on an entity once enough established accounts use it there, so nobody can put one there alone; `taggers` says about how many, private accounts counted unnamed. Counts follow a change within a minute or so. Tags feed nothing else: rankings, recommendations and similar artists don't read them.";
 
 async fn top_tags(
     state: &AppState,
@@ -365,7 +365,7 @@ fn tag_limits() -> String {
 fn add_doc(op: TransformOperation, kind: CatalogKind) -> TransformOperation {
     let noun = noun(kind);
     op.summary(&format!("Tag the {noun}"))
-        .description(&format!("Adds tags to the user's own on the {noun} and returns them all; tags already there change nothing. Tags are normalized (lowercase, NFKC, single spaces), 1 to 40 letters, digits, spaces and `- & ' . + ! _`; a term the operator blocked refuses the request. An account puts at most {} tags on one artist, album or track and holds {} in all, and an entity carries {} different tags at most (409). A suspended account can't tag (403); a new one may, its tags weighing nothing in the counts for a week. Adding and removing count together against {} changes an hour per account, {} per address, through this API and the Last.fm-compatible one.", community::MAX_TAGS_PER_ENTITY, community::MAX_TAGGINGS, community::MAX_ENTITY_TAGS, limits::TAG_CHANGES_PER_USER, limits::TAG_CHANGES_PER_IP))
+        .description(&format!("Adds tags to the user's own on the {noun} and returns them all; tags already there change nothing. Tags are normalized (lowercase, NFKC, single spaces), 1 to 40 letters, digits, spaces and `- & ' . + ! _`; a tag the server refuses is a 400. An account puts at most {} tags on one artist, album or track and holds {} in all, and an entity carries {} different tags at most (409). An account that can't tag for now gets a 403. Adding and removing count together against {} changes an hour per account, {} per address, through this API and the Last.fm-compatible one.", community::MAX_TAGS_PER_ENTITY, community::MAX_TAGGINGS, community::MAX_ENTITY_TAGS, limits::TAG_CHANGES_PER_USER, limits::TAG_CHANGES_PER_IP))
         .tag("Tags")
         .response::<200, Json<EntityTags>>()
         .response_with::<400, ErrorJson, _>(|r| r.description("No tags or more than 10, an invalid tag, or a blocked one"))

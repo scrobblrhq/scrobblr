@@ -10,6 +10,7 @@ export type TrackWithCredits = { artists: Array<TrackCredit>,
  */
 loved: boolean | null, id: number, artist_id: number, album_id: number | null, title: string, title_normalized: string, mbid: string | null, duration_ms: number | null, 
 /**
- * `null` unless at least `RANKING_MIN_LISTENERS` (5) users played it.
+ * `null` unless enough distinct users played it (a minimum the server
+ * sets).
  */
 scrobble_count: number | null, created_at: string, };

@@ -644,9 +644,8 @@ fn community_doc<'t>(
              those waiting to be deleted are left out), the most recently active first, as many \
              as the range allows, so a chart's cost doesn't grow with the follows: {max} over a \
              week, {year} over a year (`accounts`). No account is named, and entities fewer than \
-             `min_listeners` of those accounts played are left out (the server's \
-             `RANKING_MIN_LISTENERS`, 5 unless configured), so no entry stands for one or two \
-             people's listening: following fewer accounts than that gives an empty chart. At most \
+             `min_listeners` of those accounts played are left out, so no entry stands for one \
+             or two people's listening: following fewer accounts than that gives an empty chart. At most \
              {COMMUNITY_POSITIONS} entries; paged by `limit` (50 by default, 200 at most) and \
              `offset`.\n\n\
              A ranking, once computed, is reused for {} minutes by every request covering the \
