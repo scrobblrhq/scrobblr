@@ -5,6 +5,7 @@ use axum::{
     extract::{Extension, Path, Query, State},
     http::StatusCode,
 };
+use fred::interfaces::PubsubInterface;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -190,6 +191,16 @@ pub async fn update_settings(
         .media
         .delete_replaced_avatar(previous_image.as_deref(), user.image_url.as_deref())
         .await;
+    if body.is_private == Some(true) {
+        // Streams opened while the profile was public. Best-effort.
+        let closed = state
+            .redis
+            .publish::<(), _, _>(crate::live::channel(user.id), crate::live::close_others())
+            .await;
+        if let Err(e) = closed {
+            tracing::warn!("failed to close live streams of a private profile: {e}");
+        }
+    }
     Ok(Json(UserProfile::from(user)))
 }
 

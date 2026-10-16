@@ -33,6 +33,11 @@ pub fn close_for(viewer: i64) -> String {
     format!("{CLOSE_PREFIX}{viewer}")
 }
 
+/// Ends every stream of a user but its own (the profile turned private).
+pub fn close_others() -> String {
+    format!("{CLOSE_PREFIX}others")
+}
+
 /// The streams open per user. Without [`subscribe`] nothing reaches them.
 #[derive(Default)]
 pub struct LiveHub {
@@ -140,6 +145,7 @@ impl Listener {
         loop {
             match self.rx.recv().await {
                 Ok(payload) => match payload.strip_prefix(CLOSE_PREFIX) {
+                    Some("others") if self.viewer != Some(self.user_id) => return None,
                     Some(viewer) if viewer.parse().ok() == self.viewer => return None,
                     Some(_) => continue,
                     None => return Some(payload),
@@ -230,6 +236,20 @@ mod tests {
         assert_eq!(blocked.recv().await, None);
         assert_eq!(other.recv().await.as_deref(), Some("{}"));
         assert_eq!(signed_out.recv().await.as_deref(), Some("{}"));
+    }
+
+    #[tokio::test]
+    async fn turning_private_ends_every_stream_but_the_owners() {
+        let hub = LiveHub::default();
+        let mut owner = hub.listen(1, "203.0.113.1", Some(1)).unwrap();
+        let mut viewer = hub.listen(1, "203.0.113.1", Some(8)).unwrap();
+        let mut signed_out = hub.listen(1, "203.0.113.1", None).unwrap();
+
+        hub.dispatch(&channel(1), close_others());
+        hub.dispatch(&channel(1), "{}".into());
+        assert_eq!(viewer.recv().await, None);
+        assert_eq!(signed_out.recv().await, None);
+        assert_eq!(owner.recv().await.as_deref(), Some("{}"));
     }
 
     #[test]
