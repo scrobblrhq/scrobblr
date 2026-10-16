@@ -415,13 +415,7 @@ impl Enricher {
             .await?;
             // Which album the track belongs to weighs releases of these
             // titles double; kept only if the recording is the track's.
-            let mut titles: Vec<String> = rec
-                .releases
-                .iter()
-                .map(|r| shared::scrobble::normalize_name(&r.title))
-                .collect();
-            titles.sort();
-            titles.dedup();
+            let titles = mb::release_titles(&rec);
             albums_db::record_releases(&self.db, ctx.id, rec.id, &titles).await?;
 
             // Recent plays were classified against a client-reported length

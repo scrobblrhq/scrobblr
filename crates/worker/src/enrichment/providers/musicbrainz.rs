@@ -150,6 +150,19 @@ pub async fn lookup_recording(
     .await
 }
 
+/// The titles of the releases MusicBrainz lists the recording on,
+/// normalized as album titles are, sorted and once each.
+pub fn release_titles(recording: &Recording) -> Vec<String> {
+    let mut titles: Vec<String> = recording
+        .releases
+        .iter()
+        .map(|r| shared::scrobble::normalize_name(&r.title))
+        .collect();
+    titles.sort();
+    titles.dedup();
+    titles
+}
+
 /// Whether a recording someone else pointed us at (Last.fm's mbid) is
 /// plausibly this track: the same title, give or take a trailing
 /// " (…)" or " - …" qualifier, and a credited artist named like ours.
@@ -382,6 +395,27 @@ mod tests {
         ] {
             assert_eq!(undecorated_title(title), None, "{title}");
         }
+    }
+
+    /// A lookup as MusicBrainz answered it (`inc=artist-credits releases
+    /// release-groups`, 2026-10-16): what attribution weighs releases by.
+    #[test]
+    fn a_recording_lookup_gives_its_length_credits_and_release_titles() {
+        let rec: Recording =
+            serde_json::from_str(include_str!("testdata/musicbrainz_recording.json")).unwrap();
+        assert_eq!(
+            rec.id,
+            "a31e069b-1025-4700-971d-c6cfe937e31a"
+                .parse::<Uuid>()
+                .unwrap()
+        );
+        assert_eq!(rec.length, Some(322_000));
+        assert!(matches_track(&rec, "Teardrop", "Massive Attack"));
+        assert_eq!(release_titles(&rec), ["spirits of nature 5"]);
+        let release = &rec.releases[0];
+        assert_eq!(release.status.as_deref(), Some("Official"));
+        assert_eq!(release.date.as_deref(), Some("1998"));
+        assert!(release.release_group.is_some());
     }
 
     #[test]

@@ -1,0 +1,97 @@
+{
+	"title": "Teardrop",
+	"length": 322000,
+	"first-release-date": "1998",
+	"releases": [
+		{
+			"barcode": "724384700621",
+			"text-representation": {
+				"language": "eng",
+				"script": "Latn"
+			},
+			"packaging": "Digipak",
+			"status-id": "4e304316-386d-3409-af2e-78857eec5cfe",
+			"country": "NL",
+			"disambiguation": "",
+			"date": "1998",
+			"release-events": [
+				{
+					"date": "1998",
+					"area": {
+						"type-id": null,
+						"sort-name": "Netherlands",
+						"name": "Netherlands",
+						"type": null,
+						"iso-3166-1-codes": ["NL"],
+						"disambiguation": "",
+						"id": "ef1b7cc0-cd26-36f4-8ea0-04d9623786c7"
+					}
+				}
+			],
+			"packaging-id": "8f931351-d2e2-310f-afc6-37b89ddba246",
+			"release-group": {
+				"primary-type": "Album",
+				"first-release-date": "1998",
+				"releases": [],
+				"primary-type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+				"disambiguation": "",
+				"id": "d04bb412-f6d8-38b0-923f-33fa5b3c7568",
+				"artist-credit": [
+					{
+						"joinphrase": "",
+						"name": "Various Artists",
+						"artist": {
+							"disambiguation": "add compilations to this artist",
+							"id": "89ad4ac3-39f7-470e-963a-56509c546377",
+							"type": "Other",
+							"type-id": "ac897045-5043-3294-969b-187360e45d86",
+							"country": null,
+							"sort-name": "Various Artists",
+							"name": "Various Artists"
+						}
+					}
+				],
+				"secondary-type-ids": ["dd2a21e1-0c00-3729-a7a0-de60b84eb5d1"],
+				"title": "Spirits of Nature 5",
+				"secondary-types": ["Compilation"]
+			},
+			"title": "Spirits of Nature 5",
+			"artist-credit": [
+				{
+					"artist": {
+						"type": "Other",
+						"name": "Various Artists",
+						"sort-name": "Various Artists",
+						"country": null,
+						"type-id": "ac897045-5043-3294-969b-187360e45d86",
+						"disambiguation": "add compilations to this artist",
+						"id": "89ad4ac3-39f7-470e-963a-56509c546377"
+					},
+					"joinphrase": "",
+					"name": "Various Artists"
+				}
+			],
+			"id": "f9199933-4e7a-4a71-baa9-687258054114",
+			"quality": "normal",
+			"status": "Official"
+		}
+	],
+	"video": false,
+	"id": "a31e069b-1025-4700-971d-c6cfe937e31a",
+	"artist-credit": [
+		{
+			"name": "Massive Attack",
+			"joinphrase": "",
+			"artist": {
+				"disambiguation": "",
+				"id": "10adbe5e-a2c0-4bf3-8249-2b4cbf6e6ca8",
+				"type": "Group",
+				"sort-name": "Massive Attack",
+				"country": "GB",
+				"type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b",
+				"name": "Massive Attack"
+			}
+		}
+	],
+	"disambiguation": ""
+}
