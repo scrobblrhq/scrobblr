@@ -722,7 +722,12 @@ pub fn build(state: AppState) -> Router {
         .merge(optional_authed_users)
         .layer(middleware::map_response(crate::errors::json_errors));
     let native = ApiRouter::new()
-        .route("/docs", Scalar::new("/api.json").axum_route())
+        .route(
+            "/docs",
+            Scalar::new("/api.json")
+                .with_title("Scrobblr API")
+                .axum_route(),
+        )
         .route("/health", axum::routing::get(monitoring::health))
         .route(
             "/health/worker",
@@ -757,6 +762,7 @@ pub fn build(state: AppState) -> Router {
         .finish_api_with(&mut api, api_docs);
     document_rate_limit(&mut api);
     compat::docs::document(&mut api);
+    crate::guides::document(&mut api);
     router.layer(Extension(Arc::new(api))).with_state(state)
 }
 
@@ -831,7 +837,6 @@ fn authed(state: &AppState, access: Access, routes: ApiRouter<AppState>) -> ApiR
 fn api_docs(api: TransformOpenApi) -> TransformOpenApi {
     api.title("Scrobblr API")
         .version(env!("CARGO_PKG_VERSION"))
-        .description("The API of Scrobblr, a self-hosted music scrobbling service.")
         .security_scheme(
             BEARER,
             aide::openapi::SecurityScheme::Http {

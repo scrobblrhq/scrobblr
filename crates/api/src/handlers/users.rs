@@ -256,7 +256,7 @@ pub async fn get_friends(
 pub fn _get_friends_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Get followers and following")
         .description(&format!("Returns the {FRIENDS_LIMIT} most recent followers and the {FRIENDS_LIMIT} most recent accounts followed, newest follow first; `GET /v1/user/{{username}}/followers` and `/following` page through all of them. Private accounts are left out of both, except the viewer's own, and so are accounts waiting to be deleted and, for a signed-in viewer, accounts blocking it or blocked by it. Private profiles return 403 to everyone but their owner."))
-        .tag("Users")
+        .tag("Social")
         .response::<200, Json<FriendsResponse>>()
         .response_with::<403, ErrorJson, _>(|r| r.description("Profile is private"))
         .response_with::<404, ErrorJson, _>(|r| r.description("User not found"))
@@ -354,7 +354,7 @@ fn follow_list_doc<'t>(
 ) -> TransformOperation<'t> {
     op.summary(summary)
         .description(&format!("A page of {what}, newest follow first: pass `next` as `before` for the following page; `next` is `null` on the last. Private accounts are left out, except the viewer's own, and so are accounts waiting to be deleted and, for a signed-in viewer, accounts blocking it or blocked by it, so a page can hold fewer entries than `limit` while more follow. A signed-in viewer gets `is_following` and `follows_you` for each account. Private profiles return 403 to everyone but their owner."))
-        .tag("Users")
+        .tag("Social")
         .response::<200, Json<FollowPage>>()
         .response_with::<400, ErrorJson, _>(|r| r.description("Invalid `before` cursor"))
         .response_with::<403, ErrorJson, _>(|r| r.description("Profile is private"))
@@ -419,7 +419,7 @@ fn blocking_conflict() -> AppError {
 pub fn _follow_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Follow a user")
         .description(&format!("Follows the specified user on behalf of the authenticated user; following an account already followed changes nothing. Following takes no approval, and opens nothing a private profile hides: its owner alone sees it. An account may follow {MAX_FOLLOWING} accounts at most, follow {} times an hour ({} from one address), refused attempts included, and follow the same account {} times a day (following again after an unfollow counts); unfollowing is free. An account that blocks the follower is not found, as one that doesn't exist; one the follower blocks, or that removed the follower from its followers in the last {} days, can't be followed (409).", limits::FOLLOWS_PER_USER, limits::FOLLOWS_PER_IP, limits::FOLLOWS_PER_PAIR, super::blocks::REMOVAL_COOLDOWN.num_days()))
-        .tag("Users")
+        .tag("Social")
         .response_with::<204, (), _>(|r| r.description("Followed, now or before"))
         .response_with::<400, ErrorJson, _>(|r| r.description("Cannot follow yourself"))
         .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
@@ -462,7 +462,7 @@ pub async fn unfollow(
 pub fn _unfollow_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Unfollow a user")
         .description("Unfollows the specified user on behalf of the authenticated user. An account that blocks the user is not found, as one that doesn't exist.")
-        .tag("Users")
+        .tag("Social")
         .response_with::<204, (), _>(|r| r.description("Successfully unfollowed"))
         .response_with::<400, ErrorJson, _>(|r| r.description("Cannot unfollow yourself"))
         .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))

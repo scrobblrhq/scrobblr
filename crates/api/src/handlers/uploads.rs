@@ -176,7 +176,7 @@ pub async fn upload_artist_image(
 pub fn _upload_artist_image_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Propose an artist image")
         .description("Adds a community image candidate for the artist (multipart `image` field). Uploads never replace the current image directly — the most-liked candidate becomes the displayed image once it clears the vote threshold. Returns the refreshed candidate list.")
-        .tag("Catalog")
+        .tag("Images")
         .response::<200, Json<Vec<ImageCandidate>>>()
         .response_with::<400, ErrorJson, _>(|r| r.description("Not a valid image, or too many pixels"))
         .response_with::<413, ErrorJson, _>(|r| r.description("Larger than 8 MiB"))
@@ -210,7 +210,7 @@ pub async fn upload_album_image(
 pub fn _upload_album_image_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Propose an album cover")
         .description("Adds a community cover candidate for the album (multipart `image` field). Uploads never replace the current cover directly — the most-liked candidate becomes the displayed cover once it clears the vote threshold. Returns the refreshed candidate list.")
-        .tag("Catalog")
+        .tag("Images")
         .response::<200, Json<Vec<ImageCandidate>>>()
         .response_with::<400, ErrorJson, _>(|r| r.description("Not a valid image, or too many pixels"))
         .response_with::<413, ErrorJson, _>(|r| r.description("Larger than 8 MiB"))

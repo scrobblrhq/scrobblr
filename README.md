@@ -115,7 +115,7 @@ Interactive API docs are served at [`/docs`](http://localhost:8080/docs) (OpenAP
 
 Existing scrobblers (Web Scrobbler, Pano Scrobbler, Audioscrobbler 1.2 players,
 ListenBrainz clients) can scrobble to Scrobblr by changing only the server
-URL: see [docs/scrobbler-clients.md](docs/scrobbler-clients.md).
+URL: see [docs/api/scrobbler-protocols.md](docs/api/scrobbler-protocols.md).
 
 ---
 

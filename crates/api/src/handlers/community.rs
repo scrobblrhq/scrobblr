@@ -60,7 +60,7 @@ pub async fn list_artist_images(
 pub fn _list_artist_images_doc(op: TransformOperation) -> TransformOperation {
     op.summary("List artist image candidates")
         .description("Returns the community image candidates for an artist, most-liked first. `has_voted` reflects the authenticated viewer; `is_default` marks the currently displayed image. A signed-in viewer doesn't get those uploaded by accounts blocking it or blocked by it.")
-        .tag("Catalog")
+        .tag("Images")
         .response::<200, Json<Vec<ImageCandidate>>>()
         .response_with::<404, ErrorJson, _>(|r| r.description("Artist not found"))
 }
@@ -76,7 +76,7 @@ pub async fn list_album_images(
 pub fn _list_album_images_doc(op: TransformOperation) -> TransformOperation {
     op.summary("List album cover candidates")
         .description("Returns the community cover candidates for an album, most-liked first, as for an artist.")
-        .tag("Catalog")
+        .tag("Images")
         .response::<200, Json<Vec<ImageCandidate>>>()
         .response_with::<404, ErrorJson, _>(|r| r.description("Album not found"))
 }
@@ -101,7 +101,7 @@ pub async fn vote_image(
 pub fn _vote_image_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Like an image candidate")
         .description("Records the authenticated user's like for a candidate (idempotent). If it becomes the most-liked candidate past the threshold, it is promoted to the entity's displayed image. Returns the refreshed candidate list.")
-        .tag("Catalog")
+        .tag("Images")
         .response::<200, Json<Vec<ImageCandidate>>>()
         .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
         .response_with::<404, ErrorJson, _>(|r| r.description("Candidate not found"))
@@ -127,7 +127,7 @@ pub async fn unvote_image(
 pub fn _unvote_image_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Remove a like from an image candidate")
         .description("Withdraws the authenticated user's like (idempotent). The currently displayed image is never reverted by this. Returns the refreshed candidate list.")
-        .tag("Catalog")
+        .tag("Images")
         .response::<200, Json<Vec<ImageCandidate>>>()
         .response_with::<401, ErrorJson, _>(|r| r.description("Not authenticated"))
         .response_with::<404, ErrorJson, _>(|r| r.description("Candidate not found"))

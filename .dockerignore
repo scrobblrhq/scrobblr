@@ -27,6 +27,7 @@ backup
 .env
 .env.*
 
-# Docs / misc
+# Docs / misc, but the client guides the API builds into its spec
 scripts
 *.md
+!docs/api/*.md

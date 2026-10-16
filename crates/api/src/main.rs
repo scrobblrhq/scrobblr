@@ -1,6 +1,7 @@
 mod compat;
 mod errors;
 mod export;
+mod guides;
 mod handlers;
 mod limits;
 mod live;

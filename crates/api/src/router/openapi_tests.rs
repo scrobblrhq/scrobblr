@@ -173,3 +173,105 @@ async fn refusals_before_a_handler_have_the_documented_error_body() {
         );
     }
 }
+
+/// Every operation's tag has a guide, and every guide's tag an operation.
+#[tokio::test]
+async fn tags_and_guides_match() {
+    let spec = spec().await;
+    let mut used: Vec<&str> = spec["paths"]
+        .as_object()
+        .unwrap()
+        .values()
+        .flat_map(|item| item.as_object().unwrap().values())
+        .flat_map(|op| op["tags"].as_array().into_iter().flatten())
+        .filter_map(Value::as_str)
+        .collect();
+    used.sort();
+    used.dedup();
+    let mut described: Vec<&str> = crate::guides::tags().collect();
+    described.sort();
+    assert_eq!(used, described);
+    assert!(
+        spec["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|t| t["description"].as_str().is_some_and(|d| !d.is_empty()))
+    );
+}
+
+/// A route a guide names (`GET /v1/…`) is one the spec has: guides don't
+/// outlive the routes they describe. `{a,b}` in a guide stands for either.
+#[tokio::test]
+async fn the_guides_name_only_routes_the_spec_has() {
+    let spec = spec().await;
+    let routes: Vec<(String, Vec<String>)> = spec["paths"]
+        .as_object()
+        .unwrap()
+        .iter()
+        .flat_map(|(path, item)| {
+            item.as_object()
+                .unwrap()
+                .keys()
+                .map(|method| (method.to_uppercase(), segments(path)))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    let mut missing = Vec::new();
+    for (file, text) in crate::guides::texts() {
+        let words: Vec<&str> = text
+            .split(|c: char| c.is_whitespace() || c == '`' || c == '|')
+            .filter(|w| !w.is_empty())
+            .collect();
+        for pair in words.windows(2) {
+            let [method, path] = pair else { continue };
+            if !["GET", "POST", "PUT", "PATCH", "DELETE"].contains(method) || !path.starts_with('/')
+            {
+                continue;
+            }
+            let path = path.split('?').next().unwrap();
+            let path = path.trim_end_matches(|c: char| ",.:;)".contains(c));
+            for path in alternatives(path) {
+                let wanted = segments(&path);
+                let found = routes.iter().any(|(m, route)| {
+                    m == method
+                        && route.len() == wanted.len()
+                        && route
+                            .iter()
+                            .zip(&wanted)
+                            .all(|(r, w)| r.starts_with('{') || r == w)
+                });
+                if !found {
+                    missing.push(format!("{file}: {method} {path}"));
+                }
+            }
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "routes no longer in the spec: {missing:#?}"
+    );
+
+    fn segments(path: &str) -> Vec<String> {
+        path.split('/').map(str::to_string).collect()
+    }
+
+    /// `/v1/{artist,album}/{id}` → `/v1/artist/{id}`, `/v1/album/{id}`.
+    fn alternatives(path: &str) -> Vec<String> {
+        let Some(open) = path.find('{') else {
+            return vec![path.to_string()];
+        };
+        let close = open + path[open..].find('}').unwrap();
+        let rest = alternatives(&path[close + 1..]);
+        let inner = &path[open + 1..close];
+        let options: Vec<String> = if inner.contains(',') {
+            inner.split(',').map(str::to_string).collect()
+        } else {
+            vec![format!("{{{inner}}}")]
+        };
+        options
+            .iter()
+            .flat_map(|o| rest.iter().map(move |r| format!("{}{o}{r}", &path[..open])))
+            .collect()
+    }
+}

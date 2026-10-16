@@ -86,7 +86,7 @@ pub async fn block(
 pub fn _block_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Block a user")
         .description(&format!("Blocks the account: the follows between the two end, and neither can follow the other while the block stands. The user disappears for the blocked account, which finds no such account wherever it looks while signed in (404 on the user's profile and everything under it, absent from lists of people, search, comments, image candidates, feeds and community charts) and is never told; a profile is public to anyone signed out, so a block hides it from the account, not from the person. The blocked account in turn leaves the user's lists of people, search, comments and image candidates; its profile stays visible to the user, with `blocking: true`. Blocking an account already blocked changes nothing. An account may block {MAX_BLOCKS} accounts at most, and block, unblock or remove followers {} times an hour ({} from one address), refused attempts included, and block the same account {} times a day.", limits::BLOCK_ACTIONS_PER_USER, limits::BLOCK_ACTIONS_PER_IP, limits::BLOCKS_PER_PAIR))
-        .tag("Users")
+        .tag("Social")
         .response_with::<204, (), _>(|r| r.description("Blocked, now or before"))
         .response_with::<400, ErrorJson, _>(|r| r.description("Cannot block yourself"))
         .response_with::<404, ErrorJson, _>(|r| {
@@ -136,7 +136,7 @@ pub async fn unblock(
 pub fn _unblock_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Unblock a user")
         .description("Lifts the user's block of the account; the follows it ended don't come back. Unblocking an account not blocked changes nothing. Counts against the same hourly limits as blocking.")
-        .tag("Users")
+        .tag("Social")
         .response_with::<204, (), _>(|r| r.description("Not blocked any more"))
         .response_with::<404, ErrorJson, _>(|r| {
             r.description("User not found, or not blocked and waiting to be deleted or blocking the user")
@@ -186,7 +186,7 @@ pub async fn list_blocks(
 pub fn _list_blocks_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Accounts I block")
         .description("A page of the accounts the user blocks, newest block first: pass `next` as `before` for the following page; `next` is `null` on the last. A private account shows its username only (`display_name` and `image_url` are `null`); accounts waiting to be deleted are left out, so a page can hold fewer entries than `limit` while more follow. Nobody else can see this list, and nobody can see who blocks them.")
-        .tag("Users")
+        .tag("Social")
         .response::<200, Json<BlockPage>>()
         .response_with::<400, ErrorJson, _>(|r| r.description("Invalid `before` cursor"))
 }
@@ -212,7 +212,7 @@ pub async fn remove_follower(
 pub fn _remove_follower_doc(op: TransformOperation) -> TransformOperation {
     op.summary("Remove a follower")
         .description(&format!("Ends the account's follow of the user, without blocking it: its profile and the user's stay visible to each other, and it can't follow the user again for {} days (it is told so if it tries). Removing an account that doesn't follow the user changes nothing. Counts against the same hourly limits as blocking.", REMOVAL_COOLDOWN.num_days()))
-        .tag("Users")
+        .tag("Social")
         .response_with::<204, (), _>(|r| r.description("Not a follower any more"))
         .response_with::<400, ErrorJson, _>(|r| r.description("Cannot remove yourself"))
         .response_with::<404, ErrorJson, _>(|r| {
