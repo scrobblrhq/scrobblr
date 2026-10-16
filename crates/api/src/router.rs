@@ -728,6 +728,7 @@ pub fn build(state: AppState) -> Router {
                 .with_title("Scrobblr API")
                 .axum_route(),
         )
+        .route("/api.json", axum::routing::get(serve_api))
         .route("/health", axum::routing::get(monitoring::health))
         .route(
             "/health/worker",
@@ -758,7 +759,6 @@ pub fn build(state: AppState) -> Router {
         .layer(CompressionLayer::new().compress_when(
             DefaultPredicate::new().and(NotForContentType::const_new("application/zip")),
         ))
-        .route("/api.json", axum::routing::get(serve_api))
         .finish_api_with(&mut api, api_docs);
     document_rate_limit(&mut api);
     compat::docs::document(&mut api);

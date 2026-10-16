@@ -29,7 +29,11 @@ pub(super) fn offline_state() -> AppState {
         app_keys: None,
         proxies: Default::default(),
         origin_key: None,
-        rate_limit: Default::default(),
+        // Its INCR would wait for a Redis that never comes.
+        rate_limit: crate::middleware::rate_limit::RateLimit {
+            requests: 0,
+            window_secs: 60,
+        },
         cors: Default::default(),
         clients: Default::default(),
         compat: Default::default(),
@@ -118,9 +122,7 @@ async fn every_operation_is_documented() {
 /// What axum refuses before a handler runs answers as `ErrorJson` too.
 #[tokio::test]
 async fn refusals_before_a_handler_have_the_documented_error_body() {
-    let mut state = offline_state();
-    state.rate_limit.requests = 0;
-    let app = super::build(state);
+    let app = super::build(offline_state());
     let requests = [
         (
             "POST",

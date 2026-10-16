@@ -13,8 +13,6 @@ const TOKEN: &str = "0123456789abcdef-metrics";
 /// A router whose database and Redis never answer.
 fn offline_app(metrics_token: Option<&str>) -> Router {
     let mut state = super::openapi_tests::offline_state();
-    // Its INCR would wait for a Redis that never comes.
-    state.rate_limit.requests = 0;
     state.monitoring = Arc::new(Monitoring::new(3.0, metrics_token.map(Into::into)));
     super::build(state)
 }
