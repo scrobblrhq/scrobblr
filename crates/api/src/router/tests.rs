@@ -624,6 +624,63 @@ async fn tokens_get_only_scopes_the_server_knows() {
     .await;
 }
 
+/// Routes that say more to a signed-in viewer take a session or a token
+/// that may read the account; any other token reads as signed out there.
+#[tokio::test]
+#[ignore = "needs Postgres and Redis: just test-db"]
+async fn a_read_token_is_a_viewer_on_optional_routes() {
+    with_app(CompatConfig::default(), |app| async move {
+        let (status, _) = app
+            .api(
+                Method::POST,
+                "/v1/scrobble",
+                Some(json!({
+                    "track": "Teardrop",
+                    "artist": "Massive Attack",
+                    "played_at": Utc::now() - TimeDelta::minutes(6),
+                })),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let track_id: i64 = sqlx::query_scalar("SELECT id FROM tracks WHERE title = 'Teardrop'")
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+        let love = format!("/v1/track/{track_id}/love");
+        assert_eq!(
+            app.api(Method::POST, &love, None).await.0,
+            StatusCode::NO_CONTENT
+        );
+        let (status, _) = app
+            .api(
+                Method::PATCH,
+                "/v1/user/me",
+                Some(json!({ "is_private": true })),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let reader = token(&app, &["read"]).await;
+        let scrobbler = token(&app, &["scrobble", "write"]).await;
+        let track = format!("/v1/track/{track_id}");
+        let profile = format!("/v1/user/{}", app.username);
+        let (status, body) = app.api_as(&reader, Method::GET, &track, None).await;
+        assert_eq!((status, &body["loved"]), (StatusCode::OK, &json!(true)));
+        let (status, _) = app.api_as(&reader, Method::GET, &profile, None).await;
+        assert_eq!(status, StatusCode::OK, "its own private profile");
+
+        let (status, body) = app.api_as(&scrobbler, Method::GET, &track, None).await;
+        assert_eq!((status, &body["loved"]), (StatusCode::OK, &json!(null)));
+        let (status, _) = app.api_as(&scrobbler, Method::GET, &profile, None).await;
+        assert_eq!(
+            status,
+            StatusCode::FORBIDDEN,
+            "signed out to a private profile"
+        );
+    })
+    .await;
+}
+
 /// The web app calls the native API from its server, so by default no page
 /// gets CORS headers from it; the protocol routes and uploads answer any.
 #[tokio::test]

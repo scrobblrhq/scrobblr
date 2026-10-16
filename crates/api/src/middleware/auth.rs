@@ -126,29 +126,9 @@ pub async fn require_auth(
             credential: Credential::Session { id: session_id },
         }
     } else {
-        let hash = auth_db::hash_api_token(&token);
-        let api_token = auth_db::find_api_token_by_hash(&state.db, &hash)
+        api_token_user(&state, &token)
             .await?
-            .ok_or(AppError::Unauthorized)?;
-
-        let pool = state.db.clone();
-        let token_id = api_token.id;
-        tokio::spawn(async move {
-            let _ = auth_db::touch_api_token(&pool, token_id).await;
-        });
-
-        AuthUser {
-            id: api_token.user_id,
-            credential: Credential::ApiToken {
-                id: api_token.id,
-                // Names stored before creation checked them grant nothing.
-                scopes: api_token
-                    .scopes
-                    .iter()
-                    .filter_map(|name| Scope::parse(name))
-                    .collect(),
-            },
-        }
+            .ok_or(AppError::Unauthorized)?
     };
 
     auth_user.credential.check(access)?;
@@ -156,34 +136,68 @@ pub async fn require_auth(
     Ok(next.run(req).await)
 }
 
-/// Attempts to resolve a session token to an [`AuthUser`], returning `None`
-/// on any failure (invalid UUID, no matching session, or a transient
-/// DB/Redis error).
-async fn try_authenticate_session(state: &AppState, token: &str) -> Option<AuthUser> {
-    let session_id = Uuid::parse_str(token).ok()?;
-    let user_id = resolve_session_cached(state, session_id).await.ok()?;
+/// The user of an API token, with those of its scopes this server knows;
+/// `None` for no such token.
+async fn api_token_user(state: &AppState, token: &str) -> Result<Option<AuthUser>, AppError> {
+    let hash = auth_db::hash_api_token(token);
+    let Some(api_token) = auth_db::find_api_token_by_hash(&state.db, &hash).await? else {
+        return Ok(None);
+    };
 
-    Some(AuthUser {
-        id: user_id,
-        credential: Credential::Session { id: session_id },
-    })
+    let pool = state.db.clone();
+    let token_id = api_token.id;
+    tokio::spawn(async move {
+        let _ = auth_db::touch_api_token(&pool, token_id).await;
+    });
+
+    Ok(Some(AuthUser {
+        id: api_token.user_id,
+        credential: Credential::ApiToken {
+            id: api_token.id,
+            // Names stored before creation checked them grant nothing.
+            scopes: api_token
+                .scopes
+                .iter()
+                .filter_map(|name| Scope::parse(name))
+                .collect(),
+        },
+    }))
 }
 
-/// Middleware that *optionally* authenticates a request via session token.
+/// Resolves a session, or an API token with the `read` scope (what these
+/// routes show a signed-in viewer is the account's own data), to an
+/// [`AuthUser`]; `None` on any failure (no such credential, another
+/// token, or a transient DB/Redis error).
+async fn try_authenticate_viewer(state: &AppState, token: &str) -> Option<AuthUser> {
+    if let Ok(session_id) = Uuid::parse_str(token) {
+        let user_id = resolve_session_cached(state, session_id).await.ok()?;
+        return Some(AuthUser {
+            id: user_id,
+            credential: Credential::Session { id: session_id },
+        });
+    }
+    api_token_user(state, token)
+        .await
+        .ok()
+        .flatten()
+        .filter(|user| user.credential.check(Access::Scope(Scope::Read)).is_ok())
+}
+
+/// Middleware that *optionally* authenticates a request: a session, or an
+/// API token with the `read` scope.
 ///
 /// Unlike [`require_auth`], a missing, malformed, or invalid token is not an
 /// error — the request simply proceeds with no [`AuthUser`] in its
-/// extensions. This also means a transient failure (DB or Redis hiccup) is
-/// indistinguishable from "not logged in"; only use this where that's okay.
-///
-/// Only session tokens are accepted here, not API tokens.
+/// extensions, as does a token without `read`. This also means a transient
+/// failure (DB or Redis hiccup) is indistinguishable from "not logged in";
+/// only use this where that's okay.
 pub async fn optional_auth(
     State(state): State<AppState>,
     mut req: Request,
     next: Next,
 ) -> Response {
     if let Ok(token) = extract_bearer_token(&req)
-        && let Some(user) = try_authenticate_session(&state, &token).await
+        && let Some(user) = try_authenticate_viewer(&state, &token).await
     {
         req.extensions_mut().insert(user);
     }
