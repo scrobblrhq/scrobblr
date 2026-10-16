@@ -567,9 +567,13 @@ mod tests {
             .execute(&app.pool)
             .await
             .unwrap();
-        tags_db::recount_due(&app.pool, Weighing::at(Utc::now()), 100)
-            .await
-            .unwrap();
+        tags_db::recount_due(
+            &app.pool,
+            Weighing::at(Utc::now(), shared::ranking::DEFAULT_MIN_ACCOUNT_DAYS),
+            100,
+        )
+        .await
+        .unwrap();
     }
 
     /// Tags arrive normalized, duplicates once; invalid, blocked or too

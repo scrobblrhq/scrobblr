@@ -111,7 +111,7 @@ impl Default for RankingParams {
             no_listened: 250,
             no_data: 500,
             imported: 0,
-            min_account_days: 7,
+            min_account_days: DEFAULT_MIN_ACCOUNT_DAYS,
             track_daily_cap: 4,
             artist_daily_cap: 30,
             known_clients: DEFAULT_KNOWN_CLIENTS
@@ -341,7 +341,25 @@ impl Period {
 /// people's listening.
 pub const DEFAULT_MIN_LISTENERS: u32 = 5;
 
+/// How old an account must be before its plays weigh
+/// (`RANKING_MIN_ACCOUNT_DAYS`); bio edits and tag weights wait as long.
+pub const DEFAULT_MIN_ACCOUNT_DAYS: i64 = 7;
+
 /// `RANKING_MIN_LISTENERS`; `None` (unset or blank) is the default.
+/// `RANKING_MIN_ACCOUNT_DAYS`, as the API reads it (bio editing): the
+/// worker validates it with the rest of [`RankingSettings`].
+pub fn parse_min_account_days(value: Option<&str>) -> Result<i64, String> {
+    let Some(v) = value.filter(|v| !v.trim().is_empty()) else {
+        return Ok(DEFAULT_MIN_ACCOUNT_DAYS);
+    };
+    match v.trim().parse::<i64>() {
+        Ok(n) if (0..=365).contains(&n) => Ok(n),
+        _ => Err(format!(
+            "RANKING_MIN_ACCOUNT_DAYS={v}: expected a whole number from 0 to 365"
+        )),
+    }
+}
+
 pub fn parse_min_listeners(value: Option<&str>) -> Result<u32, String> {
     let Some(v) = value.filter(|v| !v.trim().is_empty()) else {
         return Ok(DEFAULT_MIN_LISTENERS);

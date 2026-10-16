@@ -343,7 +343,7 @@ async fn editors_are_read_from_the_account() {
         let alice = user(&pool, "alice").await;
         let now = chrono::Utc::now();
         let editor = bios_db::editor(&pool, alice).await.unwrap().unwrap();
-        assert_eq!(editor.refusal(now), None);
+        assert_eq!(editor.refusal(now, shared::ranking::DEFAULT_MIN_ACCOUNT_DAYS), None);
 
         sqlx::query(
             "INSERT INTO coordination_days (user_id, day, factor, run_id) VALUES
@@ -355,14 +355,14 @@ async fn editors_are_read_from_the_account() {
         .unwrap();
         let editor = bios_db::editor(&pool, alice).await.unwrap().unwrap();
         assert_eq!(editor.lowest_factor, Some(700), "outside the window doesn't count");
-        assert_eq!(editor.refusal(now), None);
+        assert_eq!(editor.refusal(now, shared::ranking::DEFAULT_MIN_ACCOUNT_DAYS), None);
         sqlx::query("UPDATE coordination_days SET factor = 300 WHERE user_id = $1 AND day > CURRENT_DATE - 10")
             .bind(alice)
             .execute(&pool)
             .await
             .unwrap();
         let editor = bios_db::editor(&pool, alice).await.unwrap().unwrap();
-        assert_eq!(editor.refusal(now), Some(community::Refusal::NotNow));
+        assert_eq!(editor.refusal(now, shared::ranking::DEFAULT_MIN_ACCOUNT_DAYS), Some(community::Refusal::NotNow));
 
         let bob = user(&pool, "bob").await;
         sqlx::query("INSERT INTO editing_suspensions (user_id, until) VALUES ($1, NOW() - INTERVAL '1 hour')")

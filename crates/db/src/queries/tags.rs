@@ -503,9 +503,10 @@ pub struct Weighing {
 }
 
 impl Weighing {
-    pub fn at(now: DateTime<Utc>) -> Self {
+    /// `min_account_days`: `RANKING_MIN_ACCOUNT_DAYS`, as for the weights.
+    pub fn at(now: DateTime<Utc>, min_account_days: i64) -> Self {
         Self {
-            created_before: now - chrono::TimeDelta::days(community::MIN_ACCOUNT_DAYS),
+            created_before: now - chrono::TimeDelta::days(min_account_days),
             factor_since: (now - chrono::TimeDelta::days(community::FACTOR_WINDOW_DAYS))
                 .date_naive(),
         }

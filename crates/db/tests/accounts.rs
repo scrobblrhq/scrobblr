@@ -518,7 +518,7 @@ async fn an_erase_leaves_no_row_about_the_user_and_corrects_shared_numbers() {
         // Both accounts tagged the artist, counted while neither had a
         // weight yet (the tag counts' own test checks the weights).
         tags_db::enqueue_all(&pool).await.unwrap();
-        tags_db::recount_due(&pool, Weighing::at(Utc::now()), 100).await.unwrap();
+        tags_db::recount_due(&pool, Weighing::at(Utc::now(), shared::ranking::DEFAULT_MIN_ACCOUNT_DAYS), 100).await.unwrap();
         let taggers: i32 = sqlx::query_scalar("SELECT taggers FROM tag_counts")
             .fetch_one(&pool)
             .await
@@ -646,7 +646,7 @@ async fn an_erase_leaves_no_row_about_the_user_and_corrects_shared_numbers() {
         assert_eq!(after_erase_queue, gone_voted);
 
         // The tag is counted again without it.
-        tags_db::recount_due(&pool, Weighing::at(Utc::now()), 100).await.unwrap();
+        tags_db::recount_due(&pool, Weighing::at(Utc::now(), shared::ranking::DEFAULT_MIN_ACCOUNT_DAYS), 100).await.unwrap();
         let taggers: i32 = sqlx::query_scalar("SELECT taggers FROM tag_counts")
             .fetch_one(&pool)
             .await

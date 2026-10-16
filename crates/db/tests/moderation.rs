@@ -66,9 +66,13 @@ async fn recount(pool: &PgPool) {
         .execute(pool)
         .await
         .unwrap();
-    while tags_db::recount_due(pool, Weighing::at(Utc::now()), 100)
-        .await
-        .unwrap()
+    while tags_db::recount_due(
+        pool,
+        Weighing::at(Utc::now(), shared::ranking::DEFAULT_MIN_ACCOUNT_DAYS),
+        100,
+    )
+    .await
+    .unwrap()
         > 0
     {}
 }
@@ -209,7 +213,10 @@ async fn one_command_undoes_a_farm_and_a_vandal() {
         );
         for account in &accounts {
             let editor = bios_db::editor(&pool, *account).await.unwrap().unwrap();
-            assert_eq!(editor.refusal(Utc::now()), Some(Refusal::NotNow));
+            assert_eq!(
+                editor.refusal(Utc::now(), shared::ranking::DEFAULT_MIN_ACCOUNT_DAYS),
+                Some(Refusal::NotNow)
+            );
         }
 
         // Lifting the suspension gives their tags their weight back.

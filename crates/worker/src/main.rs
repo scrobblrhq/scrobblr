@@ -282,7 +282,10 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // Recounts tags whose taggers changed, and all of them now and then.
-    let counter = Arc::new(tags::Counter::new(db.clone()));
+    let counter = Arc::new(tags::Counter::new(
+        db.clone(),
+        rankings::params_from_env()?.min_account_days,
+    ));
     let tags_handle = supervise(&db, "tag counts", move |beat| counter.clone().run(beat));
 
     let eraser = Arc::new(accounts::Eraser::from_env(db.clone()));

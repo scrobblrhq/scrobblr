@@ -8,9 +8,6 @@ use unicode_normalization::char::is_combining_mark;
 
 use crate::validation::is_unsafe_text_char;
 
-/// How old an account must be to edit a bio, and before its tags weigh in
-/// the tag aggregates: the rankings' default.
-pub const MIN_ACCOUNT_DAYS: i64 = 7;
 /// The coordination factors that count: the detection's default window.
 pub const FACTOR_WINDOW_DAYS: i64 = 28;
 /// The lowest coordination factor over [`FACTOR_WINDOW_DAYS`], in
@@ -67,14 +64,15 @@ pub struct Editor {
 }
 
 impl Editor {
-    pub fn refusal(&self, now: DateTime<Utc>) -> Option<Refusal> {
+    /// `min_account_days`: `RANKING_MIN_ACCOUNT_DAYS`, as for the weights.
+    pub fn refusal(&self, now: DateTime<Utc>, min_account_days: i64) -> Option<Refusal> {
         if self.leaving
             || self.suspended
             || self.lowest_factor.is_some_and(|f| f < MIN_EDITOR_FACTOR)
         {
             return Some(Refusal::NotNow);
         }
-        let from = self.created_at + TimeDelta::days(MIN_ACCOUNT_DAYS);
+        let from = self.created_at + TimeDelta::days(min_account_days);
         (now < from).then_some(Refusal::TooNew(from))
     }
 }
@@ -241,23 +239,25 @@ pub fn is_blocked(tag: &str, terms: &[String]) -> bool {
 mod tests {
     use super::*;
 
+    const DAYS: i64 = crate::ranking::DEFAULT_MIN_ACCOUNT_DAYS;
+
     #[test]
     fn editors_are_old_enough_unflagged_and_not_suspended() {
         let now = Utc::now();
         let editor = Editor {
-            created_at: now - TimeDelta::days(MIN_ACCOUNT_DAYS),
+            created_at: now - TimeDelta::days(DAYS),
             leaving: false,
             suspended: false,
             lowest_factor: None,
         };
-        assert_eq!(editor.refusal(now), None);
+        assert_eq!(editor.refusal(now, DAYS), None);
         let young = Editor {
             created_at: now - TimeDelta::days(2),
             ..editor
         };
         assert_eq!(
-            young.refusal(now),
-            Some(Refusal::TooNew(now + TimeDelta::days(MIN_ACCOUNT_DAYS - 2)))
+            young.refusal(now, DAYS),
+            Some(Refusal::TooNew(now + TimeDelta::days(DAYS - 2)))
         );
         for refused in [
             Editor {
@@ -273,13 +273,13 @@ mod tests {
                 ..editor
             },
         ] {
-            assert_eq!(refused.refusal(now), Some(Refusal::NotNow));
+            assert_eq!(refused.refusal(now, DAYS), Some(Refusal::NotNow));
         }
         let dented = Editor {
             lowest_factor: Some(MIN_EDITOR_FACTOR),
             ..editor
         };
-        assert_eq!(dented.refusal(now), None);
+        assert_eq!(dented.refusal(now, DAYS), None);
     }
 
     #[test]

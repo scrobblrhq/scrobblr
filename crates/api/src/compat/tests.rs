@@ -2214,7 +2214,7 @@ async fn pylast_reads_top_tags_and_the_bio() {
             .execute(&app.pool)
             .await
             .unwrap();
-        db::queries::tags::recount_due(&app.pool, db::queries::tags::Weighing::at(Utc::now()), 100)
+        db::queries::tags::recount_due(&app.pool, db::queries::tags::Weighing::at(Utc::now(), shared::ranking::DEFAULT_MIN_ACCOUNT_DAYS), 100)
             .await
             .unwrap();
 

@@ -34,22 +34,30 @@ const CACHE_CONTROL_MISSING: &str = "public, max-age=60";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RankingConfig {
     pub min_listeners: u32,
+    /// How old an account must be to edit bios (`RANKING_MIN_ACCOUNT_DAYS`).
+    pub min_account_days: i64,
 }
 
 impl Default for RankingConfig {
     fn default() -> Self {
         Self {
             min_listeners: ranking::DEFAULT_MIN_LISTENERS,
+            min_account_days: ranking::DEFAULT_MIN_ACCOUNT_DAYS,
         }
     }
 }
 
 impl RankingConfig {
     pub fn from_env() -> anyhow::Result<Self> {
-        let var = std::env::var("RANKING_MIN_LISTENERS").ok();
-        let min_listeners =
-            ranking::parse_min_listeners(var.as_deref()).map_err(anyhow::Error::msg)?;
-        Ok(Self { min_listeners })
+        let var = |name| std::env::var(name).ok();
+        Ok(Self {
+            min_listeners: ranking::parse_min_listeners(var("RANKING_MIN_LISTENERS").as_deref())
+                .map_err(anyhow::Error::msg)?,
+            min_account_days: ranking::parse_min_account_days(
+                var("RANKING_MIN_ACCOUNT_DAYS").as_deref(),
+            )
+            .map_err(anyhow::Error::msg)?,
+        })
     }
 }
 

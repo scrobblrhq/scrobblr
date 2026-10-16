@@ -26,11 +26,15 @@ pub const USAGE: &str =
 
 pub struct Counter {
     db: PgPool,
+    min_account_days: i64,
 }
 
 impl Counter {
-    pub fn new(db: PgPool) -> Self {
-        Self { db }
+    pub fn new(db: PgPool, min_account_days: i64) -> Self {
+        Self {
+            db,
+            min_account_days,
+        }
     }
 
     pub async fn run(self: Arc<Self>, beat: Beat) {
@@ -61,15 +65,16 @@ impl Counter {
             tags_db::enqueue_all(&self.db).await?;
             tags_db::purge_unused(&self.db).await?;
         }
-        drain(&self.db).await
+        drain(&self.db, self.min_account_days).await
     }
 }
 
 /// Recounts every due entity: how many.
-pub async fn drain(db: &PgPool) -> Result<usize, sqlx::Error> {
+pub async fn drain(db: &PgPool, min_account_days: i64) -> Result<usize, sqlx::Error> {
     let mut done = 0;
     loop {
-        let n = tags_db::recount_due(db, Weighing::at(Utc::now()), BATCH).await?;
+        let weighing = Weighing::at(Utc::now(), min_account_days);
+        let n = tags_db::recount_due(db, weighing, BATCH).await?;
         done += n;
         if n < BATCH as usize {
             return Ok(done);
@@ -82,7 +87,7 @@ pub async fn run(db: &PgPool, args: &[String]) -> anyhow::Result<()> {
         Some("refresh") => {
             let started = Instant::now();
             tags_db::enqueue_all(db).await?;
-            let n = drain(db).await?;
+            let n = drain(db, crate::rankings::params_from_env()?.min_account_days).await?;
             println!(
                 "recounted {n} entities in {:.1} s",
                 started.elapsed().as_secs_f64()

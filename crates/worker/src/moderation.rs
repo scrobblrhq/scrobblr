@@ -113,7 +113,7 @@ fn moderated(result: Moderated, done: &str) -> anyhow::Result<()> {
 }
 
 async fn recount(db: &PgPool) -> anyhow::Result<()> {
-    let n = crate::tags::drain(db).await?;
+    let n = crate::tags::drain(db, crate::rankings::params_from_env()?.min_account_days).await?;
     println!("recounted the tags of {n} entities");
     Ok(())
 }

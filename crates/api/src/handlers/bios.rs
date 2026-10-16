@@ -216,11 +216,11 @@ async fn may_write(state: &AppState, user_id: i64, ip: &str) -> ApiResult<()> {
     let editor = bios_db::editor(&state.db, user_id)
         .await?
         .ok_or(AppError::Unauthorized)?;
-    match editor.refusal(Utc::now()) {
+    let min_days = state.rankings.min_account_days;
+    match editor.refusal(Utc::now(), min_days) {
         None => Ok(()),
         Some(Refusal::TooNew(from)) => Err(AppError::NotAllowed(format!(
-            "accounts may edit bios from {} days after registering: yours from {}",
-            community::MIN_ACCOUNT_DAYS,
+            "accounts may edit bios from {min_days} days after registering: yours from {}",
             from.format("%Y-%m-%d %H:%M UTC")
         ))),
         Some(Refusal::NotNow) => Err(AppError::NotAllowed(
