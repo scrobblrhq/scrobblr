@@ -54,7 +54,7 @@ pub async fn get_json<T: DeserializeOwned>(
         .query(query)
         .send()
         .await
-        .map_err(|e| classify_reqwest_error(provider, &e))?;
+        .map_err(|e| classify_reqwest_error(provider, e))?;
 
     let status = response.status();
 
@@ -86,18 +86,22 @@ pub async fn get_json<T: DeserializeOwned>(
     match response.json::<T>().await {
         Ok(parsed) => Ok(Some(parsed)),
         Err(e) => Err(ProviderError::Fatal(format!(
-            "{provider}: bad response body: {e}"
+            "{provider}: bad response body: {}",
+            e.without_url()
         ))),
     }
 }
 
-fn classify_reqwest_error(provider: &str, e: &reqwest::Error) -> ProviderError {
+/// Without the request's URL, which may hold an API key.
+pub(super) fn classify_reqwest_error(provider: &str, e: reqwest::Error) -> ProviderError {
     // Connectivity and timeout problems are worth retrying; anything else
     // (builder misuse, redirect loops) won't fix itself.
-    if e.is_timeout() || e.is_connect() || e.is_request() {
-        ProviderError::Transient(format!("{provider}: {e}"))
+    let transient = e.is_timeout() || e.is_connect() || e.is_request();
+    let message = format!("{provider}: {}", e.without_url());
+    if transient {
+        ProviderError::Transient(message)
     } else {
-        ProviderError::Fatal(format!("{provider}: {e}"))
+        ProviderError::Fatal(message)
     }
 }
 

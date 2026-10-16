@@ -49,6 +49,12 @@ pub enum LastfmError {
 }
 
 impl LastfmError {
+    /// Without the request's URL, which holds the API key and the user's
+    /// session key.
+    fn http(e: reqwest::Error) -> Self {
+        LastfmError::Http(e.without_url().to_string())
+    }
+
     pub fn code(&self) -> Option<i32> {
         match self {
             LastfmError::Api { code, .. } => Some(*code),
@@ -394,12 +400,9 @@ impl LastfmClient {
             .query(params)
             .send()
             .await
-            .map_err(|e| LastfmError::Http(e.to_string()))?;
+            .map_err(LastfmError::http)?;
         let status = response.status();
-        let body = response
-            .text()
-            .await
-            .map_err(|e| LastfmError::Http(e.to_string()))?;
+        let body = response.text().await.map_err(LastfmError::http)?;
 
         // Errors carry a JSON body whatever the status code.
         if let Ok(error) = serde_json::from_str::<ErrorBody>(&body) {
@@ -645,6 +648,28 @@ pub fn parse_session(body: &str) -> Result<Session, LastfmError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_failed_request_names_neither_key() {
+        // Nothing listens on port 1: the request fails before any answer.
+        let client = LastfmClient::new(
+            reqwest::Client::new(),
+            "http://127.0.0.1:1/2.0/",
+            "API-KEY-1234",
+            Some("SECRET".into()),
+        );
+        let query = RecentTracksQuery {
+            user: "someone",
+            from: None,
+            to: None,
+            page: 1,
+            session_key: Some("SESSION-KEY-5678"),
+        };
+        let error = client.recent_tracks(&query).await.unwrap_err().to_string();
+        assert!(error.starts_with("last.fm request failed"), "{error}");
+        assert!(!error.contains("API-KEY-1234"), "{error}");
+        assert!(!error.contains("SESSION-KEY-5678"), "{error}");
+    }
 
     const PAGE: &str = r##"{"recenttracks":{"track":[
         {"artist":{"mbid":"","#text":"Sigur Rós"},"name":"Hoppípolla","mbid":"",

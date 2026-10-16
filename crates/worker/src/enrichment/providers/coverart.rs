@@ -43,13 +43,11 @@ pub async fn front_cover_url(
 
     limiter.acquire().await;
 
-    let response = client.head(&url).send().await.map_err(|e| {
-        if e.is_timeout() || e.is_connect() || e.is_request() {
-            ProviderError::Transient(format!("coverart: {e}"))
-        } else {
-            ProviderError::Fatal(format!("coverart: {e}"))
-        }
-    })?;
+    let response = client
+        .head(&url)
+        .send()
+        .await
+        .map_err(|e| super::classify_reqwest_error("coverart", e))?;
 
     let status = response.status();
     match status {
