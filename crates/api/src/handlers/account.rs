@@ -192,7 +192,11 @@ pub async fn delete_account(
         let cache_key = format!("session:{session_id}");
         if let Err(err) = state.redis.del::<i64, _>(&cache_key).await {
             // Until the entry expires, the session can still act.
-            tracing::error!(%session_id, ?err, "failed to invalidate a deleted account's session cache");
+            tracing::error!(
+                user_id = user.id,
+                ?err,
+                "failed to invalidate a deleted account's session cache"
+            );
         }
     }
     tracing::info!(

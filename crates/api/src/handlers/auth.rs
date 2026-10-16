@@ -268,7 +268,12 @@ pub async fn logout(
     for session_id in ended {
         let cache_key = format!("session:{session_id}");
         if let Err(err) = state.redis.del::<i64, _>(&cache_key).await {
-            tracing::warn!(%session_id, ?err, "failed to invalidate session cache on logout");
+            // Not the session id: it is the bearer token.
+            tracing::warn!(
+                user_id = auth_user.id,
+                ?err,
+                "failed to invalidate session cache on logout"
+            );
         }
     }
 

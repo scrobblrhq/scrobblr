@@ -155,7 +155,7 @@ async fn forget_sessions(sessions: &[uuid::Uuid]) {
         if let Err(e) =
             fred::interfaces::KeysInterface::del::<i64, _>(&redis, format!("session:{id}")).await
         {
-            eprintln!("warning: could not remove session {id} from the Redis cache: {e}");
+            eprintln!("warning: could not remove a session from the Redis cache: {e}");
         }
     }
 }
