@@ -7,8 +7,7 @@ use sqlx::PgPool;
 use db::queries::monitoring as mdb;
 use shared::monitoring::{self, LoopState};
 
-pub const USAGE: &str = "\
-       worker status               the worker's loops and queues; exits 1
+pub const USAGE: &str = "       worker status               the worker's loops and queues; exits 1
                                    when a loop is stalled or failing";
 
 /// Prints the report; `Ok(false)` when unhealthy.
