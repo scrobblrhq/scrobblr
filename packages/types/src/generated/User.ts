@@ -3,4 +3,4 @@
 /**
  * User
  */
-export type User = { id: number, username: string, email: string, password_hash: string, display_name: string | null, bio: string | null, image_url: string | null, website_url: string | null, country: string | null, scrobble_count: number, is_private: boolean, is_verified: boolean, last_seen_at: string | null, created_at: string, updated_at: string, };
+export type User = { id: number, username: string, email: string, display_name: string | null, bio: string | null, image_url: string | null, website_url: string | null, country: string | null, scrobble_count: number, is_private: boolean, is_verified: boolean, last_seen_at: string | null, created_at: string, updated_at: string, };

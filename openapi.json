@@ -186,10 +186,6 @@
             },
             "type": "array"
           },
-          "token_hash": {
-            "type": "string",
-            "writeOnly": true
-          },
           "user_id": {
             "format": "int64",
             "type": "integer"
@@ -199,7 +195,6 @@
           "id",
           "user_id",
           "name",
-          "token_hash",
           "scopes",
           "created_at"
         ],

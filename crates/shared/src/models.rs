@@ -12,6 +12,7 @@ pub struct User {
     pub username: String,
     pub email: String,
     #[serde(skip_serializing)]
+    #[ts(skip)]
     pub password_hash: String,
     pub display_name: Option<String>,
     pub bio: Option<String>,
@@ -324,6 +325,8 @@ pub struct ApiToken {
     pub user_id: i64,
     pub name: String,
     #[serde(skip_serializing)]
+    #[schemars(skip)]
+    #[ts(skip)]
     pub token_hash: String,
     pub scopes: Vec<String>,
     pub last_used_at: Option<DateTime<Utc>>,
