@@ -528,7 +528,12 @@ mod tests {
                     .id,
                 );
             }
-            let day = Utc::now() - TimeDelta::days(2);
+            // Noon, so the plays a few minutes apart stay on one day.
+            let day = (Utc::now() - TimeDelta::days(2))
+                .date_naive()
+                .and_hms_opt(12, 0, 0)
+                .unwrap()
+                .and_utc();
             // Each fan plays one side, so only the album has them all.
             let listen = async |n: i64| {
                 let user: i64 = sqlx::query_scalar(
