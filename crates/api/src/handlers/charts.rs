@@ -613,6 +613,7 @@ fn with_community_caching(mut response: Response, etag: &str) -> Response {
         header::CACHE_CONTROL,
         HeaderValue::from_static(COMMUNITY_CACHE_CONTROL),
     );
+    headers.append(header::VARY, HeaderValue::from_static("Authorization"));
     response
 }
 
@@ -1081,6 +1082,12 @@ mod tests {
             };
             let (_, headers, _) = app.send(request(None)).await;
             assert_eq!(headers[header::CACHE_CONTROL], "private, max-age=60");
+            assert!(
+                headers
+                    .get_all(header::VARY)
+                    .iter()
+                    .any(|v| v == "Authorization")
+            );
             let etag = headers[header::ETAG].to_str().unwrap().to_owned();
             let (status, _, _) = app.send(request(Some(&etag))).await;
             assert_eq!(status, StatusCode::NOT_MODIFIED);

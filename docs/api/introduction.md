@@ -164,7 +164,7 @@ Routes whose answers can be reused say so:
 | similar artists | `public, max-age=3600, stale-while-revalidate=3600` | `ETag` |
 | an entity's tags, a tag's entities | `public, max-age=300` | `ETag` |
 | a user's charts | `private, max-age=60`, `Vary: Authorization` | `ETag` |
-| community charts | `private, max-age=60` | `ETag` |
+| community charts | `private, max-age=60`, `Vary: Authorization` | `ETag` |
 | recommendations | `private, no-cache` | `ETag` |
 | the feed, the account export | `no-store` | |
 | uploaded images | `public, max-age=31536000, immutable` | |
